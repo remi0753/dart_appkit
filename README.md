@@ -1,0 +1,118 @@
+# Dart AppKit Embedder
+
+A small native macOS host that runs a Dart root isolate on AppKit's process main
+thread without Flutter. The native Runner owns `NSApplication` and its run loop;
+Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
+Dart message work is limited per run-loop turn.
+
+The MVP surface is deliberately small: one window, one text view, periodic
+`Timer` updates, close/resize/mouse/key events, explicit native ownership, and a
+restart-based developer command.
+
+## Current status
+
+The bridge, Dart API, Runner, bounded scheduler, launcher, `.app` bundle,
+revision-pinned Dart checkout bootstrap, and hello-window example are complete.
+The official arm64 Engine dylib has been built from the exact Dart 3.13.2 SDK
+revision, and the Engine-backed GUI smoke test passes through Timer activity,
+native close delivery, handle release, and process exit 0.
+
+The released SDK does not contain `libdart_engine_jit_shared.dylib`, so
+`make engine` creates the required official artifact. The project never
+substitutes standalone `dart run` as the GUI host, because that would not put
+the isolate on the macOS main thread.
+
+- [Roadmap and current position](ROADMAP.md)
+- [Chronological findings and decisions](docs/WORKLOG.md)
+- [Final verification matrix](docs/VERIFICATION.md)
+- [Engine build contract](docs/BUILDING_DART_ENGINE.md)
+
+## Prerequisites
+
+- macOS 14 or later on the host architecture
+- Xcode command-line build tools and the macOS SDK
+- Dart 3.13.2
+- Chromium `depot_tools` with `gclient` on `PATH`
+- At least 15 GiB of free space recommended for the checkout and build
+
+## Run the example
+
+Fetch, build, and validate the pinned Engine once:
+
+```shell
+make engine
+```
+
+Then launch an unattended three-second smoke test or an interactive window:
+
+```shell
+make example-smoke
+make run-example
+```
+
+No Engine exports are required for the default project-local checkout. The
+launcher validates the SDK/Engine pair, reuses an unchanged native build,
+compiles with the matching Engine Kernel toolchain, assembles
+`DartAppKitRunner.app`, launches its executable with inherited stdio, and
+returns the Runner's exit status. For ad-hoc shell work, the bootstrap also
+generates `.dart_tool/dart-engine/env.zsh`.
+
+The example should count once per second while the UI remains interactive. It
+logs input and resize events; closing the window must log that close reached
+Dart, release both handles, and request normal application termination.
+
+## Dart API shape
+
+```dart
+final app = await AppKitApplication.attach();
+final view = TextView()..text = 'Hello';
+final window = Window(
+  frame: const Rect.fromLTWH(120, 120, 640, 360),
+  title: 'Dart AppKit',
+)
+  ..contentView = view
+  ..show();
+
+await window.onClosed.first;
+window.dispose();
+view.dispose();
+await app.terminate();
+```
+
+Application entrypoints use `main(List<String> arguments)`. UI calls belong on
+the embedded root isolate; worker isolates must message it instead of calling
+AppKit directly.
+
+## Local checks
+
+```shell
+make test
+```
+
+This runs C/C++ ABI checks, AppKit bridge tests, Runner strict compilation,
+Runner CLI, pre-VM shell-link and message-pump tests, Dart
+analysis/API/launcher tests, the real FFI dylib smoke test, example analysis,
+and full-Kernel compilation. `make runner` is intentionally a separate
+Engine-dependent target. Run `make help` for the complete target list.
+
+## Layout
+
+```text
+native/runner/          NSApplication, Dart host, bounded message pump
+native/bridge/          Stable C ABI and AppKit object implementation
+packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
+examples/hello_window/  Timer, events, close, and shutdown proof
+scripts/                SDK/Engine validation and Engine build helper
+docs/                   Architecture, ABI, verification, and work log
+```
+
+Signing, sandboxing, AOT distribution, VM Service, hot reload, widgets, and a
+terminal renderer are intentionally outside this MVP.
+
+## License
+
+Dart AppKit Embedder's own source is available under the
+[MIT License](LICENSE). Dart SDK source and generated Engine artifacts are
+separately licensed and are intentionally excluded from Git. See
+[Third-party notices](THIRD_PARTY_NOTICES.md) before distributing a generated
+dylib or application bundle.

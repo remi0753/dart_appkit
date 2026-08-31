@@ -1,0 +1,12 @@
+#include <type_traits>
+
+#include "dart_appkit.h"
+
+static_assert(sizeof(DaHandle) == 8);
+static_assert(std::is_standard_layout_v<DaRect>);
+static_assert(std::is_standard_layout_v<DaError>);
+
+int da_header_compiles_as_cpp() {
+  const DaRect rect{0.0, 0.0, 640.0, 480.0};
+  return rect.height == 480.0 ? DA_STATUS_OK : DA_STATUS_INTERNAL_ERROR;
+}

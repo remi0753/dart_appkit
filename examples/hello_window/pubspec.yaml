@@ -1,0 +1,9 @@
+name: dart_appkit_hello_window
+publish_to: none
+
+environment:
+  sdk: '>=3.13.2 <3.14.0'
+
+dependencies:
+  dart_appkit:
+    path: ../../packages/dart_appkit

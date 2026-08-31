@@ -1,0 +1,10 @@
+name: dart_appkit
+description: A small Dart-to-AppKit embedder API for a native macOS Runner.
+version: 0.1.0-dev.1
+publish_to: none
+
+environment:
+  sdk: '>=3.13.2 <3.14.0'
+
+executables:
+  run:
