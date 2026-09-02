@@ -3,6 +3,76 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-03 — T8 started: same-group isolate lifecycle contract
+
+### Purpose and background
+
+Move the general same-process worker guarantee to the host library that owns
+Dart Engine initialization and shutdown. A downstream product had temporarily
+patched `runtime/engine/engine.cc` so ordinary `Isolate.spawn` children received
+core-library initialization and Engine shutdown called VM-wide cleanup. That
+product-specific patch application is rejected. A separately tested Engine
+correction is still valid when it expresses a general embedder contract and is
+managed honestly as an upstream candidate.
+
+The initial evidence is based on stock Dart SDK revision
+`60a57cd42d64dc03e9f07aa60a2e250755c1ef28`. A disposable SDK checkout contains
+candidate commit `28462f0fb37` (`Complete Dart Engine isolate lifecycle`), whose
+upstream sample regressions passed Release and Product ARM64, JIT and AOT,
+shared and static configurations. The candidate has not been reviewed, merged,
+or released by Dart maintainers.
+
+### Responsibility boundary
+
+- Dart Engine must install its isolate-initialization callback during
+  `Dart_Initialize`, initialize child core libraries consistently with roots,
+  keep snapshot URI ownership valid, stop all Engine-owned isolates, call the
+  paired VM/embedder cleanup, release loaded snapshots, and make repeated
+  shutdown safe.
+- `dart_appkit` must keep the UI root on the AppKit main thread, schedule every
+  Engine message through its bounded main-run-loop pump, surface message errors,
+  order bridge/pump shutdown before Engine shutdown, and prove ordinary Dart
+  isolate APIs work in a real hosted application.
+- Application code owns child `Isolate`/ports and uses standard Dart lifecycle
+  APIs. It must never call AppKit from a worker.
+
+Changing only the AppKit caller cannot safely fill the Engine gap. The
+`initialize_isolate` callback is fixed when `DartEngine_Init` initializes the
+VM, and the required core setup is private implementation already owned by
+`dart_engine`. Likewise, an external `Dart_Cleanup` call cannot be ordered
+safely around Engine-owned roots, persistent handles, snapshot buffers, and AOT
+libraries. `dart_appkit` will not copy those internals or call cleanup behind
+the Engine's ownership boundary.
+
+### Scope, exclusions, and dependencies
+
+T8 covers the candidate Engine commit, `dart_appkit` capability validation,
+Runner conformance code/tests, and ownership/build documentation. It excludes
+terminal-product behavior, process-worker IPC, broader AppKit APIs, VM Service,
+Intel-first optimization, and publishing an upstream review. M1/arm64 is the
+primary gate; x86_64 remains compatibility follow-up.
+
+Dependencies are the pinned Dart source checkout, the existing bounded
+`DartMessagePump`, `DartHost`, hello-window smoke workflow, and the candidate's
+official Engine sample regressions. The current `dart_appkit` worktree and its
+nested SDK checkout were clean when T8 began.
+
+### Completion and validation plan
+
+1. Preserve the Engine correction as a normal commit directly atop the pinned
+   upstream revision, and verify its exact parent/diff/test provenance.
+2. Update Engine configuration checks so base compatibility and candidate
+   identity are explicit; stock Engine must fail the new worker-capability gate
+   rather than fail later at runtime.
+3. Add a minimal hosted Dart conformance app for async child work, error
+   containment, live-child final shutdown, and AppKit-main-thread invariants.
+4. Run upstream Engine sample tests, strict native/Dart tests, root-only GUI
+   smoke, worker GUI smoke, formatting, architecture/symbol checks, and source
+   diff review.
+5. Record any reproduction dependency that cannot yet be fetched from an
+   upstream or fork remote. Do not mark T8 complete while that dependency is
+   hidden or while any required test is unavailable.
+
 ## 2026-08-31 — T0 started: source design and environment inventory
 
 ### Source design distilled

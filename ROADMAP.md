@@ -22,14 +22,16 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 
 ## Current position
 
-- Active task: **none — locally runnable MVP implementation is complete**
+- Active task: **T8 — same-group isolate lifecycle contract**
 - Completed: **T0, T1, T2, T3, T4, T5, T6, T7**
-- Engine acceptance gate: **closed** with the official Dart 3.13.2 arm64
-  release Engine at revision `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
-- Verified end to end: root-main-thread execution, periodic Timer work, native
+- Engine acceptance gate: **reopened** for same-group child initialization and
+  complete Engine-owned VM cleanup. The stock Dart 3.13.2 Engine remains the
+  accepted root-only baseline at revision
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
+- Verified baseline: root-main-thread execution, periodic Timer work, native
   close delivery, handle release, and process exit 0.
-- Next concrete milestone: choose a debugging/distribution direction before
-  adding VM Service, restart, AOT, or a broader AppKit surface.
+- Next concrete milestone: validate a general Engine correction and make
+  worker lifecycle a fail-closed `dart_appkit` host capability.
 
 ## Detailed tasks
 
@@ -198,6 +200,40 @@ Completion note: all local checks and the real Engine-backed GUI smoke pass.
 The project now bootstraps the missing released-SDK Engine artifact from the
 official pinned source checkout and records the runtime evidence in
 `docs/VERIFICATION.md`.
+
+### [ ] T8 — Same-group isolate lifecycle contract
+
+Scope:
+
+- Define which same-group isolate initialization and final cleanup
+  responsibilities belong to Dart Engine and which scheduling/host guarantees
+  belong to `dart_appkit`.
+- Integrate the product-independent Engine correction as a reviewable SDK
+  commit based directly on the pinned upstream revision; do not add a product
+  patch-application step or copy private Dart runtime helpers into this repo.
+- Add a real Runner conformance program covering `Isolate.run`/`Isolate.spawn`,
+  `Future`, microtasks, `Platform.script`, contained worker errors, a live child
+  during final shutdown, and repeated host shutdown protection.
+- Make configuration and documentation distinguish the upstream base revision
+  from the candidate Engine revision and fail closed for an unsupported stock
+  Engine.
+- Preserve the AppKit process-main-thread root, bounded run-loop scheduling,
+  public C ABI, and existing root-only example behavior.
+
+Exit criteria:
+
+- The Engine change is an auditable clean commit with upstream-style Engine
+  sample tests passing in JIT and AOT; the `dart_appkit` repository contains no
+  patch file for it.
+- `dart_appkit` conformance tests demonstrate working same-group async child
+  isolates and bounded cleanup without private SDK calls from AppKit code.
+- Existing `make test` and GUI smoke coverage still pass on the primary
+  M1/arm64 environment.
+- `docs/WORKLOG.md`, architecture/build documentation, and verification
+  evidence explain ownership, compatibility, failure behavior, and the fact
+  that the candidate is not yet a stock Dart release.
+- The configured Engine inputs are reproducible or the remaining upstream/fork
+  publication dependency is reported as a blocker rather than hidden.
 
 ## Beyond this MVP
 
