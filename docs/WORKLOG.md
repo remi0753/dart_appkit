@@ -73,6 +73,176 @@ nested SDK checkout were clean when T8 began.
    upstream or fork remote. Do not mark T8 complete while that dependency is
    hidden or while any required test is unavailable.
 
+### First candidate-import attempt
+
+Both the `dart_appkit` repository and its nested SDK checkout were rechecked as
+clean. The candidate parent exactly matched the checkout at
+`60a57cd42d64dc03e9f07aa60a2e250755c1ef28`. An initial local `git fetch` using
+the abbreviated candidate ID `28462f0fb37` failed with `couldn't find remote
+ref`; fetch treats that argument as a remote ref name and the disposable repo
+does not advertise abbreviated object IDs. No object checkout or source file
+changed. The verified full candidate ID is
+`28462f0fb379e38be5c3ce4cd7263a9057ad02d7`; the retry will expose that commit
+through a temporary full ref rather than converting it to a patch.
+
+The full ref import succeeded. The nested SDK now has clean branch
+`codex/engine-lifecycle-candidate` at full commit
+`28462f0fb379e38be5c3ce4cd7263a9057ad02d7`, directly above the pinned upstream
+commit. Recomputing `git diff HEAD^ HEAD | shasum -a 256` produced
+`8d98a31a2042df252f0da55536150a20a46ddc75407fd35ef98acd0751286e00`, exactly
+matching the independently validated candidate. No patch command or working
+tree modification is involved; the SDK checkout is clean on the candidate
+commit.
+
+### Constraint correction: Dart Engine is immutable
+
+The user clarified that modifying Dart Engine is prohibited even when the
+integration work is owned by `dart_appkit`. This supersedes the candidate
+adoption portion of the T8 plan. A normal SDK commit is still a Dart Engine
+source modification, so the distinction between a commit and a downstream
+patch does not make that route acceptable.
+
+The candidate was not built, linked, or used by `dart_appkit` after import.
+The nested SDK checkout was immediately returned to the exact official Dart
+3.13.2 revision `60a57cd42d64dc03e9f07aa60a2e250755c1ef28` and rechecked with
+an empty working tree. The candidate is rejected as a product dependency.
+
+From this point onward T8 treats the official SDK checkout as immutable. The
+allowed implementation surface is this repository and documented public Dart
+Embedder/Engine interfaces exposed by that unmodified revision. The ordered
+evaluation is:
+
+1. Re-evaluate whether `dart_appkit` can own multiple stock Engine root
+   isolates in one process, including lifecycle, scheduling, error containment,
+   and an explicit public message bridge between isolate groups.
+2. Re-evaluate a `dart_appkit`-owned host built only from public Dart Embedder
+   APIs if it provides a complete, documented lifecycle without copying SDK
+   internals.
+3. If neither same-process route satisfies the contract, put the already
+   validated official Dart executable/AOT process worker behind a
+   `dart_appkit` API and retain process isolation as the supported fallback.
+
+M1/arm64 JIT and AOT are the primary acceptance environments. x86_64 and
+Universal verification remain later compatibility work. No Engine file,
+commit, patch, generated Engine diff, or private runtime helper may become a
+`dart_appkit` input.
+
+### Additional same-process option before implementation
+
+The prior probes already provide decisive evidence against two direct uses of
+the stock Engine for dynamic workers: multiple Engine roots cannot be retired
+individually through `dart_engine.h`, and public lightweight isolates cannot
+use microtasks or preserve the original uncaught-error diagnostic because the
+stock Engine registered no child initializer. Repeating those implementations
+would not change their ownership or initialization contracts.
+
+A distinct stock-runtime topology remains to be tested before selecting a
+separate worker process: let the published `dart` executable (and its AOT
+executable output) initialize the VM exactly as Dart's runner intends, then
+hand the macOS process main thread synchronously to a native AppKit run loop.
+Ordinary Dart application work runs in a standard spawned isolate. All AppKit
+operations are marshalled by the `dart_appkit` bridge to the native main
+thread, and native events continue to use Dart native ports. This keeps one
+process and standard Dart isolate initialization without linking or modifying
+`dart_engine`.
+
+The option is accepted only if a minimal M1/arm64 proof establishes all of the
+following before product code is migrated:
+
+- the official JIT and AOT entrypoint can synchronously hand off the actual
+  process main thread to AppKit;
+- a standard worker isolate continues `Future`, microtask, Timer, and port work
+  while that main thread is in the native run loop;
+- AppKit calls from the Dart worker are synchronously and safely executed on
+  the process main thread, with bounded behavior during shutdown;
+- native events reach the Dart worker and the process exits cleanly without a
+  private VM or Engine symbol.
+
+If this topology fails any of those conditions, the next and final supported
+route remains the official Dart/AOT process-worker boundary.
+
+### Official-runner main-thread probe: first attempt
+
+A minimal Dart FFI probe was prepared outside both repositories. It loads the
+already built public `dart_appkit` bridge and asks
+`da_debug_is_main_thread` whether synchronous startup, a microtask, and a timer
+callback run on the macOS process main thread. Its first JIT and AOT attempts
+stopped at Dart type checking because the probe passed `Pointer<Int32>` to a
+local `free` wrapper typed as `Pointer<Void>` without an explicit cast. No
+Engine or repository source was involved, and no runtime conclusion can be
+drawn from this harness error.
+
+`dart format` did format the temporary probe, then returned nonzero because the
+sandbox denied a modification-time update to the user's Dart telemetry session
+file. That is an environment-side post-command failure rather than a format
+error. The pointer cast will be corrected and the same two runtime modes will
+be retried with permission for Dart's normal telemetry bookkeeping.
+
+The corrected probe ran successfully in both official Dart 3.13.2 JIT and an
+official `dart compile exe` ARM64 AOT executable. Every phase reported
+`status=0 main=0`: the initial synchronous Dart `main`, its microtask, and its
+timer callback all ran away from the macOS process main thread. Therefore a
+Dart entrypoint cannot synchronously hand its current thread to AppKit in
+either mode.
+
+One narrower possibility remains before rejecting this topology: the official
+runner might service the process main dispatch queue even though Dart executes
+on a mutator thread. A temporary native probe will post an asynchronous block
+to that queue and wait at most one second on the Dart thread. If the block does
+not execute on the process main thread, `dart_appkit` cannot install an AppKit
+run loop there from Dart code without replacing or modifying the official
+runner.
+
+The bounded dispatch probe returned `main_dispatch=0` in both official JIT and
+ARM64 AOT. The posted block did not execute within one second, so this
+supplementary same-process topology is rejected. No repository or SDK source
+was changed by either temporary probe.
+
+### T8 reset: frozen execution plan
+
+Reviewing the task against the user's original direction exposed a planning
+error: the full product-owned public embedder proposed at the beginning was
+never actually implemented. The completed public probe created lightweight
+children inside an already initialized stock Engine. Its negative microtask
+result is valid for that hybrid, but does not by itself test a host that owns
+`Dart_InitializeParams` from the start. The roadmap must not claim otherwise.
+
+T8 is therefore reset to one fixed decision sequence:
+
+1. Implement the smallest complete `dart_appkit` host using only documented
+   public Dart C headers/symbols from the exact published SDK. It owns VM and
+   isolate initialization, message scheduling, JIT/AOT snapshot inputs, and
+   final cleanup.
+2. Test the full mandatory lifecycle in M1/arm64 JIT and AOT. Accept only if all
+   gates pass without `runtime/bin`, private symbols, copied Dart internals, or
+   an SDK source change.
+3. Apply the result once. If accepted, finish that host here. If rejected,
+   record the exact public-contract gap and end same-process work; Dart
+   Terminal will adopt the already validated official process worker. No new
+   topology is added.
+4. Keep ownership strict: this repository owns AppKit and generic VM-host
+   integration; Dart Terminal owns terminal protocol, pane recovery, and
+   terminal worker packaging.
+
+The multiple-root, lightweight-child, modified-Engine, and official-runner
+main-thread alternatives are closed evidence, not future branches. The
+corresponding normative plan is
+`../dart_terminal/docs/phase1/stock-dart-runtime-migration-plan.md`; the two
+roadmaps now expose the same next action and decision rule.
+
+After restoring detached HEAD to the official revision, the local
+`codex/engine-lifecycle-candidate` branch was deleted. A final comparison
+against `60a57cd42d64dc03e9f07aa60a2e250755c1ef28` produced no diff, and the SDK
+working tree is empty. No candidate Engine reference remains in the active
+`dart_appkit` SDK checkout.
+
+Roadmap-reset validation passed `git diff --check`, package `dart analyze`,
+`dart run test/run_tests.dart`, and `dart run test/launcher_tests.dart`. The
+SDK HEAD and clean-tree checks passed again at the official revision. This
+checkpoint changes only `ROADMAP.md` and this worklog; no AppKit, host, package,
+build, or SDK source has changed. T8 remains active at the full public-host
+proof and is not marked complete.
+
 ## 2026-08-31 — T0 started: source design and environment inventory
 
 ### Source design distilled
