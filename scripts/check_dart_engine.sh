@@ -42,6 +42,9 @@ engine_revision=$(git -C "${DART_ENGINE_ROOT}" rev-parse HEAD 2>/dev/null || tru
 [[ -n "${engine_revision}" ]] || fail "cannot read the Dart Engine checkout revision"
 [[ "${sdk_revision}" == "${engine_revision}" ]] || \
   fail "revision mismatch: released SDK=${sdk_revision}, engine=${engine_revision}"
+engine_changes=$(git -C "${DART_ENGINE_ROOT}" status --porcelain --untracked-files=no 2>/dev/null || true)
+[[ -z "${engine_changes}" ]] || \
+  fail "the Dart SDK checkout contains tracked source changes"
 
 host_arch=$(uname -m)
 library_arches=$(lipo -archs "${DART_ENGINE_LIBRARY}" 2>/dev/null || true)

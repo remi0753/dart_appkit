@@ -243,6 +243,144 @@ checkpoint changes only `ROADMAP.md` and this worklog; no AppKit, host, package,
 build, or SDK source has changed. T8 remains active at the full public-host
 proof and is not marked complete.
 
+### Full public-host proof design before source changes
+
+The stock source and exported-symbol audit separates the available public VM
+surface from the missing platform integration:
+
+- `dart_api.h` exports VM flags and initialization, platform-Kernel
+  registration, JIT and AOT isolate-group creation, per-isolate initialization
+  callbacks, message notification/handling, native ports, isolate shutdown,
+  and VM cleanup. It also documents the Mach-O AOT snapshot symbols consumed by
+  `Dart_CreateIsolateGroup`.
+- `dart_embedder_api.h` says `dart::embedder::InitOnce` must run before
+  `Dart_Initialize`, but `InitOnce` is not exported by either stock shared
+  library. Its implementation starts Dart IO process/timer/event-handler and
+  SSL subsystems through `runtime/bin` implementation.
+- Stock `dart_engine` calls the private
+  `bin::DartUtils::SetupCoreLibraries` after every root creation. That routine
+  installs builtin/IO native resolvers, finalizes loading, supplies print and
+  URI hooks, installs the isolate scheduler closure into `dart:async`, and
+  invokes isolate hooks. Neither the routine nor the native resolver tables are
+  exported as public symbols.
+
+The proof will not call or reproduce either private routine. A native test host
+under `native/runner` will include only `dart_api.h` and
+`dart_native_api.h`, link the unmodified stock shared VM carrier, provide the
+documented file/entropy/lifecycle/message callbacks, load JIT Kernel or the
+documented AOT snapshot symbols, and invoke a Dart conformance program. The
+Dart program tests a synchronous call first, then `Platform.script`, a
+microtask, standard child work, fault/forced-stop/replacement lifecycle, and a
+live child at final cleanup. Once a required primitive fails, later outcomes
+are reported as unavailable rather than emulated with private code.
+
+A Make target will rebuild the required Release ARM64 JIT and Product ARM64 AOT
+artifacts from the exact clean revision, compile both probe payloads, run them
+under an outer timeout, audit that public symbols are present and the two
+private helpers are absent, and recheck the SDK worktree. The proof is accepted
+only if both modes satisfy every frozen gate. Otherwise it records one explicit
+rejection and the fixed roadmap selects the official process worker.
+
+The first C++ formatting command could read the newly added probe but could not
+replace it because command-based writes to the adjacent `dart_appkit`
+repository are sandbox-restricted (`Operation not permitted`). It changed no
+source or SDK file. The same repository-local ARM64 clang-format invocation
+will be repeated with write permission; this is an environment constraint, not
+a host-probe result.
+
+After formatting, the strict C++ syntax check passed. The first focused Dart
+analysis reported one warning: the deliberately retained live-child `Isolate`
+handle was assigned but not read. The probe will include that child's debug
+name in its completion report, making both the retention and the intended
+live-at-cleanup state observable instead of suppressing the warning.
+
+### Full public-host result and fixed decision
+
+`make public-dart-api-host-probe` rebuilt the stock Release ARM64 JIT and
+Product ARM64 AOT shared libraries plus their published compiler inputs from
+the exact official revision. Both native hosts compiled with strict warnings,
+both payloads compiled, and both executions completed within the outer
+15-second bound. The pre- and post-run Engine checks reported the official
+revision and an empty tracked worktree.
+
+The JIT and AOT results were semantically identical:
+
+- the native host and root Dart invocation started successfully on the macOS
+  process main thread;
+- a synchronous Dart function returned the expected value;
+- `Platform.script` failed because its required embedder value was null;
+- `scheduleMicrotask` failed with the exact public runtime diagnostic
+  `Unsupported operation: Microtasks are not supported`;
+- the async lifecycle entry could not advance and timed out, so no child
+  initialization callback ran;
+- root shutdown, VM cleanup, isolate/group cleanup callbacks, and the host's
+  repeated-shutdown guard completed successfully.
+
+The shared-library audit found all public VM symbols used by the proof, but no
+exported `dart::embedder::InitOnce` or
+`bin::DartUtils::SetupCoreLibraries`. Supplying the missing platform values,
+native resolvers, IO event handler, async scheduler closure, and isolate hooks
+would therefore require private `runtime/bin` implementation or a copied
+reimplementation. Both are prohibited by the frozen boundary.
+
+Decision: reject the full public-API host for Dart 3.13.2. This is now the
+actual test of the initially proposed product-owned embedder, distinct from the
+earlier lightweight-child hybrid. The fixed decision rule is applied exactly
+once: the selected worker topology is the already validated official Dart JIT
+executable / self-contained AOT executable process boundary. No other
+same-process candidate will be considered in this migration.
+
+The ownership consequence is also fixed. `dart_appkit` remains the stock
+Engine, one-root, process-main-thread AppKit host and enforces a pristine SDK
+input. It does not grow terminal-specific process supervision. Dart Terminal
+owns the worker executable, IPC protocol, pane recovery, and packaging because
+those are product runtime concerns. Process exit is the authoritative worker
+cleanup boundary; final UI-host cleanup is the containing application process
+exit after stock Engine root shutdown.
+
+### T8 completed: stock-root contract and final verification
+
+The selected `dart_appkit` responsibility is now explicit and enforced:
+
+- `scripts/check_dart_engine.sh` rejects any tracked SDK source change in
+  addition to the exact revision, architecture, symbols, install name, Kernel
+  compiler, and platform-Kernel checks;
+- production remains the existing one-root stock `dart_engine` host, with
+  AppKit and its bounded message pump on the process main thread;
+- no public-host proof source is linked into the production Runner, and no
+  process-worker protocol or terminal recovery policy was added here;
+- architecture, build, verification, root README, and Runner documentation now
+  reject in-process dynamic workers and place official Dart JIT/AOT worker
+  ownership in the consuming product.
+
+Final M1/ARM64 verification results:
+
+- ARM64 clang-format dry run for `PublicDartApiHostProbe.cc`: passed;
+- focused Dart format check: 2 files, 0 changed;
+- focused Dart analysis: no issues;
+- `git diff --check`: passed;
+- `make test`: all scaffold, ABI, native bridge, Runner, message-pump, Dart API,
+  launcher, example Kernel, and FFI smoke checks passed;
+- `make engine-check`: passed at official revision
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`, ARM64, with no tracked SDK
+  source changes;
+- `make example-smoke`: root attached to the AppKit main thread, Timer ticks 1
+  through 3 ran, native close reached Dart, handles were released, and the
+  process exited 0;
+- `make public-dart-api-host-probe`: both stock JIT and AOT roots started and
+  cleaned up, both reproduced missing platform/microtask bootstrap, no child
+  initializer ran, and the final decision remained
+  `accepted=false public_platform_bootstrap=false jit_runtime=false
+  aot_runtime=false`.
+
+All T8 exit criteria are therefore closed for the primary environment. The
+same-process search is finished rather than deferred. Intel/Rosetta/Universal
+work remains lower-priority compatibility work and cannot change the selected
+M1 topology. The next implementation milestone is in Dart Terminal: replace
+its patched-Engine worker lifecycle with the already validated official Dart
+process-worker boundary, then delete patch infrastructure after both Developer
+JIT and Release AOT migrations pass.
+
 ## 2026-08-31 — T0 started: source design and environment inventory
 
 ### Source design distilled

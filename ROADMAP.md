@@ -22,17 +22,20 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 
 ## Current position
 
-- Active task: **T8 — public Dart embedder decision and stock-runtime host**
-- Completed: **T0, T1, T2, T3, T4, T5, T6, T7**
+- Active task: **none; the stock-runtime host decision is complete**
+- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8**
 - Engine acceptance gate: **official source only**. Dart Engine source changes,
   candidate commits, and downstream patches are prohibited. The stock Dart
   3.13.2 Engine is pinned at revision
   `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
 - Verified baseline: root-main-thread execution, periodic Timer work, native
   close delivery, handle release, and process exit 0.
-- Next concrete milestone: implement the previously untested full public
-  `dart_api.h` host proof on M1/arm64 JIT and AOT, then apply the fixed decision
-  rule once.
+- Selected topology: one stock Engine root for the AppKit process lifetime.
+  The full public `dart_api.h` host was rejected by M1/arm64 JIT and AOT
+  evidence because required platform/microtask bootstrap is private.
+- Next concrete milestone: Dart Terminal implements its already validated
+  official Dart JIT/AOT process workers; this repository does not own that
+  product-specific protocol, recovery, or packaging.
 
 ## Detailed tasks
 
@@ -202,7 +205,7 @@ The project now bootstraps the missing released-SDK Engine artifact from the
 official pinned source checkout and records the runtime evidence in
 `docs/VERIFICATION.md`.
 
-### [ ] T8 — Public Dart embedder decision and stock-runtime host
+### [x] T8 — Public Dart embedder decision and stock-runtime host
 
 Scope:
 

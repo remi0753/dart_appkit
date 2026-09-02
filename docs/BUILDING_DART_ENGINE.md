@@ -12,6 +12,11 @@ The checkout, Engine dylib, Kernel compiler, and platform Kernel must all come
 from that exact revision. Kernel and VM snapshot formats are intentionally
 unstable, so matching only the SDK version is insufficient.
 
+The source checkout is an immutable input. This project does not accept a Dart
+Engine patch, local Engine commit, private fork, copied Dart runtime helper, or
+tracked SDK source edit. `make engine-check` rejects a revision mismatch and
+any tracked change in the SDK checkout before accepting a library.
+
 ## One-command setup
 
 Install Dart 3.13.2, Xcode command-line tools, and Chromium `depot_tools` with
@@ -99,6 +104,43 @@ Validate the current configuration without rebuilding:
 ```shell
 make engine-check
 ```
+
+The check validates the exact official revision, a clean tracked source tree,
+the host architecture, required public symbols, install name, Kernel compiler,
+and platform Kernel. Build outputs remain excluded by the SDK repository and
+do not relax the clean-source requirement.
+
+## Why this project does not replace the stock host
+
+The initially proposed alternative was a product-owned VM host using only the
+public `dart_api.h` family. The repository keeps a bounded ARM64 conformance
+target for that architectural decision:
+
+```shell
+make public-dart-api-host-probe
+```
+
+It rebuilds stock Release/JIT and Product/AOT artifacts from the pinned clean
+checkout, compiles a public-only native host and matching payloads, audits the
+linked symbols, runs both modes under time limits, and checks the SDK again.
+For Dart 3.13.2 its expected decision is:
+
+```text
+PUBLIC_DART_API_HOST_DECISION accepted=false public_platform_bootstrap=false jit_runtime=false aot_runtime=false
+```
+
+Root creation, a synchronous Dart call, and `Dart_Cleanup` succeed. However,
+`Platform.script` is not initialized, `scheduleMicrotask` reports that
+microtasks are unsupported, and ordinary isolate lifecycle cannot progress.
+The missing setup lives in unexported `dart::embedder::InitOnce` and
+`bin::DartUtils::SetupCoreLibraries` implementation under Dart's private
+`runtime/bin` layer. Reproducing or calling that layer would violate the public
+boundary, so the direct public host is rejected rather than completed with
+private code.
+
+The supported `dart_appkit` topology therefore remains one stock Engine root
+for the process lifetime. Products that need dynamic compute workers must own
+official Dart JIT/AOT worker processes outside this library.
 
 Run the unattended GUI smoke test:
 

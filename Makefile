@@ -65,7 +65,41 @@ RUNNER_ARGUMENT_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_argument_tests
 RUNNER_SHELL_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_shell_test
 RUNNER_BINARY := $(NATIVE_BUILD_DIR)/dart_appkit_runner
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test dart-test example-test example-smoke run-example ffi-smoke test clean
+PUBLIC_HOST_PROBE_BUILD_DIR := $(BUILD_DIR)/public-dart-api-host
+PUBLIC_HOST_PROBE_SOURCE := \
+	$(PROJECT_ROOT)/native/runner/PublicDartApiHostProbe.cc
+PUBLIC_HOST_PROBE_DART_SOURCE := \
+	$(PROJECT_ROOT)/tool/public_dart_api_host_probe.dart
+PUBLIC_HOST_PROBE_RUNNER := \
+	$(PROJECT_ROOT)/tool/public_dart_api_host_probe_runner.dart
+PUBLIC_HOST_RELEASE_OUT := $(DART_ENGINE_ROOT)/xcodebuild/ReleaseARM64
+PUBLIC_HOST_PRODUCT_OUT := $(DART_ENGINE_ROOT)/xcodebuild/ProductARM64
+PUBLIC_HOST_NINJA := $(DART_ENGINE_ROOT)/buildtools/ninja/ninja
+PUBLIC_HOST_JIT_LIBRARY := \
+	$(PUBLIC_HOST_RELEASE_OUT)/libdart_engine_jit_shared.dylib
+PUBLIC_HOST_AOT_LIBRARY := \
+	$(PUBLIC_HOST_PRODUCT_OUT)/libdart_engine_aot_shared.dylib
+PUBLIC_HOST_JIT_COMPILER := \
+	$(PUBLIC_HOST_RELEASE_OUT)/bootstrap_gen_kernel.exe
+PUBLIC_HOST_AOT_COMPILER := \
+	$(PUBLIC_HOST_PRODUCT_OUT)/bootstrap_gen_kernel.exe
+PUBLIC_HOST_AOT_SNAPSHOTTER := $(PUBLIC_HOST_PRODUCT_OUT)/gen_snapshot
+PUBLIC_HOST_JIT_PLATFORM := \
+	$(PUBLIC_HOST_RELEASE_OUT)/clang_arm64_shared/vm_platform.dill
+PUBLIC_HOST_AOT_PLATFORM := \
+	$(PUBLIC_HOST_PRODUCT_OUT)/clang_arm64_shared/vm_platform.dill
+PUBLIC_HOST_JIT_KERNEL := \
+	$(PUBLIC_HOST_PROBE_BUILD_DIR)/application.jit.dill
+PUBLIC_HOST_AOT_KERNEL := \
+	$(PUBLIC_HOST_PROBE_BUILD_DIR)/application.aot.dill
+PUBLIC_HOST_AOT_SNAPSHOT := \
+	$(PUBLIC_HOST_PROBE_BUILD_DIR)/application.aot.snapshot
+PUBLIC_HOST_JIT_BINARY := \
+	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_jit
+PUBLIC_HOST_AOT_BINARY := \
+	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
+
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -83,6 +117,7 @@ help:
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"
 	@echo "  make example-smoke  Launch hello-window and close it automatically"
 	@echo "  make run-example    Launch hello-window until its window is closed"
+	@echo "  make public-dart-api-host-probe  Test the stock public VM host boundary"
 	@echo "  make test           Run all locally available checks"
 
 validate: contract-check
@@ -231,6 +266,76 @@ run-example: engine-check
 ffi-smoke: bridge
 	@cd $(PROJECT_ROOT)/packages/dart_appkit && \
 		dart run test/ffi_bridge_smoke.dart $(BRIDGE_LIBRARY)
+
+public-dart-api-host-engine: engine-check
+	@test "$(HOST_ARCH)" = arm64 || \
+		(echo "public Dart API host probe currently targets M1/arm64" >&2; exit 1)
+	@$(DART_ENGINE_ROOT)/tools/gn.py --mode=release --arch=arm64
+	@$(PUBLIC_HOST_NINJA) -C $(PUBLIC_HOST_RELEASE_OUT) \
+		dart_engine_jit_shared bootstrap_gen_kernel.exe \
+		clang_arm64_shared/vm_platform.dill
+	@$(DART_ENGINE_ROOT)/tools/gn.py --mode=product --arch=arm64
+	@$(PUBLIC_HOST_NINJA) -C $(PUBLIC_HOST_PRODUCT_OUT) \
+		dart_engine_aot_shared gen_snapshot bootstrap_gen_kernel.exe \
+		clang_arm64_shared/vm_platform.dill
+
+$(PUBLIC_HOST_JIT_KERNEL): $(PUBLIC_HOST_PROBE_DART_SOURCE) | \
+		public-dart-api-host-engine
+	@mkdir -p $(PUBLIC_HOST_PROBE_BUILD_DIR)
+	@$(PUBLIC_HOST_JIT_COMPILER) \
+		--platform=$(PUBLIC_HOST_JIT_PLATFORM) \
+		--no-aot --link-platform --no-embed-sources \
+		--output=$@ \
+		-Ddart.vm.product=false -Ddart.vm.asan=false \
+		-Ddart.vm.msan=false -Ddart.vm.tsan=false \
+		$(PUBLIC_HOST_PROBE_DART_SOURCE)
+
+$(PUBLIC_HOST_AOT_KERNEL): $(PUBLIC_HOST_PROBE_DART_SOURCE) | \
+		public-dart-api-host-engine
+	@mkdir -p $(PUBLIC_HOST_PROBE_BUILD_DIR)
+	@$(PUBLIC_HOST_AOT_COMPILER) \
+		--platform=$(PUBLIC_HOST_AOT_PLATFORM) \
+		--aot --link-platform --no-embed-sources --target-os=macos \
+		--invocation-modes=compile --verbosity=error \
+		--output=$@ \
+		-Ddart.vm.product=true -Ddart.vm.asan=false \
+		-Ddart.vm.msan=false -Ddart.vm.tsan=false \
+		$(PUBLIC_HOST_PROBE_DART_SOURCE)
+
+$(PUBLIC_HOST_AOT_SNAPSHOT): $(PUBLIC_HOST_AOT_KERNEL)
+	@$(PUBLIC_HOST_AOT_SNAPSHOTTER) \
+		--snapshot-kind=app-aot-macho-dylib --macho=$@ $<
+
+$(PUBLIC_HOST_JIT_BINARY): $(PUBLIC_HOST_PROBE_SOURCE) | \
+		public-dart-api-host-engine
+	@mkdir -p $(PUBLIC_HOST_PROBE_BUILD_DIR)
+	$(CLANGXX) $(COMMON_FLAGS) -std=c++20 -arch arm64 \
+		-I$(DART_ENGINE_ROOT)/runtime \
+		$(PUBLIC_HOST_PROBE_SOURCE) $(PUBLIC_HOST_JIT_LIBRARY) \
+		-Wl,-rpath,$(PUBLIC_HOST_RELEASE_OUT) -o $@
+
+$(PUBLIC_HOST_AOT_BINARY): $(PUBLIC_HOST_PROBE_SOURCE) | \
+		public-dart-api-host-engine
+	@mkdir -p $(PUBLIC_HOST_PROBE_BUILD_DIR)
+	$(CLANGXX) $(COMMON_FLAGS) -std=c++20 -arch arm64 \
+		-I$(DART_ENGINE_ROOT)/runtime \
+		$(PUBLIC_HOST_PROBE_SOURCE) $(PUBLIC_HOST_AOT_LIBRARY) \
+		-Wl,-rpath,$(PUBLIC_HOST_PRODUCT_OUT) -o $@
+
+public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
+		$(PUBLIC_HOST_JIT_KERNEL) $(PUBLIC_HOST_AOT_BINARY) \
+		$(PUBLIC_HOST_AOT_SNAPSHOT)
+	@dart $(PUBLIC_HOST_PROBE_RUNNER) \
+		--engine-root=$(DART_ENGINE_ROOT) \
+		--host-source=$(PUBLIC_HOST_PROBE_SOURCE) \
+		--jit-host=$(PUBLIC_HOST_JIT_BINARY) \
+		--jit-library=$(PUBLIC_HOST_JIT_LIBRARY) \
+		--jit-application=$(PUBLIC_HOST_JIT_KERNEL) \
+		--jit-platform=$(PUBLIC_HOST_JIT_PLATFORM) \
+		--aot-host=$(PUBLIC_HOST_AOT_BINARY) \
+		--aot-library=$(PUBLIC_HOST_AOT_LIBRARY) \
+		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
+	@$(MAKE) engine-check
 
 test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test dart-test example-test ffi-smoke
 

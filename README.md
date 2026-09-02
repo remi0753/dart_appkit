@@ -15,12 +15,17 @@ The bridge, Dart API, Runner, bounded scheduler, launcher, `.app` bundle,
 revision-pinned Dart checkout bootstrap, and hello-window example are complete.
 The official arm64 Engine dylib has been built from the exact Dart 3.13.2 SDK
 revision, and the Engine-backed GUI smoke test passes through Timer activity,
-native close delivery, handle release, and process exit 0.
+native close delivery, handle release, and process exit 0. The accepted runtime
+contract is one stock Engine root for the GUI process lifetime; the SDK source
+must stay at the exact official revision with no tracked changes.
 
 The released SDK does not contain `libdart_engine_jit_shared.dylib`, so
-`make engine` creates the required official artifact. The project never
-substitutes standalone `dart run` as the GUI host, because that would not put
-the isolate on the macOS main thread.
+`make engine` builds the required artifact from unmodified official source. The
+project never substitutes standalone `dart run` as the GUI host, because that
+would not put the isolate on the macOS main thread. A full public `dart_api.h`
+host was tested in ARM64 JIT and AOT and rejected because Dart's platform,
+microtask, and worker bootstrap is not exposed by the stock shared library; no
+private Dart implementation is copied or called to fill that gap.
 
 - [Roadmap and current position](ROADMAP.md)
 - [Chronological findings and decisions](docs/WORKLOG.md)
@@ -80,8 +85,10 @@ await app.terminate();
 ```
 
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
-the embedded root isolate; worker isolates must message it instead of calling
-AppKit directly.
+the embedded root isolate. Ordinary in-process workers are not part of the
+pinned stock Engine host contract. Products that need dynamic background work
+must own official Dart JIT/AOT worker processes and explicit IPC; only the root
+UI process may call AppKit.
 
 ## Local checks
 
@@ -94,6 +101,11 @@ Runner CLI, pre-VM shell-link and message-pump tests, Dart
 analysis/API/launcher tests, the real FFI dylib smoke test, example analysis,
 and full-Kernel compilation. `make runner` is intentionally a separate
 Engine-dependent target. Run `make help` for the complete target list.
+
+`make engine-check` additionally enforces the exact official SDK revision and
+clean tracked source. `make public-dart-api-host-probe` reproduces the bounded
+ARM64 JIT/AOT evidence for rejecting a direct public-API replacement host; it
+is an architectural conformance target, not a production host.
 
 ## Layout
 

@@ -1,6 +1,6 @@
 # MVP Verification
 
-Verification date: 2026-08-31 (Asia/Tokyo).
+Verification date: 2026-09-03 (Asia/Tokyo).
 
 ## Result
 
@@ -15,6 +15,13 @@ The checkout is the official Dart repository at exactly
 Mach-O artifact with the required symbols and
 `@rpath/libdart_engine_jit_shared.dylib` install name. The complete
 history-free checkout and build occupy approximately 10 GiB in this workspace.
+
+The accepted hosting contract is deliberately one stock Engine root for the
+GUI process lifetime. A full public-API replacement host was exercised in both
+M1/ARM64 JIT and AOT and rejected: the public library can create and clean up a
+root, but cannot complete Dart platform, microtask, and child-isolate setup
+without unexported `runtime/bin` implementation. Products that need dynamic
+workers must use official Dart JIT/AOT worker processes and explicit IPC.
 
 | Requirement | Evidence | Status |
 |---|---|---|
@@ -33,6 +40,11 @@ history-free checkout and build occupy approximately 10 GiB in this workspace.
 | Timer advances in the visible Engine-backed run | Smoke log recorded Timer ticks 1, 2, and 3 | Verified |
 | Native close reaches Dart and shuts down cleanly | Close event and handle-release logs followed by exit 0 | Verified |
 | Default workflow needs no Engine exports | Direct run with all Engine variables removed succeeded | Verified |
+| Dart input is the exact unmodified release | `make engine-check` verifies official `HEAD` and rejects tracked SDK changes | Verified |
+| Direct public host owns VM/root lifecycle | ARM64 JIT and AOT hosts created roots and completed `Dart_Cleanup` | Verified |
+| Direct public host supplies the required Dart runtime contract | JIT and AOT both lacked platform bootstrap and microtasks; ordinary worker lifecycle timed out | Rejected |
+| No private Dart bootstrap enters the host | Source audit excludes private headers/helpers; dylib audit confirms required helpers are not exported | Verified |
+| Supported in-process topology stays bounded | One stock Engine root, one containing process lifetime, no dynamic hosted workers | Verified |
 
 ## Commands
 
@@ -47,6 +59,7 @@ Run all noninteractive regression checks:
 ```shell
 make test
 make engine-check
+make public-dart-api-host-probe
 ```
 
 Run the real GUI integration smoke test:
@@ -68,9 +81,9 @@ Clean shutdown requested; native handles released.
 ```
 
 `make run-example` keeps the window open for interactive resize, mouse, and key
-testing. The project root is not inside a Git working tree in this workspace,
-so no project Git dirty-status evidence is available; the nested Dart checkout
-itself is clean and its exact `HEAD` is validated by the bootstrap.
+testing. Both this project and the nested Dart checkout are Git working trees.
+The final audit checks the project diff explicitly; the Engine validation
+requires the nested SDK's exact `HEAD` and an empty tracked-source status.
 
 ## Next-phase backlog
 
@@ -79,3 +92,5 @@ itself is clean and its exact `HEAD` is validated by the bootstrap.
   clipboard, PTY, and distribution as separate milestones.
 - Consider a smaller prebuilt Engine cache for contributors who should not
   carry the approximately 10 GiB source/build workspace.
+- Keep product worker IPC, supervision, recovery, and packaging in the
+  consuming product rather than adding product-specific behavior here.

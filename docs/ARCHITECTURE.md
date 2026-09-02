@@ -7,12 +7,16 @@ macOS process main thread
 └─ NSApplication / AppKit run loop
    ├─ Dart AppKit C ABI bridge
    ├─ official DartEngine JIT shared library
-   │  └─ root UI isolate loaded from a full Kernel file
+   │  └─ single root UI isolate loaded from a full Kernel file
    └─ bounded CFRunLoopSource message pump
 ```
 
-The native Runner is the real executable. A standalone Dart process is only a
-developer-side compiler/launcher and never owns the GUI.
+The native Runner is the real GUI executable. Its Dart SDK checkout must remain
+at the exact published revision with no tracked source changes. A standalone
+Dart process used by this repository is only a developer-side compiler/launcher
+and never owns the GUI. A consuming product may run compute workers in separate
+official Dart JIT or AOT processes, but that process protocol is outside
+`dart_appkit` and no worker process may call AppKit.
 
 ## Startup sequence
 
@@ -40,8 +44,26 @@ developer-side compiler/launcher and never owns the GUI.
 
 The production limits are 64 messages or 4 milliseconds per source turn. Work
 remaining after either limit resignals the source. A single Dart message cannot
-be preempted, so root-isolate handlers must remain short and move CPU-heavy work
-to worker isolates.
+be preempted, so root-isolate handlers must remain short. Consumers that need
+dynamic background workers must move that work across an explicit process
+boundary rather than spawning hosted in-process isolates.
+
+## Hosted-isolate boundary
+
+The stock Dart 3.13.2 Engine contract used here supports one process-lifetime
+root UI isolate. It does not expose an individual-root retirement operation,
+and its VM initialization does not register the platform initializer needed by
+ordinary child isolates. Consequently, `dart_appkit` does not promise
+`Isolate.spawn`, `Isolate.run`, or multiple `DartEngine_CreateIsolate` roots
+as a worker topology.
+
+A complete host built directly on the public `dart_api.h` surface was tested in
+both ARM64 JIT and AOT. VM/root creation and cleanup worked, but the public
+surface could not initialize `Platform.script`, microtasks, or ordinary worker
+lifecycle. Completing those facilities requires unexported Dart
+`runtime/bin` bootstrap code. This project does not call, copy, patch, or fork
+that implementation. The negative proof is reproducible with
+`make public-dart-api-host-probe` and is recorded in `VERIFICATION.md`.
 
 ## State and ownership
 
@@ -68,8 +90,11 @@ FFI frame.
 
 `applicationWillTerminate` records any live handles, disables event posting and
 clears the registry, stops the message pump, then shuts down DartEngine and its
-isolates. Unhandled Dart message errors and startup failures return software
-error 70; usage and missing-input failures return 64 and 66.
+single root isolate. The stock Engine API has no supported VM restart contract
+for this host, so final VM-global cleanup is the containing process exit.
+Shutdown is therefore process-lifetime and `dart_appkit` never starts a second
+root after shutdown. Unhandled Dart message errors and startup failures return
+software error 70; usage and missing-input failures return 64 and 66.
 
 ## Developer process and bundle
 
@@ -94,7 +119,10 @@ without a shell.
 
 ## Deliberate limits
 
-Only the root UI isolate may call AppKit. Worker isolates may compute and do I/O,
-but must message the root isolate for UI changes. The MVP does not implement
-widgets, layout, Metal, VM Service, hot reload, AOT packaging, signing, sandbox
-entitlements, or terminal-specific input/rendering.
+Only the single root UI isolate may call AppKit. In-process worker isolates are
+not a supported feature of the pinned stock Engine host. A consuming product is
+responsible for any official-Dart worker processes, IPC, recovery, and
+packaging; workers must send results back to the UI process for AppKit changes.
+The MVP does not implement widgets, layout, Metal, VM Service, hot reload, AOT
+GUI packaging, signing, sandbox entitlements, or terminal-specific
+input/rendering.
