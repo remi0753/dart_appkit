@@ -13,6 +13,33 @@
 #include "ObjectRegistry.h"
 #include "dart_appkit.h"
 
+@interface DaReleaseThreadProbe : NSObject {
+ @private
+  std::atomic<int32_t>* _deallocation_thread;
+}
+
+- (instancetype)initWithDeallocationThread:
+    (std::atomic<int32_t>*)deallocationThread;
+
+@end
+
+@implementation DaReleaseThreadProbe
+
+- (instancetype)initWithDeallocationThread:
+    (std::atomic<int32_t>*)deallocationThread {
+  self = [super init];
+  if (self != nil) {
+    _deallocation_thread = deallocationThread;
+  }
+  return self;
+}
+
+- (void)dealloc {
+  _deallocation_thread->store(pthread_main_np() != 0 ? 1 : 0);
+}
+
+@end
+
 namespace {
 
 int g_failures = 0;
@@ -86,7 +113,8 @@ DaHandle CreateTextView() {
 DaWindowOwner* OwnerFor(DaHandle handle) {
   int32_t status = DA_STATUS_OK;
   id object = dart_appkit::ObjectRegistry::Shared().Lookup(
-      handle, dart_appkit::ObjectKind::kWindow, &status);
+      handle, dart_appkit::ObjectKind::kWindow,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
   EXPECT_EQ(status, DA_STATUS_OK);
   return static_cast<DaWindowOwner*>(object);
 }
@@ -104,6 +132,8 @@ void TestContractAndErrors() {
             std::string("invalid_utf8"));
   EXPECT_EQ(std::string(da_status_name(DA_STATUS_UNSUPPORTED_VERSION)),
             std::string("unsupported_version"));
+  EXPECT_EQ(std::string(da_status_name(DA_STATUS_SHUTTING_DOWN)),
+            std::string("shutting_down"));
 
   int32_t is_main = 0;
   EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
@@ -125,6 +155,7 @@ void TestContractAndErrors() {
   EXPECT_EQ(handle, static_cast<DaHandle>(0));
 
   EXPECT_EQ(da_application_set_event_port(1), DA_STATUS_EVENT_PORT_UNAVAILABLE);
+  EXPECT_EQ(da_release_async(0), DA_STATUS_INVALID_HANDLE);
 }
 
 void TestEventProtocolNegotiation() {
@@ -241,6 +272,153 @@ void TestThreadGuardAndFinalizer() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestRegistryDomainsAndAsyncRelease() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  const DaHandle domain_handle = CreateTextView();
+  std::atomic<int32_t> worker_lookup_status{DA_STATUS_OK};
+  std::thread wrong_domain_worker([domain_handle, &worker_lookup_status]() {
+    int32_t status = DA_STATUS_OK;
+    id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+        domain_handle, dart_appkit::ObjectKind::kTextView,
+        dart_appkit::ThreadDomain::kAppKitMain, &status);
+    EXPECT_TRUE(object == nil);
+    worker_lookup_status.store(status);
+  });
+  wrong_domain_worker.join();
+  EXPECT_EQ(worker_lookup_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(dart_appkit::ObjectRegistry::Shared().BeginRelease(
+                domain_handle, static_cast<dart_appkit::ThreadDomain>(99)),
+            DA_STATUS_WRONG_THREAD);
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      domain_handle, dart_appkit::ObjectKind::kTextView,
+      static_cast<dart_appkit::ThreadDomain>(99), &status);
+  EXPECT_TRUE(object == nil);
+  EXPECT_EQ(status, DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(da_release(domain_handle), DA_STATUS_OK);
+
+  std::atomic<int32_t> deallocation_thread{-1};
+  __strong DaReleaseThreadProbe* probe = [[DaReleaseThreadProbe alloc]
+      initWithDeallocationThread:&deallocation_thread];
+  const DaHandle async_handle = dart_appkit::ObjectRegistry::Shared().Insert(
+      probe, dart_appkit::ObjectKind::kTextView,
+      dart_appkit::ThreadDomain::kAppKitMain);
+  EXPECT_TRUE(async_handle != 0);
+  probe = nil;
+
+  std::atomic<int32_t> async_status{DA_STATUS_INTERNAL_ERROR};
+  std::thread async_worker([async_handle, &async_status]() {
+    async_status.store(da_release_async(async_handle));
+  });
+  async_worker.join();
+  EXPECT_EQ(async_status.load(), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+  EXPECT_EQ(da_text_view_set_text(async_handle, "pending", 7),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(async_handle), DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release_async(async_handle), DA_STATUS_INVALID_HANDLE);
+
+  const NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+  while (LiveCount() != 0 && deadline.timeIntervalSinceNow > 0.0) {
+    [[NSRunLoop mainRunLoop]
+           runMode:NSDefaultRunLoopMode
+        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  }
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+  EXPECT_EQ(deallocation_thread.load(), 1);
+}
+
+void TestConcurrentAsyncRelease() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle handle = CreateTextView();
+
+  constexpr size_t kThreadCount = 16;
+  std::vector<int32_t> statuses(kThreadCount, DA_STATUS_INTERNAL_ERROR);
+  std::vector<std::thread> workers;
+  workers.reserve(kThreadCount);
+  for (size_t index = 0; index < kThreadCount; ++index) {
+    workers.emplace_back([handle, index, &statuses]() {
+      statuses[index] = da_release_async(handle);
+    });
+  }
+  for (std::thread& worker : workers) {
+    worker.join();
+  }
+
+  size_t success_count = 0;
+  size_t invalid_count = 0;
+  for (const int32_t result : statuses) {
+    if (result == DA_STATUS_OK) {
+      ++success_count;
+    } else if (result == DA_STATUS_INVALID_HANDLE) {
+      ++invalid_count;
+    }
+  }
+  EXPECT_EQ(success_count, static_cast<size_t>(1));
+  EXPECT_EQ(invalid_count, kThreadCount - 1);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+
+  const NSDate* deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+  while (LiveCount() != 0 && deadline.timeIntervalSinceNow > 0.0) {
+    [[NSRunLoop mainRunLoop]
+           runMode:NSDefaultRunLoopMode
+        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  }
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestShutdownOwnsPendingRelease() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  __strong DaWindowOwner* owner = OwnerFor(window_handle);
+
+  std::atomic<int32_t> async_status{DA_STATUS_INTERNAL_ERROR};
+  std::thread async_worker([window_handle, &async_status]() {
+    async_status.store(da_release_async(window_handle));
+  });
+  async_worker.join();
+  EXPECT_EQ(async_status.load(), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+
+  dart_appkit::ShutdownBridge();
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+  EXPECT_EQ(owner.daHandle, static_cast<DaHandle>(0));
+  EXPECT_EQ(owner.window.daHandle, static_cast<DaHandle>(0));
+  EXPECT_TRUE(owner.window.delegate == nil);
+  EXPECT_EQ(da_release_async(window_handle), DA_STATUS_SHUTTING_DOWN);
+
+  dart_appkit::ResetBridgeForTesting();
+  const DaHandle replacement_handle = CreateTextView();
+  EXPECT_EQ(replacement_handle, window_handle);
+  [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode
+                        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+  EXPECT_EQ(da_text_view_set_text(replacement_handle, "still live", 10),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_release(replacement_handle), DA_STATUS_OK);
+}
+
+void TestRegistryChurn() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  const DaHandle stale_handle = CreateTextView();
+  EXPECT_EQ(da_release(stale_handle), DA_STATUS_OK);
+  for (size_t iteration = 0; iteration < 1000; ++iteration) {
+    const DaHandle handle = CreateTextView();
+    EXPECT_TRUE(handle != stale_handle);
+    EXPECT_EQ(da_text_view_set_text(stale_handle, "stale", 5),
+              DA_STATUS_INVALID_HANDLE);
+    EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+  }
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestWindowEvents() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -333,6 +511,10 @@ int main() {
     TestEventProtocolNegotiation();
     TestRegistryLifecycleAndTypes();
     TestThreadGuardAndFinalizer();
+    TestRegistryDomainsAndAsyncRelease();
+    TestConcurrentAsyncRelease();
+    TestShutdownOwnsPendingRelease();
+    TestRegistryChurn();
     TestWindowEvents();
     TestInputEvents();
     dart_appkit::ResetBridgeForTesting();

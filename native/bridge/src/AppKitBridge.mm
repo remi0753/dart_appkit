@@ -24,7 +24,8 @@ struct ErrorState {
 };
 
 thread_local ErrorState g_last_error;
-std::atomic<bool> g_accept_finalizers{true};
+std::atomic<bool> g_accept_async_releases{true};
+std::atomic<uint64_t> g_async_release_epoch{1};
 
 NSString* CopyUtf8(const char* bytes, size_t length, int32_t* out_status) {
   if (bytes == nullptr && length != 0) {
@@ -67,13 +68,13 @@ int32_t ValidateRect(DaRect frame) {
 }
 
 DaWindowOwner* WindowOwner(DaHandle handle, int32_t* out_status) {
-  return static_cast<DaWindowOwner*>(
-      ObjectRegistry::Shared().Lookup(handle, ObjectKind::kWindow, out_status));
+  return static_cast<DaWindowOwner*>(ObjectRegistry::Shared().Lookup(
+      handle, ObjectKind::kWindow, ThreadDomain::kAppKitMain, out_status));
 }
 
 DaTextView* TextView(DaHandle handle, int32_t* out_status) {
   return static_cast<DaTextView*>(ObjectRegistry::Shared().Lookup(
-      handle, ObjectKind::kTextView, out_status));
+      handle, ObjectKind::kTextView, ThreadDomain::kAppKitMain, out_status));
 }
 
 void PrepareWindowForRelease(DaWindowOwner* owner) {
@@ -85,6 +86,49 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
   owner.window.delegate = nil;
   [owner.window orderOut:nil];
   [owner.window close];
+}
+
+int32_t CompletePendingRelease(DaHandle handle) {
+  ObjectRegistry& registry = ObjectRegistry::Shared();
+  ObjectKind kind = ObjectKind::kTextView;
+  int32_t status = DA_STATUS_OK;
+  __strong id object = registry.LookupPendingRelease(
+      handle, ThreadDomain::kAppKitMain, &kind, &status);
+  if (object == nil) {
+    return status;
+  }
+  if (kind == ObjectKind::kWindow) {
+    PrepareWindowForRelease(static_cast<DaWindowOwner*>(object));
+  }
+  __strong id released_object =
+      registry.CompleteRelease(handle, ThreadDomain::kAppKitMain, &status);
+  if (released_object == nil) {
+    return status;
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t EnqueueAsyncRelease(DaHandle handle) {
+  const uint64_t release_epoch =
+      g_async_release_epoch.load(std::memory_order_acquire);
+  if (!g_accept_async_releases.load(std::memory_order_acquire)) {
+    return SetLastError(DA_STATUS_SHUTTING_DOWN,
+                        "native bridge is shutting down");
+  }
+  ObjectRegistry& registry = ObjectRegistry::Shared();
+  const int32_t status =
+      registry.BeginRelease(handle, ThreadDomain::kAppKitMain);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (g_accept_async_releases.load(std::memory_order_acquire) &&
+        g_async_release_epoch.load(std::memory_order_acquire) ==
+            release_epoch) {
+      (void)CompletePendingRelease(handle);
+    }
+  });
+  return DA_STATUS_OK;
 }
 
 }  // namespace
@@ -113,26 +157,26 @@ void ShutdownBridge() {
   if (pthread_main_np() == 0) {
     return;
   }
-  g_accept_finalizers.store(false, std::memory_order_release);
+  g_accept_async_releases.store(false, std::memory_order_release);
+  g_async_release_epoch.fetch_add(1, std::memory_order_acq_rel);
   DisableEventPoster();
 
   ObjectRegistry& registry = ObjectRegistry::Shared();
   const std::vector<DaHandle> handles = registry.LiveHandles();
   for (const DaHandle handle : handles) {
-    ObjectKind kind = ObjectKind::kTextView;
-    int32_t status = DA_STATUS_OK;
-    id object = registry.LookupAny(handle, &kind, &status);
-    if (status == DA_STATUS_OK && kind == ObjectKind::kWindow) {
-      PrepareWindowForRelease(static_cast<DaWindowOwner*>(object));
+    const int32_t claim_status =
+        registry.BeginRelease(handle, ThreadDomain::kAppKitMain);
+    if (claim_status == DA_STATUS_OK ||
+        claim_status == DA_STATUS_INVALID_HANDLE) {
+      (void)CompletePendingRelease(handle);
     }
-    registry.Release(handle);
   }
   registry.Clear();
 }
 
 void ResetBridgeForTesting() {
   ShutdownBridge();
-  g_accept_finalizers.store(true, std::memory_order_release);
+  g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
 
@@ -160,6 +204,8 @@ const char* da_status_name(int32_t status) {
       return "internal_error";
     case DA_STATUS_UNSUPPORTED_VERSION:
       return "unsupported_version";
+    case DA_STATUS_SHUTTING_DOWN:
+      return "shutting_down";
     default:
       return "unknown_status";
   }
@@ -259,7 +305,8 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
 
     DaWindowOwner* owner = [[DaWindowOwner alloc] initWithWindow:window];
     const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
-        owner, dart_appkit::ObjectKind::kWindow);
+        owner, dart_appkit::ObjectKind::kWindow,
+        dart_appkit::ThreadDomain::kAppKitMain);
     if (handle == 0) {
       return DA_STATUS_INTERNAL_ERROR;
     }
@@ -342,7 +389,8 @@ int32_t da_text_view_create(DaHandle* out_view) {
   }
   DaTextView* view = [[DaTextView alloc] initWithFrame:NSZeroRect];
   const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
-      view, dart_appkit::ObjectKind::kTextView);
+      view, dart_appkit::ObjectKind::kTextView,
+      dart_appkit::ThreadDomain::kAppKitMain);
   if (handle == 0) {
     return DA_STATUS_INTERNAL_ERROR;
   }
@@ -397,31 +445,27 @@ int32_t da_release(DaHandle handle) {
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
-  dart_appkit::ObjectKind kind = dart_appkit::ObjectKind::kTextView;
-  int32_t status = DA_STATUS_OK;
-  id object =
-      dart_appkit::ObjectRegistry::Shared().LookupAny(handle, &kind, &status);
-  if (object == nil) {
-    return status;
+  const int32_t claim_status =
+      dart_appkit::ObjectRegistry::Shared().BeginRelease(
+          handle, dart_appkit::ThreadDomain::kAppKitMain);
+  if (claim_status != DA_STATUS_OK) {
+    return claim_status;
   }
-  if (kind == dart_appkit::ObjectKind::kWindow) {
-    dart_appkit::PrepareWindowForRelease(static_cast<DaWindowOwner*>(object));
-  }
-  return dart_appkit::ObjectRegistry::Shared().Release(handle);
+  return dart_appkit::CompletePendingRelease(handle);
+}
+
+int32_t da_release_async(DaHandle handle) {
+  dart_appkit::ClearLastError();
+  return dart_appkit::EnqueueAsyncRelease(handle);
 }
 
 void da_release_finalizer(void* token) {
   const DaHandle handle =
       static_cast<DaHandle>(reinterpret_cast<uintptr_t>(token));
-  if (handle == 0 ||
-      !dart_appkit::g_accept_finalizers.load(std::memory_order_acquire)) {
+  if (handle == 0) {
     return;
   }
-  dispatch_async(dispatch_get_main_queue(), ^{
-    if (dart_appkit::g_accept_finalizers.load(std::memory_order_acquire)) {
-      (void)da_release(handle);
-    }
-  });
+  (void)da_release_async(handle);
 }
 
 int32_t da_debug_is_main_thread(int32_t* out_is_main_thread) {

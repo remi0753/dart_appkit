@@ -1242,3 +1242,34 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   Dart analysis/API/launcher tests, example analysis/Kernel compilation, the
   current FFI bridge smoke, and the explicit new-Dart/legacy-native fallback
   fixture. Native and Dart formatting checks reported no changes.
+
+## 2026-09-03 — Handle domains and asynchronous destruction
+
+- Extended every occupied registry slot with an AppKit-main thread domain and
+  replaced its occupied bit with explicit live, release-pending, free, and
+  retired states. Registry metadata is mutex-protected; AppKit work and object
+  deallocation remain outside the lock.
+- Ordinary lookup now validates the stored domain and actual caller. A new
+  any-thread `da_release_async` call claims one live handle before returning,
+  immediately rejects later access and duplicate release, and completes
+  teardown on the AppKit main queue without blocking the requester.
+- Routed `NativeFinalizer` through the same claim path. Shutdown closes
+  admission, drains both live and pending handles on the main thread, and
+  leaves queued callbacks harmless. Exhausted positive generations retire
+  their slots instead of wrapping.
+- Native coverage now checks domain mismatch, off-main access, immediate
+  pending invalidation, main-thread deallocation, sixteen concurrent claimers
+  with exactly one winner, pending window teardown during shutdown,
+  post-shutdown rejection, and 1,000 reuse generations. The first focused
+  warning-as-error native build and test run passed.
+- While updating the ownership record, `docs/C_ABI.md` was found to still
+  describe only the legacy event envelope. It now records the already-shipped
+  v1/v2 negotiation contract together with the new release semantics.
+- Final native and Dart formatting checks reported zero changes. The complete
+  `make test` suite passed header/scaffold checks, warning-as-error native and
+  Runner builds, registry/event/message-pump tests, Dart analysis/API/launcher
+  tests, Kernel compilation, real-dylib FFI, and the legacy-native fallback.
+- The race-bearing native bridge suite then passed 25 consecutive executions.
+  The built dylib exports 18 public `da_*` symbols, including
+  `da_release_async`, and the real FFI smoke resolves that symbol and verifies
+  its invalid-handle status.

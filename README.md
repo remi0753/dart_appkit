@@ -15,6 +15,12 @@ pairs negotiate version 2, whose common envelope includes source generation,
 nanosecond monotonic time, and operation identity. The Dart API decodes both
 versions.
 
+Native handles record an owning thread domain in addition to their encoded
+generation. Explicit UI release remains main-thread-only. Finalizers and other
+off-domain callers use one asynchronous claim path that invalidates the handle
+before returning and completes teardown on the AppKit main queue. Pending
+release is included in shutdown cleanup and cannot reuse its registry slot.
+
 ## Current status
 
 The bridge, Dart API, Runner, bounded scheduler, launcher, `.app` bundle,

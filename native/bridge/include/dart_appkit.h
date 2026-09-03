@@ -52,7 +52,8 @@ typedef enum DaStatus {
   DA_STATUS_WRONG_THREAD = 5,
   DA_STATUS_EVENT_PORT_UNAVAILABLE = 6,
   DA_STATUS_INTERNAL_ERROR = 7,
-  DA_STATUS_UNSUPPORTED_VERSION = 8
+  DA_STATUS_UNSUPPORTED_VERSION = 8,
+  DA_STATUS_SHUTTING_DOWN = 9
 } DaStatus;
 
 /** Event list slot 1; slot 0 is the negotiated event protocol version. */
@@ -138,10 +139,19 @@ DA_EXPORT int32_t da_window_set_content_view(DaHandle window, DaHandle view);
 DA_EXPORT int32_t da_release(DaHandle handle);
 
 /**
+ * Safe on any thread. Invalidates a live handle before returning.
+ *
+ * Native teardown is enqueued on the handle's owning domain. A successful
+ * return means that this call exclusively claimed the handle; it does not mean
+ * that native destruction has completed.
+ */
+DA_EXPORT int32_t da_release_async(DaHandle handle);
+
+/**
  * NativeFinalizer entry point. Safe on any thread.
  *
- * token is a DaHandle encoded as a pointer-sized integer. Release is enqueued
- * on the main queue and ignored if the process is already shutting down.
+ * token is a DaHandle encoded as a pointer-sized integer. The finalizer uses
+ * the same exclusive asynchronous-release path and ignores its status.
  */
 DA_EXPORT void da_release_finalizer(void* token);
 

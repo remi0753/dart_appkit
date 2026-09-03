@@ -6,9 +6,11 @@ never cross the boundary.
 
 ## Calls and errors
 
-All UI and registry calls are main-thread-only. They return a `DaStatus` integer
-and never throw across the ABI. `da_get_last_error` exposes thread-local detail;
-its message is borrowed until the next bridge call on that thread.
+UI calls and synchronous registry release are main-thread-only.
+`da_release_async`, ABI/status inspection, and documented debug/finalizer
+entry points are safe on any thread. Status-returning calls never throw across
+the ABI. `da_get_last_error` exposes thread-local detail; its message is
+borrowed until the next bridge call on that thread.
 
 Strings are an explicit UTF-8 pointer plus byte length. A null pointer is valid
 only for a zero-length string. The bridge validates and copies the bytes before
@@ -22,30 +24,53 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
 ## Handle ownership
 
 - Successful create calls return one registry-owned handle.
+- Every occupied registry slot records its object kind, positive generation,
+  and owning thread domain. Current objects belong to the AppKit main domain.
 - `da_window_set_content_view` borrows both handles and consumes neither.
 - `da_window_close` performs a window action but does not release ownership.
 - `da_release` invalidates exactly one live handle. A second release reports
   `DA_STATUS_INVALID_HANDLE`.
-- `da_release_finalizer` accepts a handle encoded as a pointer token and queues a
-  best-effort main-thread release. It is the only lifecycle entry point intended
-  for an arbitrary finalizer thread.
+- `da_release_async` is safe on any thread. It atomically changes one live
+  handle to release-pending and returns without waiting. Pending handles reject
+  access and duplicate release but remain retained, counted, and unreusable
+  until their domain executor finishes teardown.
+- `da_release_finalizer` accepts a handle encoded as a pointer token and uses
+  the same exclusive asynchronous-release path.
+- AppKit-main completion clears window delegate/handle state before dropping
+  the registry reference. Independent AppKit retainers, such as a window
+  retaining its content view, keep their normal ownership.
+- Shutdown closes async admission, returns `DA_STATUS_SHUTTING_DOWN` to new
+  requests, owns live and pending entries, and makes an already queued callback
+  harmless.
+- A slot at the maximum positive signed generation is retired instead of
+  wrapping to a value that could validate an ancient stale handle.
 
 ## Event envelope
 
-Every event sent to the registered Dart native port is a fixed-position list:
+Version 1 remains the legacy fixed-position list:
 
 ```text
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-- `protocolVersion` is `DA_ABI_VERSION` (`1`).
+Version 2 uses the current common prefix:
+
+```text
+[protocolVersion, eventType, sourceHandle, sourceGeneration,
+ monotonicNanoseconds, operationId, ...payload]
+```
+
+- `protocolVersion` is negotiated independently from `DA_ABI_VERSION`.
 - `eventType` is a `DaEventType` integer.
-- `windowHandle` is the stable registry handle of the originating window.
-- `monotonicMicros` is a monotonic timestamp, not wall-clock time.
+- `sourceHandle` is the stable registry handle of the originating window.
+- `sourceGeneration` is positive and matches the handle's high 32 bits.
+- Timestamps are monotonic rather than wall-clock time. Version 1 uses
+  microseconds; version 2 uses nanoseconds.
+- Current unsolicited events use operation ID zero.
 
 Payloads:
 
-| Event | Payload after slot 3 |
+| Event | Payload after the version-specific common prefix |
 |---|---|
 | `WINDOW_CLOSED` | none |
 | `WINDOW_RESIZED` | `width: double, height: double` |

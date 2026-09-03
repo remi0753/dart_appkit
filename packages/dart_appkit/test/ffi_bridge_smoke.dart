@@ -1,7 +1,11 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:dart_appkit/src/native/ffi_native_bindings.dart';
 import 'package:dart_appkit/src/native/native_bindings.dart';
+
+typedef _ReleaseAsyncNative = Int32 Function(Uint64);
+typedef _ReleaseAsyncDart = int Function(int);
 
 Never _fail(String message) {
   stderr.writeln('FFI bridge smoke test failed: $message');
@@ -16,6 +20,12 @@ void main(List<String> arguments) {
   final FfiNativeBindings bindings = FfiNativeBindings.open(arguments.single);
   if (bindings.abiVersion() != dartAppKitAbiVersion) {
     _fail('ABI version mismatch');
+  }
+  final _ReleaseAsyncDart releaseAsync = DynamicLibrary.open(
+    arguments.single,
+  ).lookupFunction<_ReleaseAsyncNative, _ReleaseAsyncDart>('da_release_async');
+  if (releaseAsync(0) != 3) {
+    _fail('asynchronous release symbol did not reject an invalid handle');
   }
 
   final NativeValueResult<int> eventRegistration = bindings

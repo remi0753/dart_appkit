@@ -91,9 +91,18 @@ that implementation. The negative proof is reproducible with
 
 Native AppKit objects live in a generation-checked registry. Handles contain a
 slot index and generation so a stale Dart object cannot accidentally address a
-new native object reusing the same slot. Dart owns the registry handle and must
-dispose it explicitly; `NativeFinalizer` only schedules a best-effort main-thread
-release. Attaching a view to a window does not transfer or consume its handle.
+new native object reusing the same slot. Each occupied slot also records its
+owning thread domain. Ordinary lookup checks the requested domain and actual
+caller; a handle integer alone does not grant cross-thread access.
+
+Dart owns the registry handle and must dispose it explicitly. Synchronous
+`da_release` remains main-thread-only. `da_release_async` is safe on any thread:
+it atomically claims one live generation, changes it to release-pending, and
+queues completion on the AppKit main domain. Pending handles are invalid for
+new access but continue retaining and counting the object and cannot be reused.
+`NativeFinalizer` uses this same claim path rather than scheduling a competing
+synchronous release. Attaching a view to a window does not transfer or consume
+its handle.
 
 `NSWindow` retains its content view independently, as normal AppKit ownership.
 Closing a window emits an event but does not release its handle, which keeps
@@ -101,7 +110,8 @@ event identity stable until Dart explicitly disposes it.
 
 Handles use a one-based slot plus a generation. Generations remain in the
 positive signed range so a handle has the same value in `Uint64` FFI calls and
-the event envelope's `Int64` field.
+the event envelope's `Int64` field. A slot that exhausts that range is retired
+instead of wrapping.
 
 ## Shutdown
 
@@ -110,10 +120,13 @@ view handles, and asks the bridge to terminate `NSApplication`. Termination is
 queued on the main dispatch queue so teardown cannot run inside the initiating
 FFI frame.
 
-`applicationWillTerminate` records any live handles, disables event posting and
-clears the registry, stops the message pump, then shuts down DartEngine and its
-single root isolate. The stock Engine API has no supported VM restart contract
-for this host, so final VM-global cleanup is the containing process exit.
+`applicationWillTerminate` closes asynchronous-release admission, records both
+live and release-pending handles, disables event posting, and performs their
+remaining AppKit teardown before clearing the registry. A main-queue callback
+that was already queued observes closed admission and becomes a no-op. The
+Runner then stops the message pump and shuts down DartEngine and its single
+root isolate. The stock Engine API has no supported VM restart contract for
+this host, so final VM-global cleanup is the containing process exit.
 Shutdown is therefore process-lifetime and `dart_appkit` never starts a second
 root after shutdown. Unhandled Dart message errors and startup failures return
 software error 70; usage and missing-input failures return 64 and 66.
