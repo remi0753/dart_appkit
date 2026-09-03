@@ -108,6 +108,12 @@ its handle.
 Closing a window emits an event but does not release its handle, which keeps
 event identity stable until Dart explicitly disposes it.
 
+`View` is the reusable content-view base. Native `DaTextView` subclasses
+`DaView`, and the registry records the two actual kinds separately. A text-view
+handle satisfies a generic-view lookup, while a generic view never satisfies a
+text-only lookup. `Window.contentView` borrows either kind and retains its Dart
+wrapper without transferring the registry lease.
+
 Handles use a one-based slot plus a generation. Generations remain in the
 positive signed range so a handle has the same value in `Uint64` FFI calls and
 the event envelope's `Int64` field. A slot that exhausts that range is retired

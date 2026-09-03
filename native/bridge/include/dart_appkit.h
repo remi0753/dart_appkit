@@ -125,6 +125,9 @@ DA_EXPORT int32_t da_window_close(DaHandle window);
 DA_EXPORT int32_t da_window_set_title(DaHandle window, const char* title,
                                       size_t title_length);
 
+/** Main thread only. Creates a generic AppKit view. */
+DA_EXPORT int32_t da_view_create(DaHandle* out_view);
+
 /** Main thread only. */
 DA_EXPORT int32_t da_text_view_create(DaHandle* out_view);
 
@@ -132,7 +135,10 @@ DA_EXPORT int32_t da_text_view_create(DaHandle* out_view);
 DA_EXPORT int32_t da_text_view_set_text(DaHandle view, const char* text,
                                         size_t text_length);
 
-/** Main thread only. Does not consume either handle. */
+/**
+ * Main thread only. Accepts a generic or specialized view and consumes
+ * neither handle.
+ */
 DA_EXPORT int32_t da_window_set_content_view(DaHandle window, DaHandle view);
 
 /** Main thread only. Invalidates this handle exactly once. */

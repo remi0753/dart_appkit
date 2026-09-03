@@ -15,7 +15,8 @@ namespace dart_appkit {
 
 enum class ObjectKind : uint8_t {
   kWindow = 1,
-  kTextView = 2,
+  kView = 2,
+  kTextView = 3,
 };
 
 enum class ThreadDomain : uint8_t {
@@ -23,6 +24,7 @@ enum class ThreadDomain : uint8_t {
 };
 
 const char* ObjectKindName(ObjectKind kind);
+bool ObjectKindMatches(ObjectKind actual_kind, ObjectKind expected_kind);
 const char* ThreadDomainName(ThreadDomain domain);
 bool IsCurrentThreadInDomain(ThreadDomain domain);
 

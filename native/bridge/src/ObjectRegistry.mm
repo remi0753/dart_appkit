@@ -22,10 +22,20 @@ const char* ObjectKindName(ObjectKind kind) {
   switch (kind) {
     case ObjectKind::kWindow:
       return "window";
+    case ObjectKind::kView:
+      return "view";
     case ObjectKind::kTextView:
       return "text view";
   }
   return "unknown";
+}
+
+bool ObjectKindMatches(ObjectKind actual_kind, ObjectKind expected_kind) {
+  if (actual_kind == expected_kind) {
+    return true;
+  }
+  return actual_kind == ObjectKind::kTextView &&
+         expected_kind == ObjectKind::kView;
 }
 
 const char* ThreadDomainName(ThreadDomain domain) {
@@ -173,7 +183,7 @@ id ObjectRegistry::Lookup(DaHandle handle, ObjectKind expected_kind,
     }
     return nil;
   }
-  if (slot->kind != expected_kind) {
+  if (!ObjectKindMatches(slot->kind, expected_kind)) {
     if (out_status != nullptr) {
       const std::string message =
           std::string("expected ") + ObjectKindName(expected_kind) +

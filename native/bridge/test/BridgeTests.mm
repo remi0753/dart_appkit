@@ -110,6 +110,13 @@ DaHandle CreateTextView() {
   return handle;
 }
 
+DaHandle CreateView() {
+  DaHandle handle = 0;
+  EXPECT_EQ(da_view_create(&handle), DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  return handle;
+}
+
 DaWindowOwner* OwnerFor(DaHandle handle) {
   int32_t status = DA_STATUS_OK;
   id object = dart_appkit::ObjectRegistry::Shared().Lookup(
@@ -208,21 +215,32 @@ void TestRegistryLifecycleAndTypes() {
   ResetWithCapture(&capture);
 
   const DaHandle window = CreateWindow();
+  const DaHandle generic_view = CreateView();
   const DaHandle view = CreateTextView();
   EXPECT_TRUE(window <= static_cast<DaHandle>(INT64_MAX));
+  EXPECT_TRUE(generic_view <= static_cast<DaHandle>(INT64_MAX));
   EXPECT_TRUE(view <= static_cast<DaHandle>(INT64_MAX));
-  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(2));
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(3));
 
   const std::string unicode_text = "Hello, AppKit — 日本語";
   EXPECT_EQ(
       da_text_view_set_text(view, unicode_text.data(), unicode_text.size()),
       DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_content_view(window, generic_view), DA_STATUS_OK);
+  EXPECT_EQ(da_text_view_set_text(generic_view, "bad", 3),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_TRUE(LastErrorMessage().find("expected text view") !=
+              std::string::npos);
   EXPECT_EQ(da_window_set_content_view(window, view), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_content_view(window, window),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_TRUE(LastErrorMessage().find("expected view") != std::string::npos);
   EXPECT_EQ(da_text_view_set_text(window, "bad", 3),
             DA_STATUS_WRONG_HANDLE_TYPE);
   EXPECT_TRUE(LastErrorMessage().find("expected text view") !=
               std::string::npos);
 
+  EXPECT_EQ(da_release(generic_view), DA_STATUS_OK);
   EXPECT_EQ(da_release(view), DA_STATUS_OK);
   EXPECT_EQ(da_release(view), DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));

@@ -14,6 +14,7 @@ export 'src/api.dart'
         ModifierKeys,
         Rect,
         TextView,
+        View,
         Window,
         WindowClosedEvent,
         WindowEvent,

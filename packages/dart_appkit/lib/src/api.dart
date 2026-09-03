@@ -12,4 +12,5 @@ part 'api/events.dart';
 part 'api/geometry.dart';
 part 'api/native_resource.dart';
 part 'api/text_view.dart';
+part 'api/view.dart';
 part 'api/window.dart';

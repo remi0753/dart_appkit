@@ -27,7 +27,7 @@ final class Window extends _NativeResource {
   final Rect frame;
 
   String _title;
-  TextView? _contentView;
+  View? _contentView;
   bool _closed = false;
 
   Stream<WindowEvent> get events => _eventController.stream;
@@ -51,12 +51,12 @@ final class Window extends _NativeResource {
     _title = value;
   }
 
-  TextView? get contentView {
+  View? get contentView {
     ensureAlive();
     return _contentView;
   }
 
-  set contentView(TextView value) {
+  set contentView(View value) {
     ensureAlive();
     value.ensureAlive();
     if (!identical(value._bindings, _bindings)) {

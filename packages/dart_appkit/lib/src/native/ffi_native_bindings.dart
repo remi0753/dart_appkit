@@ -89,6 +89,16 @@ _SetEventPortVersionedDart? _lookupSetEventPortVersioned(
   }
 }
 
+_CreateHandleDart? _lookupViewCreate(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_CreateHandleNative, _CreateHandleDart>(
+      'da_view_create',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -119,6 +129,7 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_window_set_title',
           ),
+      _viewCreate = _lookupViewCreate(library),
       _textViewCreate = library
           .lookupFunction<_CreateHandleNative, _CreateHandleDart>(
             'da_text_view_create',
@@ -174,6 +185,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
   final _HandleStringDart _windowSetTitle;
+  final _CreateHandleDart? _viewCreate;
   final _CreateHandleDart _textViewCreate;
   final _HandleStringDart _textViewSetText;
   final _TwoHandlesDart _windowSetContentView;
@@ -342,6 +354,26 @@ final class FfiNativeBindings implements NativeBindings {
       _withUtf8(title, (Pointer<Uint8> pointer, int length) {
         return _callResult(_windowSetTitle(handle, pointer, length));
       });
+
+  @override
+  NativeValueResult<int> viewCreate() {
+    final _CreateHandleDart? viewCreate = _viewCreate;
+    if (viewCreate == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support generic views',
+      );
+    }
+    final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
+        .cast<Uint64>();
+    try {
+      handlePointer.value = 0;
+      final int status = viewCreate(handlePointer);
+      return _valueResult<int>(status, handlePointer.value);
+    } finally {
+      _free(handlePointer.cast<Void>());
+    }
+  }
 
   @override
   NativeValueResult<int> textViewCreate() {

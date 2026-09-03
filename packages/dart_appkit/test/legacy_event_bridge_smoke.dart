@@ -41,5 +41,9 @@ void main(List<String> arguments) {
   if (malformed.isSuccess || malformed.status != 1) {
     _fail('legacy fallback accepted an invalid event version range');
   }
+  final NativeValueResult<int> genericView = bindings.viewCreate();
+  if (genericView.isSuccess || genericView.status != 8) {
+    _fail('legacy bridge did not reject the additive generic-view API');
+  }
   stdout.writeln('legacy event bridge fallback smoke test passed');
 }

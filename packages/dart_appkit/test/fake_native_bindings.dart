@@ -2,7 +2,7 @@ import 'dart:ffi';
 
 import 'package:dart_appkit/src/native/native_bindings.dart';
 
-enum FakeObjectKind { window, textView }
+enum FakeObjectKind { window, view, textView }
 
 final class FakeNativeBindings implements NativeBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -110,6 +110,16 @@ final class FakeNativeBindings implements NativeBindings {
     final NativeCallResult result = _status('windowSetTitle');
     if (result.isSuccess) {
       windowTitles[handle] = title;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> viewCreate() {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>('viewCreate', handle);
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.view;
     }
     return result;
   }

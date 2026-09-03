@@ -5,7 +5,11 @@
 
 #include "dart_appkit.h"
 
-@interface DaTextView : NSView
+@interface DaView : NSView
+
+@end
+
+@interface DaTextView : DaView
 
 @property(nonatomic, copy) NSString* displayText;
 

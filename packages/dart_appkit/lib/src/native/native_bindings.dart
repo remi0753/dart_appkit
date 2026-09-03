@@ -52,6 +52,7 @@ abstract interface class NativeBindings {
   NativeCallResult windowClose(int handle);
   NativeCallResult windowSetTitle(int handle, String title);
 
+  NativeValueResult<int> viewCreate();
   NativeValueResult<int> textViewCreate();
   NativeCallResult textViewSetText(int handle, String text);
   NativeCallResult windowSetContentView(int windowHandle, int viewHandle);

@@ -1,6 +1,6 @@
 part of '../api.dart';
 
-final class TextView extends _NativeResource {
+final class TextView extends View {
   factory TextView() {
     final AppKitApplication application = AppKitApplication._requireCurrent();
     final int handle = _checkValue<int>(
@@ -10,7 +10,7 @@ final class TextView extends _NativeResource {
     return TextView._(application._bindings, handle);
   }
 
-  TextView._(super.bindings, super.handle) : super();
+  TextView._(NativeBindings bindings, int handle) : super._(bindings, handle);
 
   String _text = '';
 

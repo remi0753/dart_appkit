@@ -26,7 +26,11 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
 - Successful create calls return one registry-owned handle.
 - Every occupied registry slot records its object kind, positive generation,
   and owning thread domain. Current objects belong to the AppKit main domain.
-- `da_window_set_content_view` borrows both handles and consumes neither.
+- `da_view_create` returns a generic view handle. `da_text_view_create` returns
+  a specialized handle that is accepted by generic-view lookups.
+- `da_window_set_content_view` borrows both handles, accepts either view kind,
+  and consumes neither.
+- Text-only calls require the specialized kind and reject a generic view.
 - `da_window_close` performs a window action but does not release ownership.
 - `da_release` invalidates exactly one live handle. A second release reports
   `DA_STATUS_INVALID_HANDLE`.

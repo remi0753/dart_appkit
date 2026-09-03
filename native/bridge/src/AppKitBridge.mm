@@ -72,6 +72,11 @@ DaWindowOwner* WindowOwner(DaHandle handle, int32_t* out_status) {
       handle, ObjectKind::kWindow, ThreadDomain::kAppKitMain, out_status));
 }
 
+DaView* View(DaHandle handle, int32_t* out_status) {
+  return static_cast<DaView*>(ObjectRegistry::Shared().Lookup(
+      handle, ObjectKind::kView, ThreadDomain::kAppKitMain, out_status));
+}
+
 DaTextView* TextView(DaHandle handle, int32_t* out_status) {
   return static_cast<DaTextView*>(ObjectRegistry::Shared().Lookup(
       handle, ObjectKind::kTextView, ThreadDomain::kAppKitMain, out_status));
@@ -90,7 +95,7 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
 
 int32_t CompletePendingRelease(DaHandle handle) {
   ObjectRegistry& registry = ObjectRegistry::Shared();
-  ObjectKind kind = ObjectKind::kTextView;
+  ObjectKind kind = ObjectKind::kView;
   int32_t status = DA_STATUS_OK;
   __strong id object = registry.LookupPendingRelease(
       handle, ThreadDomain::kAppKitMain, &kind, &status);
@@ -376,6 +381,28 @@ int32_t da_window_set_title(DaHandle window, const char* title,
   return DA_STATUS_OK;
 }
 
+int32_t da_view_create(DaHandle* out_view) {
+  dart_appkit::ClearLastError();
+  if (out_view == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_view must not be null");
+  }
+  *out_view = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  DaView* view = [[DaView alloc] initWithFrame:NSZeroRect];
+  const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+      view, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain);
+  if (handle == 0) {
+    return DA_STATUS_INTERNAL_ERROR;
+  }
+  *out_view = handle;
+  return DA_STATUS_OK;
+}
+
 int32_t da_text_view_create(DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {
@@ -429,13 +456,13 @@ int32_t da_window_set_content_view(DaHandle window, DaHandle view) {
   if (owner == nil) {
     return status;
   }
-  DaTextView* text_view = dart_appkit::TextView(view, &status);
-  if (text_view == nil) {
+  DaView* content_view = dart_appkit::View(view, &status);
+  if (content_view == nil) {
     return status;
   }
-  text_view.frame = owner.window.contentLayoutRect;
-  owner.window.contentView = text_view;
-  [owner.window makeFirstResponder:text_view];
+  content_view.frame = owner.window.contentLayoutRect;
+  owner.window.contentView = content_view;
+  [owner.window makeFirstResponder:content_view];
   return DA_STATUS_OK;
 }
 

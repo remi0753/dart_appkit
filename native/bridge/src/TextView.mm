@@ -44,12 +44,11 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
 
 }  // namespace
 
-@implementation DaTextView
+@implementation DaView
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
   if (self != nil) {
-    _displayText = @"";
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   }
   return self;
@@ -61,6 +60,18 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
 
 - (BOOL)acceptsFirstResponder {
   return YES;
+}
+
+@end
+
+@implementation DaTextView
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self != nil) {
+    _displayText = @"";
+  }
+  return self;
 }
 
 - (void)setDisplayText:(NSString*)displayText {

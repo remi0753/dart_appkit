@@ -126,6 +126,43 @@ Future<void> _testLifecycleAndErrors() async {
   await raw.close();
 }
 
+Future<void> _testGenericViewBoundary() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final View genericView = View();
+  final TextView textView = TextView()..text = 'specialized';
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'Generic view',
+  )..contentView = genericView;
+
+  _expect(window.contentView == genericView, 'generic view attachment');
+  _expect(
+    bindings.objects[bindings.contentViews.values.single] ==
+        FakeObjectKind.view,
+    'generic native kind',
+  );
+
+  window.contentView = textView;
+  _expect(window.contentView == textView, 'text view is a View');
+  _expect(
+    bindings.objects[bindings.contentViews.values.single] ==
+        FakeObjectKind.textView,
+    'specialized view attachment',
+  );
+  _expect(bindings.attachedFinalizers.length == 3, 'all handles finalized');
+
+  genericView.dispose();
+  textView.dispose();
+  window.dispose();
+  _expect(bindings.objects.isEmpty, 'generic view objects released');
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testEventRoutingAndDecoding() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -294,6 +331,10 @@ Future<void> _testCrossApplicationGuard() async {
 Future<void> main() async {
   await _test('attach guards ABI and main thread', _testAttachGuards);
   await _test('resource lifecycle and native errors', _testLifecycleAndErrors);
+  await _test(
+    'generic and specialized view boundary',
+    _testGenericViewBoundary,
+  );
   await _test(
     'event decoding and weak window routing',
     _testEventRoutingAndDecoding,

@@ -1273,3 +1273,32 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   The built dylib exports 18 public `da_*` symbols, including
   `da_release_async`, and the real FFI smoke resolves that symbol and verifies
   its invalid-handle status.
+
+## 2026-09-04 — Generic view boundary
+
+- Dart Terminal's next platform-substrate item needs a reusable content-view
+  type before later terminal-specific view work. Added native `DaView` and
+  public Dart `View` bases while retaining `DaTextView`/`TextView` as the
+  specialized text implementation.
+- The registry now models one explicit subtype relationship: a text-view kind
+  satisfies a generic-view lookup. Generic views remain invalid for text-only
+  operations, and window handles remain invalid for all view operations.
+- Added the additive `da_view_create` entry point and changed content-view
+  attachment to borrow any registered view. Existing generation, thread-domain,
+  synchronous/asynchronous release, finalizer, and AppKit retain relationships
+  are unchanged.
+- The FFI lookup for the additive symbol is optional so a current Dart client
+  can still load the legacy event compatibility fixture. Attempting to create
+  a generic view against that fixture returns the stable unsupported-version
+  status instead of failing library construction.
+- Native and Dart tests cover generic and text-view creation, both attachment
+  paths, exact text-kind rejection, wrong window-kind rejection, Dart subtype
+  use, finalizers, disposal, and the legacy-symbol fallback.
+- Focused `make validate`, `make native-test`, and `make dart-test` runs passed.
+  The complete `make test` suite then passed header/scaffold checks,
+  warning-as-error bridge and Runner builds, registry/event/message-pump tests,
+  Dart analysis/API/launcher tests, example Kernel compilation, real-dylib FFI,
+  and the legacy-native fallback.
+- The bridge exports 19 `da_*` symbols including `da_view_create`. Dart
+  Terminal's `make runtime-source-check` also passed formatting, native header
+  checks, plist lint, analysis, and unit tests against the new `View` API.
