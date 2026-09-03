@@ -29,6 +29,11 @@ final class Window extends _NativeResource {
   String _title;
   View? _contentView;
   bool _closed = false;
+  bool _focused = false;
+  bool _visible = false;
+  bool _occluded = true;
+  double? _backingScaleFactor;
+  AppKitScreen? _screen;
 
   Stream<WindowEvent> get events => _eventController.stream;
 
@@ -39,6 +44,26 @@ final class Window extends _NativeResource {
   Stream<WindowResizedEvent> get onResized => events
       .where((WindowEvent event) => event is WindowResizedEvent)
       .map((WindowEvent event) => event as WindowResizedEvent);
+
+  Stream<WindowFocusChangedEvent> get onFocusChanged => events
+      .where((WindowEvent event) => event is WindowFocusChangedEvent)
+      .map((WindowEvent event) => event as WindowFocusChangedEvent);
+
+  Stream<WindowVisibilityChangedEvent> get onVisibilityChanged => events
+      .where((WindowEvent event) => event is WindowVisibilityChangedEvent)
+      .map((WindowEvent event) => event as WindowVisibilityChangedEvent);
+
+  Stream<WindowOcclusionChangedEvent> get onOcclusionChanged => events
+      .where((WindowEvent event) => event is WindowOcclusionChangedEvent)
+      .map((WindowEvent event) => event as WindowOcclusionChangedEvent);
+
+  Stream<WindowBackingScaleChangedEvent> get onBackingScaleChanged => events
+      .where((WindowEvent event) => event is WindowBackingScaleChangedEvent)
+      .map((WindowEvent event) => event as WindowBackingScaleChangedEvent);
+
+  Stream<WindowScreenChangedEvent> get onScreenChanged => events
+      .where((WindowEvent event) => event is WindowScreenChangedEvent)
+      .map((WindowEvent event) => event as WindowScreenChangedEvent);
 
   String get title {
     ensureAlive();
@@ -72,6 +97,11 @@ final class Window extends _NativeResource {
   }
 
   bool get isClosed => _closed;
+  bool get isFocused => _focused;
+  bool get isVisible => _visible;
+  bool get isOccluded => _occluded;
+  double? get backingScaleFactor => _backingScaleFactor;
+  AppKitScreen? get screen => _screen;
 
   void show() {
     ensureAlive();
@@ -86,12 +116,33 @@ final class Window extends _NativeResource {
     _checkCall(_bindings.windowClose(_handle), 'Window.close');
   }
 
-  void _dispatch(AppKitEvent event) {
+  void _updateState(AppKitEvent event) {
     if (isDisposed || event is! WindowEvent) {
       return;
     }
-    if (event is WindowClosedEvent) {
-      _closed = true;
+    switch (event) {
+      case WindowClosedEvent():
+        _closed = true;
+        _focused = false;
+        _visible = false;
+      case WindowFocusChangedEvent(:final isFocused):
+        _focused = isFocused;
+      case WindowVisibilityChangedEvent(:final isVisible):
+        _visible = isVisible;
+      case WindowOcclusionChangedEvent(:final isOccluded):
+        _occluded = isOccluded;
+      case WindowBackingScaleChangedEvent(:final backingScaleFactor):
+        _backingScaleFactor = backingScaleFactor;
+      case WindowScreenChangedEvent(:final screen):
+        _screen = screen;
+      case WindowResizedEvent() || AppKitMouseEvent() || AppKitKeyEvent():
+        break;
+    }
+  }
+
+  void _dispatch(AppKitEvent event) {
+    if (isDisposed || event is! WindowEvent) {
+      return;
     }
     _eventController.add(event);
   }

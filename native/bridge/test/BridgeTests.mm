@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <thread>
 #include <vector>
@@ -132,6 +133,27 @@ void ResetWithCapture(Capture* capture) {
   EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
 }
 
+void ResetWithCurrentCapture(Capture* capture) {
+  dart_appkit::ResetBridgeForTesting();
+  dart_appkit::InstallEventPoster(CapturePoster, capture);
+  uint32_t selected_version = 0;
+  EXPECT_EQ(da_application_set_event_port_versioned(
+                4242, DA_EVENT_PROTOCOL_VERSION_MIN,
+                DA_EVENT_PROTOCOL_VERSION_CURRENT, &selected_version),
+            DA_STATUS_OK);
+  EXPECT_EQ(selected_version, DA_EVENT_PROTOCOL_VERSION_CURRENT);
+}
+
+size_t CountEvents(const Capture& capture, DaEventType type) {
+  size_t count = 0;
+  for (const dart_appkit::NativeEvent& event : capture.events) {
+    if (event.type == type) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 void TestContractAndErrors() {
   dart_appkit::ResetBridgeForTesting();
   EXPECT_EQ(da_abi_version(), static_cast<uint32_t>(1));
@@ -172,13 +194,30 @@ void TestEventProtocolNegotiation() {
 
   uint32_t selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 1, 2, &selected_version),
+      da_application_set_event_port_versioned(4242, 1, 3, &selected_version),
       DA_STATUS_OK);
-  EXPECT_EQ(selected_version, static_cast<uint32_t>(2));
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(3));
 
   dart_appkit::NativeEvent event;
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   event.monotonic_nanos = 123456789;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(3));
+
+  event.type = DA_EVENT_WINDOW_FOCUS_CHANGED;
+  event.state = true;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(3));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 1, 2, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(2));
+  const size_t before_filtered_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_filtered_event);
+  event.type = DA_EVENT_WINDOW_CLOSED;
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(2));
 
@@ -192,7 +231,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 3, 3, &selected_version),
+      da_application_set_event_port_versioned(4242, 4, 4, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -202,7 +241,7 @@ void TestEventProtocolNegotiation() {
       da_application_set_event_port_versioned(4242, 2, 1, &selected_version),
       DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
-  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 2, nullptr),
+  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 3, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
@@ -437,6 +476,93 @@ void TestRegistryChurn() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestWindowStateEvents() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+
+  [owner daPostFocusState:YES];
+  [owner daPostFocusState:YES];
+  [owner daPostVisibilityState:YES];
+  [owner daPostVisibilityState:YES];
+  [owner daPostOcclusionState:NO];
+  [owner daPostOcclusionState:NO];
+  [owner daPostBackingScaleFactor:2.0];
+  [owner daPostBackingScaleFactor:2.0];
+  [owner daPostScreen:nil];
+  [owner daPostScreen:nil];
+
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(5));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_FOCUS_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_VISIBILITY_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_OCCLUSION_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_BACKING_SCALE_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
+            static_cast<size_t>(1));
+  for (size_t index = 0; index < capture.events.size(); ++index) {
+    EXPECT_EQ(capture.protocol_versions[index], static_cast<uint32_t>(3));
+    EXPECT_EQ(capture.events[index].window, window_handle);
+    EXPECT_TRUE(capture.events[index].monotonic_nanos > 0);
+  }
+  EXPECT_TRUE(capture.events[0].state);
+  EXPECT_TRUE(capture.events[1].state);
+  EXPECT_TRUE(!capture.events[2].state);
+  EXPECT_TRUE(std::abs(capture.events[3].backing_scale_factor - 2.0) < 0.001);
+  EXPECT_TRUE(!capture.events[4].has_screen);
+  EXPECT_EQ(capture.events[4].screen_id, static_cast<int64_t>(0));
+
+  [owner daPostFocusState:NO];
+  [owner daPostVisibilityState:NO];
+  [owner daPostOcclusionState:YES];
+  [owner daPostBackingScaleFactor:1.0];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(9));
+  [owner daPostBackingScaleFactor:0.0];
+  [owner daPostBackingScaleFactor:std::numeric_limits<double>::quiet_NaN()];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(9));
+
+  NSScreen* screen = NSScreen.screens.firstObject;
+  if (screen != nil) {
+    [owner daPostScreen:screen];
+    EXPECT_EQ(capture.events.size(), static_cast<size_t>(10));
+    const dart_appkit::NativeEvent& screen_event = capture.events.back();
+    EXPECT_EQ(screen_event.type, DA_EVENT_WINDOW_SCREEN_CHANGED);
+    EXPECT_TRUE(screen_event.has_screen);
+    EXPECT_TRUE(screen_event.screen_id > 0);
+    EXPECT_TRUE(screen_event.screen_width > 0.0);
+    EXPECT_TRUE(screen_event.screen_height > 0.0);
+    EXPECT_TRUE(screen_event.visible_screen_width > 0.0);
+    EXPECT_TRUE(screen_event.visible_screen_height > 0.0);
+    [owner daPostScreen:screen];
+    EXPECT_EQ(capture.events.size(), static_cast<size_t>(10));
+  }
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+
+  Capture snapshot_capture;
+  ResetWithCurrentCapture(&snapshot_capture);
+  const DaHandle shown_window = CreateWindow();
+  EXPECT_EQ(da_window_show(shown_window), DA_STATUS_OK);
+  EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_FOCUS_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_VISIBILITY_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_OCCLUSION_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(
+      CountEvents(snapshot_capture, DA_EVENT_WINDOW_BACKING_SCALE_CHANGED),
+      static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
+            static_cast<size_t>(1));
+  const size_t snapshot_size = snapshot_capture.events.size();
+  [OwnerFor(shown_window) daPostCurrentWindowState];
+  EXPECT_EQ(snapshot_capture.events.size(), snapshot_size);
+  EXPECT_EQ(da_release(shown_window), DA_STATUS_OK);
+}
+
 void TestWindowEvents() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -533,6 +659,7 @@ int main() {
     TestConcurrentAsyncRelease();
     TestShutdownOwnsPendingRelease();
     TestRegistryChurn();
+    TestWindowStateEvents();
     TestWindowEvents();
     TestInputEvents();
     dart_appkit::ResetBridgeForTesting();

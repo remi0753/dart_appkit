@@ -28,7 +28,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | AppKit bridge is warning-clean | ARC/C++20 build with project warnings as errors | Verified |
 | C ABI is usable from C and C++ | C11 and C++20 header compilation | Verified |
 | Handle generations/domains, async release, UTF-8, errors, main-thread guard, finalizer | Native contract tests including concurrent claim, shutdown, and 1,000-slot churn | Verified |
-| close/resize/mouse/key native model | Native payload tests plus Dart decoder/routing tests | Verified |
+| close/resize/mouse/key and v3 window-state native model | Native payload/snapshot/deduplication tests plus Dart decoder/routing/state tests | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |

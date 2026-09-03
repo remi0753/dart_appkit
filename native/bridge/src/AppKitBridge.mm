@@ -343,6 +343,7 @@ int32_t da_window_show(DaHandle window) {
   if (owner.window.contentView != nil) {
     [owner.window makeFirstResponder:owner.window.contentView];
   }
+  [owner daPostCurrentWindowState];
   return DA_STATUS_OK;
 }
 

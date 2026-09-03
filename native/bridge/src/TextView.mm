@@ -1,5 +1,7 @@
 #include "AppKitObjects.h"
 
+#include <cmath>
+#include <limits>
 #include <string>
 
 #include "BridgeInternal.h"
@@ -165,11 +167,185 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   return self;
 }
 
+- (void)daPostFocusState:(BOOL)isFocused {
+  if (self.daHandle == 0 || (_hasFocusState && _lastFocusState == isFocused)) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_FOCUS_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.state = isFocused;
+  if (dart_appkit::PostEvent(event)) {
+    _hasFocusState = YES;
+    _lastFocusState = isFocused;
+  }
+}
+
+- (void)daPostVisibilityState:(BOOL)isVisible {
+  if (self.daHandle == 0 ||
+      (_hasVisibilityState && _lastVisibilityState == isVisible)) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_VISIBILITY_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.state = isVisible;
+  if (dart_appkit::PostEvent(event)) {
+    _hasVisibilityState = YES;
+    _lastVisibilityState = isVisible;
+  }
+}
+
+- (void)daPostOcclusionState:(BOOL)isOccluded {
+  if (self.daHandle == 0 ||
+      (_hasOcclusionState && _lastOcclusionState == isOccluded)) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_OCCLUSION_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.state = isOccluded;
+  if (dart_appkit::PostEvent(event)) {
+    _hasOcclusionState = YES;
+    _lastOcclusionState = isOccluded;
+  }
+}
+
+- (void)daPostBackingScaleFactor:(double)scaleFactor {
+  if (self.daHandle == 0 || !std::isfinite(scaleFactor) || scaleFactor <= 0.0 ||
+      (_hasBackingScale && _lastBackingScale == scaleFactor)) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_BACKING_SCALE_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.backing_scale_factor = scaleFactor;
+  if (dart_appkit::PostEvent(event)) {
+    _hasBackingScale = YES;
+    _lastBackingScale = scaleFactor;
+  }
+}
+
+- (void)daPostScreen:(NSScreen*)screen {
+  BOOL hasScreen = NO;
+  int64_t screenId = 0;
+  NSRect screenFrame = NSZeroRect;
+  NSRect visibleScreenFrame = NSZeroRect;
+  if (screen != nil) {
+    NSNumber* screenNumber =
+        screen.deviceDescription[(NSDeviceDescriptionKey) @"NSScreenNumber"];
+    const unsigned long long candidate = screenNumber.unsignedLongLongValue;
+    const NSRect candidateFrame = screen.frame;
+    const NSRect candidateVisibleFrame = screen.visibleFrame;
+    const bool validFrames = std::isfinite(candidateFrame.origin.x) &&
+                             std::isfinite(candidateFrame.origin.y) &&
+                             std::isfinite(candidateFrame.size.width) &&
+                             std::isfinite(candidateFrame.size.height) &&
+                             candidateFrame.size.width > 0.0 &&
+                             candidateFrame.size.height > 0.0 &&
+                             std::isfinite(candidateVisibleFrame.origin.x) &&
+                             std::isfinite(candidateVisibleFrame.origin.y) &&
+                             std::isfinite(candidateVisibleFrame.size.width) &&
+                             std::isfinite(candidateVisibleFrame.size.height) &&
+                             candidateVisibleFrame.size.width > 0.0 &&
+                             candidateVisibleFrame.size.height > 0.0;
+    if (screenNumber != nil && candidate > 0 &&
+        candidate <= std::numeric_limits<uint32_t>::max() && validFrames) {
+      hasScreen = YES;
+      screenId = static_cast<int64_t>(candidate);
+      screenFrame = candidateFrame;
+      visibleScreenFrame = candidateVisibleFrame;
+    }
+  }
+
+  if (self.daHandle == 0 ||
+      (_hasScreenState && _lastScreenPresent == hasScreen &&
+       _lastScreenId == screenId &&
+       NSEqualRects(_lastScreenFrame, screenFrame) &&
+       NSEqualRects(_lastVisibleScreenFrame, visibleScreenFrame))) {
+    return;
+  }
+
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_SCREEN_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.has_screen = hasScreen;
+  event.screen_id = screenId;
+  event.screen_x = screenFrame.origin.x;
+  event.screen_y = screenFrame.origin.y;
+  event.screen_width = screenFrame.size.width;
+  event.screen_height = screenFrame.size.height;
+  event.visible_screen_x = visibleScreenFrame.origin.x;
+  event.visible_screen_y = visibleScreenFrame.origin.y;
+  event.visible_screen_width = visibleScreenFrame.size.width;
+  event.visible_screen_height = visibleScreenFrame.size.height;
+  if (dart_appkit::PostEvent(event)) {
+    _hasScreenState = YES;
+    _lastScreenPresent = hasScreen;
+    _lastScreenId = screenId;
+    _lastScreenFrame = screenFrame;
+    _lastVisibleScreenFrame = visibleScreenFrame;
+  }
+}
+
+- (void)daPostCurrentWindowState {
+  [self daPostFocusState:self.window.isKeyWindow];
+  [self daPostVisibilityState:self.window.isVisible &&
+                              !self.window.isMiniaturized];
+  [self daPostOcclusionState:(self.window.occlusionState &
+                              NSWindowOcclusionStateVisible) == 0];
+  [self daPostBackingScaleFactor:self.window.backingScaleFactor];
+  [self daPostScreen:self.window.screen];
+}
+
+- (void)windowDidBecomeKey:(NSNotification*)notification {
+  (void)notification;
+  [self daPostFocusState:YES];
+}
+
+- (void)windowDidResignKey:(NSNotification*)notification {
+  (void)notification;
+  [self daPostFocusState:NO];
+}
+
+- (void)windowDidMiniaturize:(NSNotification*)notification {
+  (void)notification;
+  [self daPostVisibilityState:NO];
+}
+
+- (void)windowDidDeminiaturize:(NSNotification*)notification {
+  (void)notification;
+  [self daPostVisibilityState:self.window.isVisible];
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification*)notification {
+  (void)notification;
+  [self daPostOcclusionState:(self.window.occlusionState &
+                              NSWindowOcclusionStateVisible) == 0];
+}
+
+- (void)windowDidChangeBackingProperties:(NSNotification*)notification {
+  (void)notification;
+  [self daPostBackingScaleFactor:self.window.backingScaleFactor];
+}
+
+- (void)windowDidChangeScreen:(NSNotification*)notification {
+  (void)notification;
+  [self daPostScreen:self.window.screen];
+}
+
 - (void)windowWillClose:(NSNotification*)notification {
   (void)notification;
   if (self.daHandle == 0) {
     return;
   }
+  [self daPostFocusState:NO];
+  [self daPostVisibilityState:NO];
   dart_appkit::NativeEvent event;
   event.type = DA_EVENT_WINDOW_CLOSED;
   event.window = self.daHandle;

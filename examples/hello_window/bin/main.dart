@@ -32,42 +32,53 @@ Future<void> main(List<String> arguments) async {
   }
 
   updateText();
-  final StreamSubscription<WindowEvent> eventSubscription = window.events
-      .listen(
-        (WindowEvent event) {
-          switch (event) {
-            case WindowClosedEvent():
-              stdout.writeln('Window close event reached Dart.');
-              if (!closed.isCompleted) {
-                closed.complete();
-              }
-            case WindowResizedEvent(:final width, :final height):
-              stdout.writeln(
-                'resize ${width.toStringAsFixed(0)} x '
-                '${height.toStringAsFixed(0)}',
-              );
-            case AppKitMouseEvent(
-              :final kind,
-              :final x,
-              :final y,
-              :final button,
-            ):
-              stdout.writeln(
-                'mouse ${kind.name} button=$button '
-                'at ${x.toStringAsFixed(1)},${y.toStringAsFixed(1)}',
-              );
-            case AppKitKeyEvent(:final kind, :final keyCode, :final characters):
-              stdout.writeln(
-                'key ${kind.name} code=$keyCode characters="$characters"',
-              );
-          }
-        },
-        onError: (Object error, StackTrace stackTrace) {
+  final StreamSubscription<WindowEvent>
+  eventSubscription = window.events.listen(
+    (WindowEvent event) {
+      switch (event) {
+        case WindowClosedEvent():
+          stdout.writeln('Window close event reached Dart.');
           if (!closed.isCompleted) {
-            closed.completeError(error, stackTrace);
+            closed.complete();
           }
-        },
-      );
+        case WindowResizedEvent(:final width, :final height):
+          stdout.writeln(
+            'resize ${width.toStringAsFixed(0)} x '
+            '${height.toStringAsFixed(0)}',
+          );
+        case WindowFocusChangedEvent(:final isFocused):
+          stdout.writeln('focus ${isFocused ? 'gained' : 'lost'}');
+        case WindowVisibilityChangedEvent(:final isVisible):
+          stdout.writeln('visibility ${isVisible ? 'visible' : 'hidden'}');
+        case WindowOcclusionChangedEvent(:final isOccluded):
+          stdout.writeln('occlusion ${isOccluded ? 'occluded' : 'unoccluded'}');
+        case WindowBackingScaleChangedEvent(:final backingScaleFactor):
+          stdout.writeln(
+            'backing scale ${backingScaleFactor.toStringAsFixed(2)}',
+          );
+        case WindowScreenChangedEvent(:final screen):
+          stdout.writeln(
+            screen == null
+                ? 'screen unavailable'
+                : 'screen ${screen.displayId} frame=${screen.frame}',
+          );
+        case AppKitMouseEvent(:final kind, :final x, :final y, :final button):
+          stdout.writeln(
+            'mouse ${kind.name} button=$button '
+            'at ${x.toStringAsFixed(1)},${y.toStringAsFixed(1)}',
+          );
+        case AppKitKeyEvent(:final kind, :final keyCode, :final characters):
+          stdout.writeln(
+            'key ${kind.name} code=$keyCode characters="$characters"',
+          );
+      }
+    },
+    onError: (Object error, StackTrace stackTrace) {
+      if (!closed.isCompleted) {
+        closed.completeError(error, stackTrace);
+      }
+    },
+  );
   final Timer timer = Timer.periodic(const Duration(seconds: 1), (_) {
     ++ticks;
     updateText();

@@ -172,12 +172,15 @@ final class AppKitApplication {
     }
     try {
       final AppKitEvent event = _EventCodec.decode(message);
-      _events.add(event);
       final WeakReference<Window>? reference = _windows[event.windowHandle];
       final Window? window = reference?.target;
       if (window == null) {
         _windows.remove(event.windowHandle);
       } else {
+        window._updateState(event);
+      }
+      _events.add(event);
+      if (window != null) {
         window._dispatch(event);
       }
     } on Object catch (error, stackTrace) {

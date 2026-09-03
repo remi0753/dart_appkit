@@ -1302,3 +1302,53 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - The bridge exports 19 `da_*` symbols including `da_view_create`. Dart
   Terminal's `make runtime-source-check` also passed formatting, native header
   checks, plist lint, analysis, and unit tests against the new `View` API.
+
+## 2026-09-04 — Window-state event protocol
+
+- Bumped the independently negotiated current event protocol to version 3.
+  Version 3 keeps the version-2 six-field prefix and adds focus, visibility,
+  occlusion, backing-scale, and screen event types. Existing event payloads
+  remain unchanged in versions 1, 2, and 3.
+- Added protocol-aware filtering in the event sink and the shared encoder.
+  Version-3-only events never reach a poster selected for version 1 or 2, so
+  old decoders do not receive an unknown event type.
+- The AppKit window owner now posts one deduplicated state snapshot after show
+  and translates key/resign, miniaturize/deminiaturize, occlusion, backing
+  property, screen, and close callbacks into normalized immutable values.
+  Visibility excludes miniaturized windows; occlusion is the inverse of
+  `NSWindowOcclusionStateVisible`.
+- Screen events represent absence explicitly. Present screens carry the
+  positive `NSScreenNumber` display identifier and finite, positive-dimension
+  full/visible frames in global AppKit point coordinates.
+- Added public Dart event classes, `AppKitScreen`, typed streams, and cached
+  `Window` state. State is applied before application-level and window-level
+  observers receive the event. The decoder rejects state types before v3,
+  non-boolean state, non-finite/non-positive scale, malformed screen presence,
+  identifier, rectangles, and field counts.
+- Updated the hello example to exhaustively consume the new sealed event
+  subclasses and log state transitions.
+- The first focused native build exposed that adding one nullable Objective-C
+  annotation enabled a completeness warning for older declarations under
+  `-Werror`. The internal annotation was removed because nil remains a valid
+  Objective-C argument and the header does not otherwise declare nullability.
+- The first encoder test retained protocol 3 as its unsupported-version probe
+  after version 3 became current, so it posted a valid key record and produced
+  cascading layout assertions. The probe was corrected to version 4 while
+  retaining separate v3 invalid-screen and invalid-scale cases.
+- The first complete `make test` stopped at the C header fixture because its
+  explicit current-version assertion still expected 2. Both C11 and C++20
+  assertions were updated to 3 before rerunning the complete suite.
+- The corrected complete `make test` passed scaffold/header validation,
+  warning-as-error bridge and Runner builds, registry/event/message-pump and
+  exact encoder tests, Dart analysis/API/launcher tests, example Kernel
+  compilation, real-dylib FFI, and the legacy-native fallback fixture.
+- The native bridge suite passed ten consecutive executions. The real hello
+  example negotiated v3, reported focus, visibility, occlusion, backing scale,
+  and screen state from AppKit, then auto-closed and released cleanly.
+- An export audit was first pointed at the obsolete
+  `build/libdart_appkit.dylib` path and found no file. Repeating it against the
+  Makefile output `build/native/libdart_appkit_bridge.dylib` confirmed exactly
+  19 public `da_*` symbols; this protocol-only extension added no C ABI entry
+  points.
+- Final native/Dart formatting and `git diff --check` reported no changes or
+  whitespace errors.

@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)2)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)3)
 
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
@@ -60,6 +60,11 @@ typedef enum DaStatus {
 typedef enum DaEventType {
   DA_EVENT_WINDOW_CLOSED = 1,
   DA_EVENT_WINDOW_RESIZED = 2,
+  DA_EVENT_WINDOW_FOCUS_CHANGED = 3,
+  DA_EVENT_WINDOW_VISIBILITY_CHANGED = 4,
+  DA_EVENT_WINDOW_OCCLUSION_CHANGED = 5,
+  DA_EVENT_WINDOW_BACKING_SCALE_CHANGED = 6,
+  DA_EVENT_WINDOW_SCREEN_CHANGED = 7,
   DA_EVENT_MOUSE_DOWN = 10,
   DA_EVENT_MOUSE_UP = 11,
   DA_EVENT_MOUSE_MOVED = 12,

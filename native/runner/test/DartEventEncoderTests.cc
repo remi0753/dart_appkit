@@ -43,6 +43,11 @@ void ExpectDouble(Dart_CObject* object, double value) {
   EXPECT_EQ(object->value.as_double, value);
 }
 
+void ExpectBool(Dart_CObject* object, bool value) {
+  EXPECT_EQ(object->type, Dart_CObject_kBool);
+  EXPECT_EQ(object->value.as_bool, value);
+}
+
 }  // namespace
 
 extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
@@ -74,6 +79,24 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     EXPECT_TRUE(std::strcmp(values[9]->value.as_string, "é") == 0);
     EXPECT_EQ(values[10]->type, Dart_CObject_kString);
     EXPECT_TRUE(std::strcmp(values[10]->value.as_string, "e") == 0);
+  } else if (g_expected_case == 3) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(16));
+    ExpectInt(values[0], 3);
+    ExpectInt(values[1], DA_EVENT_WINDOW_SCREEN_CHANGED);
+    ExpectInt(values[2], (static_cast<int64_t>(7) << 32) | 3);
+    ExpectInt(values[3], 7);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectBool(values[6], true);
+    ExpectInt(values[7], 55);
+    ExpectDouble(values[8], -1920.0);
+    ExpectDouble(values[9], 0.0);
+    ExpectDouble(values[10], 1920.0);
+    ExpectDouble(values[11], 1080.0);
+    ExpectDouble(values[12], -1920.0);
+    ExpectDouble(values[13], 25.0);
+    ExpectDouble(values[14], 1920.0);
+    ExpectDouble(values[15], 1055.0);
   } else {
     EXPECT_TRUE(false);
   }
@@ -100,11 +123,36 @@ int main() {
   g_expected_case = 2;
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 2, event));
 
+  event.type = DA_EVENT_WINDOW_SCREEN_CHANGED;
+  event.has_screen = true;
+  event.screen_id = 55;
+  event.screen_x = -1920.0;
+  event.screen_y = 0.0;
+  event.screen_width = 1920.0;
+  event.screen_height = 1080.0;
+  event.visible_screen_x = -1920.0;
+  event.visible_screen_y = 25.0;
+  event.visible_screen_width = 1920.0;
+  event.visible_screen_height = 1055.0;
+  g_expected_case = 3;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+
   const int accepted_posts = g_post_count;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
+  event.screen_id = 0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+  event.screen_id = 55;
+  event.visible_screen_width = 0.0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+  event.visible_screen_width = 1920.0;
+  event.type = DA_EVENT_WINDOW_BACKING_SCALE_CHANGED;
+  event.backing_scale_factor = 0.0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+  event.type = DA_EVENT_KEY_DOWN;
   event.operation_id = 1;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 1, event));
   event.operation_id = 0;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

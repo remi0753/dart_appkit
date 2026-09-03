@@ -1,8 +1,8 @@
 # Hello Window
 
 This example creates one native AppKit window from Dart, updates its text once
-per second, logs resize/mouse/key events, and terminates after the native close
-notification reaches Dart.
+per second, logs window state/resize/mouse/key events, and terminates after the
+native close notification reaches Dart.
 
 First bootstrap the pinned Engine from the repository root:
 

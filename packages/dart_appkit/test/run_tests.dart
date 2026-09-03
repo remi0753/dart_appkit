@@ -81,8 +81,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 2 &&
-        app.eventProtocolVersion == 2,
+        bindings.requestedMaximumEventProtocolVersion == 3 &&
+        app.eventProtocolVersion == 3,
     'current event protocol negotiation',
   );
 
@@ -289,6 +289,209 @@ Future<void> _testEventRoutingAndDecoding() async {
   await raw.close();
 }
 
+Future<void> _testWindowStateEvents() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (7 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'State events',
+  );
+  final int handle = bindings.objects.keys.single;
+  final List<AppKitEvent> appEvents = <AppKitEvent>[];
+  final List<Object> streamErrors = <Object>[];
+  var cachedStateWasCurrent = true;
+  final StreamSubscription<AppKitEvent> appSubscription = app.events.listen((
+    AppKitEvent event,
+  ) {
+    appEvents.add(event);
+    switch (event) {
+      case WindowFocusChangedEvent(:final isFocused):
+        cachedStateWasCurrent &= window.isFocused == isFocused;
+      case WindowVisibilityChangedEvent(:final isVisible):
+        cachedStateWasCurrent &= window.isVisible == isVisible;
+      case WindowOcclusionChangedEvent(:final isOccluded):
+        cachedStateWasCurrent &= window.isOccluded == isOccluded;
+      case WindowBackingScaleChangedEvent(:final backingScaleFactor):
+        cachedStateWasCurrent &=
+            window.backingScaleFactor == backingScaleFactor;
+      case WindowScreenChangedEvent(:final screen):
+        cachedStateWasCurrent &= window.screen == screen;
+      case WindowClosedEvent() ||
+          WindowResizedEvent() ||
+          AppKitMouseEvent() ||
+          AppKitKeyEvent():
+        break;
+    }
+  }, onError: (Object error) => streamErrors.add(error));
+  var focusCount = 0;
+  var visibilityCount = 0;
+  var occlusionCount = 0;
+  var backingScaleCount = 0;
+  var screenCount = 0;
+  final List<StreamSubscription<WindowEvent>> subscriptions =
+      <StreamSubscription<WindowEvent>>[
+        window.onFocusChanged.listen(
+          (WindowFocusChangedEvent event) => ++focusCount,
+        ),
+        window.onVisibilityChanged.listen(
+          (WindowVisibilityChangedEvent event) => ++visibilityCount,
+        ),
+        window.onOcclusionChanged.listen(
+          (WindowOcclusionChangedEvent event) => ++occlusionCount,
+        ),
+        window.onBackingScaleChanged.listen(
+          (WindowBackingScaleChangedEvent event) => ++backingScaleCount,
+        ),
+        window.onScreenChanged.listen(
+          (WindowScreenChangedEvent event) => ++screenCount,
+        ),
+      ];
+
+  raw
+    ..add(<Object?>[3, 3, handle, 7, 300000, 0, true])
+    ..add(<Object?>[3, 4, handle, 7, 301000, 0, true])
+    ..add(<Object?>[3, 5, handle, 7, 302000, 0, false])
+    ..add(<Object?>[3, 6, handle, 7, 303000, 0, 2.0])
+    ..add(<Object?>[
+      3,
+      7,
+      handle,
+      7,
+      304000,
+      0,
+      true,
+      55,
+      -1920.0,
+      0.0,
+      1920.0,
+      1080.0,
+      -1920.0,
+      25.0,
+      1920.0,
+      1055.0,
+    ]);
+
+  const AppKitScreen expectedScreen = AppKitScreen(
+    displayId: 55,
+    frame: Rect.fromLTWH(-1920, 0, 1920, 1080),
+    visibleFrame: Rect.fromLTWH(-1920, 25, 1920, 1055),
+  );
+  _expect(window.isFocused, 'focus state cached');
+  _expect(window.isVisible, 'visibility state cached');
+  _expect(!window.isOccluded, 'occlusion state cached');
+  _expect(window.backingScaleFactor == 2.0, 'backing scale cached');
+  _expect(window.screen == expectedScreen, 'screen state cached');
+  _expect(cachedStateWasCurrent, 'state updated before application observer');
+  _expect(
+    focusCount == 1 &&
+        visibilityCount == 1 &&
+        occlusionCount == 1 &&
+        backingScaleCount == 1 &&
+        screenCount == 1,
+    'typed state streams',
+  );
+
+  raw.add(<Object?>[
+    3,
+    7,
+    handle,
+    7,
+    305000,
+    0,
+    false,
+    0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+  ]);
+  _expect(window.screen == null, 'absent screen cached');
+  _expect(screenCount == 2, 'absent screen event routed');
+  _expect(appEvents.length == 6, 'all state events reach application');
+
+  raw
+    ..add(<Object?>[2, 3, handle, 7, 306000, 0, true])
+    ..add(<Object?>[3, 3, handle, 7, 307000, 0, 'true'])
+    ..add(<Object?>[3, 6, handle, 7, 308000, 0, 0.0])
+    ..add(<Object?>[3, 6, handle, 7, 309000, 0, double.nan])
+    ..add(<Object?>[
+      3,
+      7,
+      handle,
+      7,
+      310000,
+      0,
+      true,
+      0,
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+    ])
+    ..add(<Object?>[
+      3,
+      7,
+      handle,
+      7,
+      311000,
+      0,
+      false,
+      0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+    ])
+    ..add(<Object?>[3, 7, handle, 7, 312000, 0, false, 0])
+    ..add(<Object?>[
+      3,
+      7,
+      handle,
+      7,
+      313000,
+      0,
+      true,
+      55,
+      double.infinity,
+      0.0,
+      100.0,
+      100.0,
+      0.0,
+      0.0,
+      100.0,
+      100.0,
+    ]);
+  _expect(
+    streamErrors.length == 8 &&
+        streamErrors.every((Object error) => error is FormatException),
+    'malformed state events are surfaced',
+  );
+
+  for (final StreamSubscription<WindowEvent> subscription in subscriptions) {
+    await subscription.cancel();
+  }
+  await appSubscription.cancel();
+  window.dispose();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -338,6 +541,10 @@ Future<void> main() async {
   await _test(
     'event decoding and weak window routing',
     _testEventRoutingAndDecoding,
+  );
+  await _test(
+    'window state event decoding and caching',
+    _testWindowStateEvents,
   );
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test(

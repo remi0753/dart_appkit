@@ -11,14 +11,20 @@ export 'src/api.dart'
         AppKitMouseEvent,
         AppKitMouseEventKind,
         AppKitNativeException,
+        AppKitScreen,
         ModifierKeys,
         Rect,
         TextView,
         View,
         Window,
+        WindowBackingScaleChangedEvent,
         WindowClosedEvent,
         WindowEvent,
-        WindowResizedEvent;
+        WindowFocusChangedEvent,
+        WindowOcclusionChangedEvent,
+        WindowResizedEvent,
+        WindowScreenChangedEvent,
+        WindowVisibilityChangedEvent;
 export 'src/native/native_bindings.dart'
     show
         dartAppKitCurrentEventProtocolVersion,

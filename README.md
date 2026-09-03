@@ -6,13 +6,15 @@ Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
 Dart message work is limited per run-loop turn.
 
 The MVP surface is deliberately small: one window, generic and text views,
-periodic `Timer` updates, close/resize/mouse/key events, explicit native
+periodic `Timer` updates, window-state/resize/mouse/key events, explicit native
 ownership, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
-legacy port-registration API continues to emit version 1; current Dart/native
-pairs negotiate version 2, whose common envelope includes source generation,
-nanosecond monotonic time, and operation identity. The Dart API decodes both
+legacy port-registration API continues to emit version 1; version 2 retains
+the original event set with source generation, nanosecond monotonic time, and
+operation identity. Current Dart/native pairs negotiate version 3, which adds
+focus, visibility, occlusion, backing-scale, and screen state events without
+sending those new types to version-1/2 clients. The Dart API decodes all three
 versions.
 
 Native handles record an owning thread domain in addition to their encoded

@@ -2,7 +2,7 @@ import 'dart:ffi';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 2;
+const int dartAppKitCurrentEventProtocolVersion = 3;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';

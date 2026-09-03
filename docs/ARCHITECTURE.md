@@ -57,18 +57,30 @@ point with an inclusive supported range; the bridge selects the highest common
 version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
-`[version, type, source_handle, monotonic_micros, ...payload]`. Version 2 is
+`[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2 and
+3 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
-...payload]`. Current window/input events are unsolicited and therefore use
-operation ID zero. The explicit source generation must match the high 32 bits
-of the generation-checked source handle. The Dart decoder accepts both
-versions, preserves the existing `monotonicMicros` API, and exposes the exact
-negotiated metadata for newer consumers.
+...payload]`. Version 3 adds window focus, visibility, occlusion,
+backing-scale, and screen events. Those types are suppressed before posting to
+a version-1/2 sink, so an older decoder receives only its original event set.
+Current window/input events are unsolicited and therefore use operation ID
+zero. The explicit source generation must match the high 32 bits of the
+generation-checked source handle. The Dart decoder accepts all three versions,
+preserves the existing `monotonicMicros` API, and exposes the exact negotiated
+metadata for newer consumers.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
 to microseconds only while posting, so an old Dart client receives its original
 field order and timestamp unit. The Runner owns the shared encoder; consuming
 AOT hosts use the same encoder to prevent JIT/AOT wire drift.
+
+After `makeKeyAndOrderFront:`, the window owner posts one deduplicated snapshot
+of key focus, normalized visibility, occlusion, backing scale, and associated
+screen. Delegate callbacks post later transitions. Visibility means
+`isVisible && !isMiniaturized`; occlusion independently means that
+`NSWindowOcclusionStateVisible` is absent. Screen events carry an explicit
+presence bit, the unsigned `NSScreenNumber` value widened to 64 bits, and full
+plus visible frames in global AppKit point coordinates.
 
 ## Hosted-isolate boundary
 

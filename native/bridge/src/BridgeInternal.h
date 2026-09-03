@@ -19,12 +19,25 @@ struct NativeEvent {
   double height = 0.0;
   double x = 0.0;
   double y = 0.0;
+  double backing_scale_factor = 0.0;
+
+  double screen_x = 0.0;
+  double screen_y = 0.0;
+  double screen_width = 0.0;
+  double screen_height = 0.0;
+  double visible_screen_x = 0.0;
+  double visible_screen_y = 0.0;
+  double visible_screen_width = 0.0;
+  double visible_screen_height = 0.0;
 
   int64_t button = -1;
   int64_t modifiers = 0;
   int64_t click_count = 0;
   int64_t key_code = 0;
   bool is_repeat = false;
+  bool state = false;
+  bool has_screen = false;
+  int64_t screen_id = 0;
 
   std::string characters;
   std::string characters_ignoring_modifiers;
@@ -45,6 +58,32 @@ int32_t SetEventPortVersioned(int64_t dart_port, uint32_t min_version,
                               uint32_t max_version,
                               uint32_t* out_selected_version);
 bool PostEvent(const NativeEvent& event);
+
+inline bool EventTypeSupportedByProtocol(DaEventType type,
+                                         uint32_t protocol_version) {
+  if (protocol_version < DA_EVENT_PROTOCOL_VERSION_MIN ||
+      protocol_version > DA_EVENT_PROTOCOL_VERSION_CURRENT) {
+    return false;
+  }
+  switch (type) {
+    case DA_EVENT_WINDOW_CLOSED:
+    case DA_EVENT_WINDOW_RESIZED:
+    case DA_EVENT_MOUSE_DOWN:
+    case DA_EVENT_MOUSE_UP:
+    case DA_EVENT_MOUSE_MOVED:
+    case DA_EVENT_MOUSE_DRAGGED:
+    case DA_EVENT_KEY_DOWN:
+    case DA_EVENT_KEY_UP:
+      return true;
+    case DA_EVENT_WINDOW_FOCUS_CHANGED:
+    case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
+    case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
+    case DA_EVENT_WINDOW_BACKING_SCALE_CHANGED:
+    case DA_EVENT_WINDOW_SCREEN_CHANGED:
+      return protocol_version >= 3;
+  }
+  return false;
+}
 
 int64_t MonotonicNanos();
 uint64_t StableModifiers(uint64_t appkit_modifiers);

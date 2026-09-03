@@ -56,6 +56,98 @@ final class WindowResizedEvent extends WindowEvent {
   final double height;
 }
 
+final class AppKitScreen {
+  const AppKitScreen({
+    required this.displayId,
+    required this.frame,
+    required this.visibleFrame,
+  });
+
+  final int displayId;
+  final Rect frame;
+  final Rect visibleFrame;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppKitScreen &&
+      other.displayId == displayId &&
+      other.frame == frame &&
+      other.visibleFrame == visibleFrame;
+
+  @override
+  int get hashCode => Object.hash(displayId, frame, visibleFrame);
+}
+
+final class WindowFocusChangedEvent extends WindowEvent {
+  const WindowFocusChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.isFocused,
+  });
+
+  final bool isFocused;
+}
+
+final class WindowVisibilityChangedEvent extends WindowEvent {
+  const WindowVisibilityChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.isVisible,
+  });
+
+  final bool isVisible;
+}
+
+final class WindowOcclusionChangedEvent extends WindowEvent {
+  const WindowOcclusionChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.isOccluded,
+  });
+
+  final bool isOccluded;
+}
+
+final class WindowBackingScaleChangedEvent extends WindowEvent {
+  const WindowBackingScaleChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.backingScaleFactor,
+  });
+
+  final double backingScaleFactor;
+}
+
+final class WindowScreenChangedEvent extends WindowEvent {
+  const WindowScreenChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.screen,
+  });
+
+  final AppKitScreen? screen;
+}
+
 enum AppKitMouseEventKind { down, up, moved, dragged }
 
 final class AppKitMouseEvent extends WindowEvent {
@@ -139,6 +231,11 @@ final class ModifierKeys {
 final class _EventCodec {
   static const int _windowClosed = 1;
   static const int _windowResized = 2;
+  static const int _windowFocusChanged = 3;
+  static const int _windowVisibilityChanged = 4;
+  static const int _windowOcclusionChanged = 5;
+  static const int _windowBackingScaleChanged = 6;
+  static const int _windowScreenChanged = 7;
   static const int _mouseDown = 10;
   static const int _mouseUp = 11;
   static const int _mouseMoved = 12;
@@ -223,6 +320,78 @@ final class _EventCodec {
           width: _number(message, payloadOffset, 'width'),
           height: _number(message, payloadOffset + 1, 'height'),
         );
+      case _windowFocusChanged:
+        _requireVersionThree(version, 'window focus changed');
+        _expectLength(message, payloadOffset + 1, 'window focus changed');
+        return WindowFocusChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          isFocused: _boolean(message, payloadOffset, 'isFocused'),
+        );
+      case _windowVisibilityChanged:
+        _requireVersionThree(version, 'window visibility changed');
+        _expectLength(message, payloadOffset + 1, 'window visibility changed');
+        return WindowVisibilityChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          isVisible: _boolean(message, payloadOffset, 'isVisible'),
+        );
+      case _windowOcclusionChanged:
+        _requireVersionThree(version, 'window occlusion changed');
+        _expectLength(message, payloadOffset + 1, 'window occlusion changed');
+        return WindowOcclusionChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          isOccluded: _boolean(message, payloadOffset, 'isOccluded'),
+        );
+      case _windowBackingScaleChanged:
+        _requireVersionThree(version, 'window backing scale changed');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'window backing scale changed',
+        );
+        final double backingScaleFactor = _finiteNumber(
+          message,
+          payloadOffset,
+          'backingScaleFactor',
+        );
+        if (backingScaleFactor <= 0.0) {
+          throw const FormatException('backingScaleFactor must be positive');
+        }
+        return WindowBackingScaleChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          backingScaleFactor: backingScaleFactor,
+        );
+      case _windowScreenChanged:
+        _requireVersionThree(version, 'window screen changed');
+        _expectLength(message, payloadOffset + 10, 'window screen changed');
+        return WindowScreenChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          screen: _screen(message, payloadOffset),
+        );
       case _mouseDown:
       case _mouseUp:
       case _mouseMoved:
@@ -291,6 +460,53 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionThree(int version, String eventName) {
+    if (version < 3) {
+      throw FormatException('$eventName requires native event protocol 3');
+    }
+  }
+
+  static AppKitScreen? _screen(List<Object?> values, int offset) {
+    final bool hasScreen = _boolean(values, offset, 'hasScreen');
+    final int displayId = _integer(values, offset + 1, 'displayId');
+    final Rect frame = Rect.fromLTWH(
+      _finiteNumber(values, offset + 2, 'screenLeft'),
+      _finiteNumber(values, offset + 3, 'screenTop'),
+      _finiteNumber(values, offset + 4, 'screenWidth'),
+      _finiteNumber(values, offset + 5, 'screenHeight'),
+    );
+    final Rect visibleFrame = Rect.fromLTWH(
+      _finiteNumber(values, offset + 6, 'visibleScreenLeft'),
+      _finiteNumber(values, offset + 7, 'visibleScreenTop'),
+      _finiteNumber(values, offset + 8, 'visibleScreenWidth'),
+      _finiteNumber(values, offset + 9, 'visibleScreenHeight'),
+    );
+    if (!hasScreen) {
+      if (displayId != 0 ||
+          frame != const Rect.fromLTWH(0, 0, 0, 0) ||
+          visibleFrame != const Rect.fromLTWH(0, 0, 0, 0)) {
+        throw const FormatException(
+          'absent screen must have zero identifier and rectangles',
+        );
+      }
+      return null;
+    }
+    if (displayId <= 0 ||
+        frame.width <= 0.0 ||
+        frame.height <= 0.0 ||
+        visibleFrame.width <= 0.0 ||
+        visibleFrame.height <= 0.0) {
+      throw const FormatException(
+        'present screen must have a positive identifier and dimensions',
+      );
+    }
+    return AppKitScreen(
+      displayId: displayId,
+      frame: frame,
+      visibleFrame: visibleFrame,
+    );
+  }
+
   static int _integer(List<Object?> values, int index, String name) {
     final Object? value = values[index];
     if (value is! int) {
@@ -305,6 +521,14 @@ final class _EventCodec {
       throw FormatException('$name must be a number');
     }
     return value.toDouble();
+  }
+
+  static double _finiteNumber(List<Object?> values, int index, String name) {
+    final double value = _number(values, index, name);
+    if (!value.isFinite) {
+      throw FormatException('$name must be finite');
+    }
+    return value;
   }
 
   static bool _boolean(List<Object?> values, int index, String name) {

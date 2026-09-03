@@ -95,6 +95,9 @@ bool PostEvent(const NativeEvent& event) {
   if (poster == nullptr || port <= 0 || protocol_version == 0) {
     return false;
   }
+  if (!EventTypeSupportedByProtocol(event.type, protocol_version)) {
+    return false;
+  }
   return poster(port, protocol_version, event, context);
 }
 

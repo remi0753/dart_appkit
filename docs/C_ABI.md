@@ -57,7 +57,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Version 2 uses the current common prefix:
+Versions 2 and 3 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -69,8 +69,10 @@ Version 2 uses the current common prefix:
 - `sourceHandle` is the stable registry handle of the originating window.
 - `sourceGeneration` is positive and matches the handle's high 32 bits.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; version 2 uses nanoseconds.
+  microseconds; versions 2 and 3 use nanoseconds.
 - Current unsolicited events use operation ID zero.
+- Version 3 is current. Version-3-only event types are suppressed for a sink
+  that negotiated version 1 or 2.
 
 Payloads:
 
@@ -78,11 +80,19 @@ Payloads:
 |---|---|
 | `WINDOW_CLOSED` | none |
 | `WINDOW_RESIZED` | `width: double, height: double` |
+| `WINDOW_FOCUS_CHANGED` | `isFocused: bool` |
+| `WINDOW_VISIBILITY_CHANGED` | `isVisible: bool` |
+| `WINDOW_OCCLUSION_CHANGED` | `isOccluded: bool` |
+| `WINDOW_BACKING_SCALE_CHANGED` | `scaleFactor: finite positive double` |
+| `WINDOW_SCREEN_CHANGED` | `hasScreen: bool, displayId: int, frame x/y/width/height: double, visible frame x/y/width/height: double` |
 | mouse down/up/moved/dragged | `x: double, y: double, button: int, modifiers: int, clickCount: int` |
 | key down/up | `keyCode: int, modifiers: int, isRepeat: bool, characters: string, charactersIgnoringModifiers: string` |
 
 Coordinates use the content view's top-left origin. Modifier values use stable
 `DaModifier` bits rather than exposing AppKit's enum representation.
+Screen rectangles are global AppKit coordinates and may have negative origins.
+An absent screen has a zero identifier and zero rectangles; a present screen
+has a positive identifier and positive dimensions.
 
 The event poster is injected internally by the Runner. No AppKit delegate enters
 an isolate or invokes a Dart closure synchronously. A post that cannot be queued

@@ -1,6 +1,7 @@
 #include "DartEventEncoder.h"
 
 #include <array>
+#include <cmath>
 #include <string>
 
 #include "include/dart_native_api.h"
@@ -28,6 +29,29 @@ void SetString(Dart_CObject* object, const std::string& value) {
   object->value.as_string = value.c_str();
 }
 
+bool ValidScreen(const NativeEvent& event) {
+  const bool finite =
+      std::isfinite(event.screen_x) && std::isfinite(event.screen_y) &&
+      std::isfinite(event.screen_width) && std::isfinite(event.screen_height) &&
+      std::isfinite(event.visible_screen_x) &&
+      std::isfinite(event.visible_screen_y) &&
+      std::isfinite(event.visible_screen_width) &&
+      std::isfinite(event.visible_screen_height);
+  if (!finite) {
+    return false;
+  }
+  if (!event.has_screen) {
+    return event.screen_id == 0 && event.screen_x == 0.0 &&
+           event.screen_y == 0.0 && event.screen_width == 0.0 &&
+           event.screen_height == 0.0 && event.visible_screen_x == 0.0 &&
+           event.visible_screen_y == 0.0 && event.visible_screen_width == 0.0 &&
+           event.visible_screen_height == 0.0;
+  }
+  return event.screen_id > 0 && event.screen_width > 0.0 &&
+         event.screen_height > 0.0 && event.visible_screen_width > 0.0 &&
+         event.visible_screen_height > 0.0;
+}
+
 }  // namespace
 
 bool PostNativeEventToDartPort(int64_t dart_port,
@@ -38,8 +62,12 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     return false;
   }
 
-  std::array<Dart_CObject, 11> values{};
-  std::array<Dart_CObject*, 11> pointers{};
+  if (!EventTypeSupportedByProtocol(event.type, event_protocol_version)) {
+    return false;
+  }
+
+  std::array<Dart_CObject, 16> values{};
+  std::array<Dart_CObject*, 16> pointers{};
   for (size_t index = 0; index < pointers.size(); ++index) {
     pointers[index] = &values[index];
   }
@@ -56,13 +84,14 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       SetInt64(&values[3], event.monotonic_nanos / 1000);
       payload_offset = 4;
       break;
+    case 2:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
       if (source_generation <= 0) {
         return false;
       }
-      SetInt64(&values[0], DA_EVENT_PROTOCOL_VERSION_CURRENT);
+      SetInt64(&values[0], event_protocol_version);
       SetInt64(&values[1], event.type);
       SetInt64(&values[2], static_cast<int64_t>(event.window));
       SetInt64(&values[3], source_generation);
@@ -83,6 +112,36 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       length += 2;
       SetDouble(&values[payload_offset], event.width);
       SetDouble(&values[payload_offset + 1], event.height);
+      break;
+    case DA_EVENT_WINDOW_FOCUS_CHANGED:
+    case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
+    case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
+      length += 1;
+      SetBool(&values[payload_offset], event.state);
+      break;
+    case DA_EVENT_WINDOW_BACKING_SCALE_CHANGED:
+      if (!std::isfinite(event.backing_scale_factor) ||
+          event.backing_scale_factor <= 0.0) {
+        return false;
+      }
+      length += 1;
+      SetDouble(&values[payload_offset], event.backing_scale_factor);
+      break;
+    case DA_EVENT_WINDOW_SCREEN_CHANGED:
+      if (!ValidScreen(event)) {
+        return false;
+      }
+      length += 10;
+      SetBool(&values[payload_offset], event.has_screen);
+      SetInt64(&values[payload_offset + 1], event.screen_id);
+      SetDouble(&values[payload_offset + 2], event.screen_x);
+      SetDouble(&values[payload_offset + 3], event.screen_y);
+      SetDouble(&values[payload_offset + 4], event.screen_width);
+      SetDouble(&values[payload_offset + 5], event.screen_height);
+      SetDouble(&values[payload_offset + 6], event.visible_screen_x);
+      SetDouble(&values[payload_offset + 7], event.visible_screen_y);
+      SetDouble(&values[payload_offset + 8], event.visible_screen_width);
+      SetDouble(&values[payload_offset + 9], event.visible_screen_height);
       break;
     case DA_EVENT_MOUSE_DOWN:
     case DA_EVENT_MOUSE_UP:
