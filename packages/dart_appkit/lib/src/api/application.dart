@@ -336,3 +336,24 @@ Future<AppKitApplication> attachApplicationForTesting({
   );
   return AppKitApplication._attach(bindings, source);
 }
+
+/// Delivers one value through the same decoder and routing path as the native
+/// event port.
+///
+/// This hook is exported only from `package:dart_appkit/testing.dart`.
+void injectRawAppKitEventForTesting(
+  AppKitApplication application,
+  Object? message,
+) {
+  if (!identical(AppKitApplication._current, application) ||
+      application._terminated) {
+    throw StateError('the supplied AppKit application is not attached');
+  }
+  application._handleRawEvent(message);
+}
+
+/// Returns the generation-checked native handle used to build routing
+/// fixtures, including a late event after the Dart owner is disposed.
+///
+/// This hook is exported only from `package:dart_appkit/testing.dart`.
+int nativeWindowHandleForTesting(Window window) => window._handle;

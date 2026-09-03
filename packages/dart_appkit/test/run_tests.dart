@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_appkit/src/api.dart';
+import 'package:dart_appkit/testing.dart' as testing;
 
 import 'fake_native_bindings.dart';
 
@@ -884,6 +885,74 @@ Future<void> _testLegacyProtocolSelection() async {
   await raw.close();
 }
 
+Future<void> _testRawEventInjectionHooks() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (7 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 100, 100),
+    title: 'Fault injection',
+  );
+  final int handle = testing.nativeWindowHandleForTesting(window);
+  var applicationEventCount = 0;
+  var windowEventCount = 0;
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    _,
+  ) {
+    ++applicationEventCount;
+  }, onError: errors.add);
+  final StreamSubscription<WindowEvent> windowEvents = window.events.listen((
+    _,
+  ) {
+    ++windowEventCount;
+  });
+
+  window.dispose();
+  window.dispose();
+  testing.injectRawAppKitEventForTesting(app, <Object?>[
+    4,
+    1,
+    handle,
+    handle >> 32,
+    1000,
+    0,
+  ]);
+  _expect(
+    applicationEventCount == 1 && windowEventCount == 0,
+    'late event reaches no disposed owner',
+  );
+  testing.injectRawAppKitEventForTesting(app, 'malformed');
+  _expect(
+    errors.length == 1 && errors.single is FormatException,
+    'malformed event is surfaced once',
+  );
+  testing.injectRawAppKitEventForTesting(app, <Object?>[
+    4,
+    30,
+    0,
+    0,
+    2000,
+    0,
+    true,
+  ]);
+  _expect(
+    applicationEventCount == 2 && app.isActive,
+    'valid event is handled after malformed input',
+  );
+
+  await applicationEvents.cancel();
+  await windowEvents.cancel();
+  await app.terminate();
+  await _expectThrows<StateError>(
+    () => testing.injectRawAppKitEventForTesting(app, const <Object?>[]),
+  );
+  await raw.close();
+}
+
 Future<void> _testCrossApplicationGuard() async {
   final StreamController<Object?> rawOne = StreamController<Object?>.broadcast(
     sync: true,
@@ -944,6 +1013,7 @@ Future<void> main() async {
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
   await _test('menu ownership and action routing', _testMenuApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
+  await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(
     'cross-application content view guard',
     _testCrossApplicationGuard,
