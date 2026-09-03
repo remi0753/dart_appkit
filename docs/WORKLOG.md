@@ -1411,3 +1411,38 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   application/window lifecycle calls. `make engine-check` passed and the
   official SDK remains clean at
   `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
+
+## 2026-09-04 — Plain-text pasteboard boundary
+
+- Added a four-operation main-thread C surface for general-pasteboard text
+  snapshots, UTF-8 replacement, clear, and change-count observation. A snapshot
+  carries an explicit presence flag, byte length, borrowed thread-local bytes,
+  and the count observed in the same call, so absent and present-empty text are
+  distinct without relying on NUL termination.
+- Native conversion helpers accept an `NSPasteboard` selected by the caller.
+  Public functions always select the general pasteboard; automated tests use
+  an isolated test-only named pasteboard and therefore never inspect or replace
+  user clipboard contents. The test releases that pasteboard globally after
+  each process run.
+- Writes validate and copy UTF-8 before clearing existing formats, then publish
+  one `NSPasteboardTypeString` item. Native tests cover absent, empty, Unicode,
+  embedded NUL, increasing counts, invalid UTF-8, null outputs, unavailable
+  pasteboard, and all public off-main guards with zeroed outputs.
+- Added a stable application-owned Dart `Pasteboard` facade and immutable
+  `PasteboardTextSnapshot`. FFI copies borrowed bytes before freeing its output
+  struct and validates presence, pointer, length, UTF-8, and nonnegative count
+  invariants. Unit tests cover facade identity, nullable/empty/Unicode/NUL
+  round trips, count propagation, native errors, and use after application
+  termination.
+- All four symbol lookups are optional. The old native fixture still loads and
+  returns status 8 only on pasteboard use; the real dylib smoke resolves the
+  count call and observes the expected standalone wrong-thread diagnostic.
+- The first ten-run audit exposed that repeatedly creating globally retained
+  `pasteboardWithUniqueName` instances eventually makes the pasteboard server
+  return `nil`. The fixture now reuses one test-only name and calls
+  `releaseGlobally`; after rebuilding, all ten consecutive executions passed.
+- Final verification passed the full scaffold/header/native/Runner/event/Dart/
+  example/real-FFI/legacy suite, warning-as-error native formatting, Dart
+  Terminal's complete runtime source check, and `git diff --check`. The built
+  bridge exports exactly 28 public `da_*` symbols, including all four new
+  pasteboard calls.

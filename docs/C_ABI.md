@@ -16,6 +16,13 @@ Strings are an explicit UTF-8 pointer plus byte length. A null pointer is valid
 only for a zero-length string. The bridge validates and copies the bytes before
 returning and never retains Dart-owned memory.
 
+`DaPasteboardText` is a same-call snapshot. `has_text == 0` distinguishes an
+absent public-text item from a present empty string. Its UTF-8 pointer is
+borrowed from thread-local bridge storage only until the next pasteboard read
+on that thread; FFI callers copy it before returning to Dart. The associated
+nonnegative change count describes that read, but is observational rather than
+a compare-and-swap token. Write and clear return their resulting count.
+
 Output pointers are mandatory. On failure, the bridge leaves them in a safe zero
 state. Handles are opaque 64-bit values; zero is always invalid. Generated
 handles stay within positive signed 64-bit range so the same value is preserved
@@ -124,3 +131,17 @@ the OS action continue. Programmatic `da_window_close` and
 `da_application_terminate` bypass user-request deferral so shutdown cannot
 deadlock after Dart has stopped listening for events. Registering a v4 event
 port also posts the current application-active snapshot.
+
+## Pasteboard policy
+
+The public pasteboard calls select `NSPasteboard.generalPasteboard` and expose
+only `NSPasteboardTypeString`. Reads do not clear or claim ownership. Writes
+copy and validate UTF-8, clear existing formats, and publish exactly one public
+text item; an empty string remains present. Clear removes every item. All four
+operations are main-thread-only and initialize outputs to a safe zero state
+before validating the thread or arguments.
+
+Automated native tests call the same conversion helpers with an AppKit-created
+unique named pasteboard. They never read or mutate the user's general
+pasteboard. Product code is responsible for limiting general-pasteboard reads
+to an explicit user action.

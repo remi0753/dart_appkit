@@ -24,6 +24,7 @@ struct ErrorState {
 };
 
 thread_local ErrorState g_last_error;
+thread_local std::string g_pasteboard_text;
 std::atomic<bool> g_accept_async_releases{true};
 std::atomic<uint64_t> g_async_release_epoch{1};
 bool g_defers_application_termination_requests = false;
@@ -159,6 +160,102 @@ int32_t RequireMainThread() {
         "AppKit bridge call must run on the process main thread");
   }
   return DA_STATUS_OK;
+}
+
+int32_t GetPasteboardChangeCount(NSPasteboard* pasteboard,
+                                 int64_t* out_change_count) {
+  if (out_change_count == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "out_change_count must not be null");
+  }
+  *out_change_count = 0;
+  if (pasteboard == nil) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard is not available");
+  }
+  const NSInteger change_count = pasteboard.changeCount;
+  if (change_count < 0) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard returned a negative change count");
+  }
+  *out_change_count = static_cast<int64_t>(change_count);
+  return DA_STATUS_OK;
+}
+
+int32_t ReadPasteboardText(NSPasteboard* pasteboard,
+                           DaPasteboardText* out_snapshot) {
+  if (out_snapshot == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "out_snapshot must not be null");
+  }
+  *out_snapshot = {};
+  int64_t change_count = 0;
+  const int32_t count_status =
+      GetPasteboardChangeCount(pasteboard, &change_count);
+  if (count_status != DA_STATUS_OK) {
+    return count_status;
+  }
+
+  NSString* value = [pasteboard stringForType:NSPasteboardTypeString];
+  if (value == nil) {
+    g_pasteboard_text.clear();
+    out_snapshot->change_count = change_count;
+    return DA_STATUS_OK;
+  }
+  NSData* data = [value dataUsingEncoding:NSUTF8StringEncoding];
+  if (data == nil) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard text could not be encoded as UTF-8");
+  }
+  if (data.length == 0) {
+    g_pasteboard_text.clear();
+  } else {
+    g_pasteboard_text.assign(static_cast<const char*>(data.bytes), data.length);
+  }
+  out_snapshot->text =
+      g_pasteboard_text.empty() ? nullptr : g_pasteboard_text.data();
+  out_snapshot->text_length = g_pasteboard_text.size();
+  out_snapshot->has_text = 1;
+  out_snapshot->change_count = change_count;
+  return DA_STATUS_OK;
+}
+
+int32_t WritePasteboardText(NSPasteboard* pasteboard, const char* text,
+                            size_t text_length, int64_t* out_change_count) {
+  if (out_change_count == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "out_change_count must not be null");
+  }
+  *out_change_count = 0;
+  if (pasteboard == nil) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard is not available");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* value = CopyUtf8(text, text_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  [pasteboard clearContents];
+  if (![pasteboard setString:value forType:NSPasteboardTypeString]) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard rejected the plain-text value");
+  }
+  return GetPasteboardChangeCount(pasteboard, out_change_count);
+}
+
+int32_t ClearPasteboard(NSPasteboard* pasteboard, int64_t* out_change_count) {
+  if (out_change_count == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "out_change_count must not be null");
+  }
+  *out_change_count = 0;
+  if (pasteboard == nil) {
+    return SetLastError(DA_STATUS_INTERNAL_ERROR,
+                        "pasteboard is not available");
+  }
+  [pasteboard clearContents];
+  return GetPasteboardChangeCount(pasteboard, out_change_count);
 }
 
 void PostApplicationActiveChanged(bool is_active) {
@@ -369,6 +466,87 @@ int32_t da_application_reply_to_termination_request(int64_t operation_id,
   dart_appkit::g_pending_application_termination_operation_id = 0;
   [NSApp replyToApplicationShouldTerminate:allow == 1];
   return DA_STATUS_OK;
+}
+
+int32_t da_pasteboard_read_text(DaPasteboardText* out_snapshot) {
+  dart_appkit::ClearLastError();
+  if (out_snapshot != nullptr) {
+    *out_snapshot = {};
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  @try {
+    return dart_appkit::ReadPasteboardText(NSPasteboard.generalPasteboard,
+                                           out_snapshot);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "pasteboard read failed");
+  }
+}
+
+int32_t da_pasteboard_write_text(const char* text, size_t text_length,
+                                 int64_t* out_change_count) {
+  dart_appkit::ClearLastError();
+  if (out_change_count != nullptr) {
+    *out_change_count = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  @try {
+    return dart_appkit::WritePasteboardText(
+        NSPasteboard.generalPasteboard, text, text_length, out_change_count);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "pasteboard write failed");
+  }
+}
+
+int32_t da_pasteboard_clear(int64_t* out_change_count) {
+  dart_appkit::ClearLastError();
+  if (out_change_count != nullptr) {
+    *out_change_count = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  @try {
+    return dart_appkit::ClearPasteboard(NSPasteboard.generalPasteboard,
+                                        out_change_count);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "pasteboard clear failed");
+  }
+}
+
+int32_t da_pasteboard_get_change_count(int64_t* out_change_count) {
+  dart_appkit::ClearLastError();
+  if (out_change_count != nullptr) {
+    *out_change_count = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  @try {
+    return dart_appkit::GetPasteboardChangeCount(NSPasteboard.generalPasteboard,
+                                                 out_change_count);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr
+                                      ? exception.reason.UTF8String
+                                      : "pasteboard change-count read failed");
+  }
 }
 
 int32_t da_window_create(DaRect frame, const char* title, size_t title_length,

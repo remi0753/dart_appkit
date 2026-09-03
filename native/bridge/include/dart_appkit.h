@@ -43,6 +43,20 @@ typedef struct DaError {
   size_t message_length;
 } DaError;
 
+/**
+ * Plain-text pasteboard snapshot.
+ *
+ * text is borrowed from thread-local bridge storage until the next pasteboard
+ * read on the same thread. It is not NUL-termination-dependent. has_text is 1
+ * for a present string (including empty), otherwise 0 with null/zero text.
+ */
+typedef struct DaPasteboardText {
+  const char* text;
+  size_t text_length;
+  int32_t has_text;
+  int64_t change_count;
+} DaPasteboardText;
+
 typedef enum DaStatus {
   DA_STATUS_OK = 0,
   DA_STATUS_INVALID_ARGUMENT = 1,
@@ -133,6 +147,19 @@ da_application_set_termination_request_deferral(int32_t enabled);
  */
 DA_EXPORT int32_t da_application_reply_to_termination_request(
     int64_t operation_id, int32_t allow);
+
+/** Main thread only. Reads one general-pasteboard plain-text snapshot. */
+DA_EXPORT int32_t da_pasteboard_read_text(DaPasteboardText* out_snapshot);
+
+/** Main thread only. Replaces general-pasteboard contents with copied UTF-8. */
+DA_EXPORT int32_t da_pasteboard_write_text(const char* text, size_t text_length,
+                                           int64_t* out_change_count);
+
+/** Main thread only. Clears the general pasteboard. */
+DA_EXPORT int32_t da_pasteboard_clear(int64_t* out_change_count);
+
+/** Main thread only. Reads the general pasteboard change count. */
+DA_EXPORT int32_t da_pasteboard_get_change_count(int64_t* out_change_count);
 
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_create(DaRect frame, const char* title,

@@ -5,6 +5,7 @@
 static_assert(sizeof(DaHandle) == 8);
 static_assert(std::is_standard_layout_v<DaRect>);
 static_assert(std::is_standard_layout_v<DaError>);
+static_assert(std::is_standard_layout_v<DaPasteboardText>);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
 static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 4);
 

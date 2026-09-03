@@ -45,6 +45,13 @@ void main(List<String> arguments) {
       (threadResult.value != 0 && threadResult.value != 1)) {
     _fail('invalid main-thread probe result');
   }
+  final NativeValueResult<int> pasteboardCount = bindings
+      .pasteboardGetChangeCount();
+  if (pasteboardCount.isSuccess ||
+      pasteboardCount.status != 5 ||
+      pasteboardCount.message.isEmpty) {
+    _fail('pasteboard symbol did not preserve its main-thread guard');
+  }
 
   final NativeValueResult<int> invalidWindow = bindings.windowCreate(
     x: 0,

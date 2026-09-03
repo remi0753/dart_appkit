@@ -59,4 +59,16 @@
 
 @end
 
+namespace dart_appkit {
+
+int32_t ReadPasteboardText(NSPasteboard* pasteboard,
+                           DaPasteboardText* out_snapshot);
+int32_t WritePasteboardText(NSPasteboard* pasteboard, const char* text,
+                            size_t text_length, int64_t* out_change_count);
+int32_t ClearPasteboard(NSPasteboard* pasteboard, int64_t* out_change_count);
+int32_t GetPasteboardChangeCount(NSPasteboard* pasteboard,
+                                 int64_t* out_change_count);
+
+}  // namespace dart_appkit
+
 #endif  // DART_APPKIT_BRIDGE_SRC_APPKIT_OBJECTS_H_

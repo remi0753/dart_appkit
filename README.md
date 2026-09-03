@@ -5,9 +5,9 @@ thread without Flutter. The native Runner owns `NSApplication` and its run loop;
 Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
 Dart message work is limited per run-loop turn.
 
-The MVP surface is deliberately small: one window, generic and text views,
-periodic `Timer` updates, window-state/resize/mouse/key events, explicit native
-ownership, and a restart-based developer command.
+The reusable surface is deliberately small: one window, generic and text views,
+periodic `Timer` updates, lifecycle/window/input events, plain-text pasteboard
+snapshots, explicit native ownership, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains

@@ -18,6 +18,8 @@ export 'src/api.dart'
         AppKitScreen,
         ModifierKeys,
         MenuItemInvokedEvent,
+        Pasteboard,
+        PasteboardTextSnapshot,
         Rect,
         TextView,
         View,

@@ -136,6 +136,14 @@ handle satisfies a generic-view lookup, while a generic view never satisfies a
 text-only lookup. `Window.contentView` borrows either kind and retains its Dart
 wrapper without transferring the registry lease.
 
+The general pasteboard is a process-global AppKit service, not a registered
+object. Dart receives a stable `Pasteboard` facade bound to its attached
+application. Every call remains on the root UI/main thread. A read copies an
+immutable nullable-text/change-count snapshot across FFI immediately; native
+thread-local UTF-8 storage never escapes into Dart. Tests substitute a unique
+named pasteboard at the internal helper boundary, while the public ABI alone
+selects the user's general pasteboard.
+
 Handles use a one-based slot plus a generation. Generations remain in the
 positive signed range so a handle has the same value in `Uint64` FFI calls and
 the event envelope's `Int64` field. A slot that exhausts that range is retired

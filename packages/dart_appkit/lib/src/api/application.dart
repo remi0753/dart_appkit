@@ -56,6 +56,7 @@ final class AppKitApplication {
   bool _terminated = false;
   bool _active = false;
   bool _defersTerminationRequests = false;
+  Pasteboard? _generalPasteboard;
 
   static Future<AppKitApplication> attach() async {
     final AppKitApplication? existing = _current;
@@ -148,6 +149,11 @@ final class AppKitApplication {
       .map((AppKitEvent event) => event as ApplicationTerminateRequestedEvent);
   bool get isTerminated => _terminated;
   bool get isActive => _active;
+
+  Pasteboard get generalPasteboard {
+    _ensureRunning();
+    return _generalPasteboard ??= Pasteboard._(this);
+  }
 
   bool get defersTerminationRequests => _defersTerminationRequests;
 
@@ -254,6 +260,7 @@ final class AppKitApplication {
     _windows.clear();
     _active = false;
     _defersTerminationRequests = false;
+    _generalPasteboard = null;
   }
 }
 

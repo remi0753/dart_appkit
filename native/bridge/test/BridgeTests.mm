@@ -362,6 +362,82 @@ void TestLifecycleRequests() {
   EXPECT_EQ(da_release(legacy_window), DA_STATUS_OK);
 }
 
+void TestPasteboardText() {
+  dart_appkit::ResetBridgeForTesting();
+  NSPasteboard* pasteboard =
+      [NSPasteboard pasteboardWithName:@"dev.dart-appkit.bridge-tests"];
+  EXPECT_TRUE(pasteboard != nil);
+
+  int64_t cleared_count = -1;
+  EXPECT_EQ(dart_appkit::ClearPasteboard(pasteboard, &cleared_count),
+            DA_STATUS_OK);
+  EXPECT_TRUE(cleared_count >= 0);
+
+  DaPasteboardText snapshot{};
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(snapshot.has_text, 0);
+  EXPECT_TRUE(snapshot.text == nullptr);
+  EXPECT_EQ(snapshot.text_length, static_cast<size_t>(0));
+  EXPECT_EQ(snapshot.change_count, cleared_count);
+
+  const std::string unicode_with_nul("A\0é", 4);
+  int64_t written_count = -1;
+  EXPECT_EQ(
+      dart_appkit::WritePasteboardText(pasteboard, unicode_with_nul.data(),
+                                       unicode_with_nul.size(), &written_count),
+      DA_STATUS_OK);
+  EXPECT_TRUE(written_count > cleared_count);
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(snapshot.has_text, 1);
+  EXPECT_EQ(snapshot.text_length, unicode_with_nul.size());
+  EXPECT_EQ(std::string(snapshot.text, snapshot.text_length), unicode_with_nul);
+  EXPECT_EQ(snapshot.change_count, written_count);
+
+  int64_t empty_count = -1;
+  EXPECT_EQ(
+      dart_appkit::WritePasteboardText(pasteboard, nullptr, 0, &empty_count),
+      DA_STATUS_OK);
+  EXPECT_TRUE(empty_count > written_count);
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(snapshot.has_text, 1);
+  EXPECT_TRUE(snapshot.text == nullptr);
+  EXPECT_EQ(snapshot.text_length, static_cast<size_t>(0));
+
+  int64_t observed_count = -1;
+  EXPECT_EQ(dart_appkit::GetPasteboardChangeCount(pasteboard, &observed_count),
+            DA_STATUS_OK);
+  EXPECT_EQ(observed_count, empty_count);
+  EXPECT_EQ(dart_appkit::ClearPasteboard(pasteboard, &cleared_count),
+            DA_STATUS_OK);
+  EXPECT_TRUE(cleared_count > empty_count);
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(snapshot.has_text, 0);
+  EXPECT_EQ(snapshot.change_count, cleared_count);
+
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  observed_count = 99;
+  EXPECT_EQ(
+      dart_appkit::WritePasteboardText(pasteboard, invalid_utf8,
+                                       sizeof(invalid_utf8), &observed_count),
+      DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(observed_count, static_cast<int64_t>(0));
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::WritePasteboardText(pasteboard, nullptr, 0, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::ClearPasteboard(pasteboard, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::GetPasteboardChangeCount(pasteboard, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(nil, &snapshot),
+            DA_STATUS_INTERNAL_ERROR);
+  [pasteboard releaseGlobally];
+}
+
 void TestRegistryLifecycleAndTypes() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -413,6 +489,7 @@ void TestThreadGuardAndFinalizer() {
 
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::atomic<int32_t> worker_is_main{-1};
+  std::atomic<int32_t> pasteboard_status{DA_STATUS_OK};
   std::thread worker([&]() {
     DaHandle handle = 123;
     worker_status.store(da_text_view_create(&handle));
@@ -420,9 +497,27 @@ void TestThreadGuardAndFinalizer() {
     int32_t is_main = -1;
     EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
     worker_is_main.store(is_main);
+    DaPasteboardText snapshot{reinterpret_cast<const char*>(1), 99, 1, 99};
+    pasteboard_status.store(da_pasteboard_read_text(&snapshot));
+    EXPECT_TRUE(snapshot.text == nullptr);
+    EXPECT_EQ(snapshot.text_length, static_cast<size_t>(0));
+    EXPECT_EQ(snapshot.has_text, 0);
+    EXPECT_EQ(snapshot.change_count, static_cast<int64_t>(0));
+    int64_t change_count = 99;
+    EXPECT_EQ(da_pasteboard_write_text(nullptr, 0, &change_count),
+              DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(change_count, static_cast<int64_t>(0));
+    change_count = 99;
+    EXPECT_EQ(da_pasteboard_clear(&change_count), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(change_count, static_cast<int64_t>(0));
+    change_count = 99;
+    EXPECT_EQ(da_pasteboard_get_change_count(&change_count),
+              DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(change_count, static_cast<int64_t>(0));
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(pasteboard_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(worker_is_main.load(), 0);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 
@@ -767,6 +862,7 @@ int main() {
     TestContractAndErrors();
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
+    TestPasteboardText();
     TestRegistryLifecycleAndTypes();
     TestThreadGuardAndFinalizer();
     TestRegistryDomainsAndAsyncRelease();

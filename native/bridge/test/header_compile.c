@@ -16,9 +16,10 @@ int da_header_compiles_as_c(void) {
       da_application_reply_to_termination_request;
   int32_t (*close_reply)(DaHandle, int64_t, int32_t) =
       da_window_reply_to_close_request;
+  int32_t (*pasteboard_read)(DaPasteboardText*) = da_pasteboard_read_text;
   return rect.width == 640.0 && versioned_registration != 0 &&
                  termination_reply != 0 && close_reply != 0 &&
-                 selected_version == 0
+                 pasteboard_read != 0 && selected_version == 0
              ? DA_STATUS_OK
              : DA_STATUS_INTERNAL_ERROR;
 }

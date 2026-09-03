@@ -30,6 +30,16 @@ final class NativeValueResult<T> {
   bool get isSuccess => status == 0;
 }
 
+final class NativePasteboardTextSnapshot {
+  const NativePasteboardTextSnapshot({
+    required this.text,
+    required this.changeCount,
+  });
+
+  final String? text;
+  final int changeCount;
+}
+
 abstract interface class NativeBindings {
   int abiVersion();
 
@@ -45,6 +55,11 @@ abstract interface class NativeBindings {
     required int operationId,
     required bool allow,
   });
+
+  NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText();
+  NativeValueResult<int> pasteboardWriteText(String text);
+  NativeValueResult<int> pasteboardClear();
+  NativeValueResult<int> pasteboardGetChangeCount();
 
   NativeValueResult<int> windowCreate({
     required double x,

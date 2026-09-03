@@ -16,6 +16,8 @@ final class FakeNativeBindings implements NativeBindings {
   bool applicationTerminationDeferral = false;
   int? applicationTerminationReplyOperationId;
   bool? applicationTerminationReplyAllow;
+  String? pasteboardText;
+  int pasteboardChangeCount = 0;
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
@@ -115,6 +117,46 @@ final class FakeNativeBindings implements NativeBindings {
     }
     return result;
   }
+
+  @override
+  NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() =>
+      _value<NativePasteboardTextSnapshot>(
+        'pasteboardReadText',
+        NativePasteboardTextSnapshot(
+          text: pasteboardText,
+          changeCount: pasteboardChangeCount,
+        ),
+      );
+
+  @override
+  NativeValueResult<int> pasteboardWriteText(String text) {
+    final NativeValueResult<int> result = _value<int>(
+      'pasteboardWriteText',
+      pasteboardChangeCount + 1,
+    );
+    if (result.isSuccess) {
+      pasteboardText = text;
+      pasteboardChangeCount = result.value!;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> pasteboardClear() {
+    final NativeValueResult<int> result = _value<int>(
+      'pasteboardClear',
+      pasteboardChangeCount + 1,
+    );
+    if (result.isSuccess) {
+      pasteboardText = null;
+      pasteboardChangeCount = result.value!;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> pasteboardGetChangeCount() =>
+      _value<int>('pasteboardGetChangeCount', pasteboardChangeCount);
 
   @override
   NativeValueResult<int> windowCreate({

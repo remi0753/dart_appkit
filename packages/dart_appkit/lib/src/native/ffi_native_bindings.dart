@@ -27,6 +27,19 @@ final class _DaErrorNative extends Struct {
   external int messageLength;
 }
 
+final class _DaPasteboardTextNative extends Struct {
+  external Pointer<Uint8> text;
+
+  @Size()
+  external int textLength;
+
+  @Int32()
+  external int hasText;
+
+  @Int64()
+  external int changeCount;
+}
+
 typedef _AbiVersionNative = Uint32 Function();
 typedef _AbiVersionDart = int Function();
 typedef _SetEventPortNative = Int32 Function(Int64);
@@ -49,6 +62,22 @@ typedef _BoolStatusNative = Int32 Function(Int32);
 typedef _BoolStatusDart = int Function(int);
 typedef _OperationReplyNative = Int32 Function(Int64, Int32);
 typedef _OperationReplyDart = int Function(int, int);
+typedef _PasteboardReadNative = Int32 Function(
+  Pointer<_DaPasteboardTextNative>,
+);
+typedef _PasteboardReadDart = int Function(Pointer<_DaPasteboardTextNative>);
+typedef _PasteboardWriteNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Int64>,
+);
+typedef _PasteboardWriteDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Int64>,
+);
+typedef _Int64OutputNative = Int32 Function(Pointer<Int64>);
+typedef _Int64OutputDart = int Function(Pointer<Int64>);
 typedef _WindowCreateNative = Int32 Function(
   _DaRectNative,
   Pointer<Uint8>,
@@ -161,6 +190,46 @@ _HandleOperationReplyDart? _lookupWindowCloseReply(DynamicLibrary library) {
   }
 }
 
+_PasteboardReadDart? _lookupPasteboardRead(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_PasteboardReadNative, _PasteboardReadDart>(
+      'da_pasteboard_read_text',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_PasteboardWriteDart? _lookupPasteboardWrite(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_PasteboardWriteNative, _PasteboardWriteDart>(
+      'da_pasteboard_write_text',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_Int64OutputDart? _lookupPasteboardClear(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_Int64OutputNative, _Int64OutputDart>(
+      'da_pasteboard_clear',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_Int64OutputDart? _lookupPasteboardChangeCount(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_Int64OutputNative, _Int64OutputDart>(
+      'da_pasteboard_get_change_count',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -181,6 +250,10 @@ final class FfiNativeBindings implements NativeBindings {
       _applicationTerminationReply = _lookupApplicationTerminationReply(
         library,
       ),
+      _pasteboardRead = _lookupPasteboardRead(library),
+      _pasteboardWrite = _lookupPasteboardWrite(library),
+      _pasteboardClear = _lookupPasteboardClear(library),
+      _pasteboardChangeCount = _lookupPasteboardChangeCount(library),
       _windowCreate = library
           .lookupFunction<_WindowCreateNative, _WindowCreateDart>(
             'da_window_create',
@@ -254,6 +327,10 @@ final class FfiNativeBindings implements NativeBindings {
   final _NoArgsStatusDart _terminate;
   final _BoolStatusDart? _applicationTerminationDeferral;
   final _OperationReplyDart? _applicationTerminationReply;
+  final _PasteboardReadDart? _pasteboardRead;
+  final _PasteboardWriteDart? _pasteboardWrite;
+  final _Int64OutputDart? _pasteboardClear;
+  final _Int64OutputDart? _pasteboardChangeCount;
   final _WindowCreateDart _windowCreate;
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
@@ -409,6 +486,137 @@ final class FfiNativeBindings implements NativeBindings {
       );
     }
     return _callResult(function(operationId, allow ? 1 : 0));
+  }
+
+  @override
+  NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() {
+    final _PasteboardReadDart? function = _pasteboardRead;
+    if (function == null) {
+      return const NativeValueResult<NativePasteboardTextSnapshot>.failure(
+        8,
+        'legacy native bridge does not support pasteboard reads',
+      );
+    }
+    final Pointer<_DaPasteboardTextNative> output = _allocate(
+      sizeOf<_DaPasteboardTextNative>(),
+    ).cast<_DaPasteboardTextNative>();
+    try {
+      output.ref
+        ..text = nullptr
+        ..textLength = 0
+        ..hasText = 0
+        ..changeCount = 0;
+      final int status = function(output);
+      if (status != 0) {
+        return NativeValueResult<NativePasteboardTextSnapshot>.failure(
+          status,
+          _lastErrorMessage(),
+        );
+      }
+      final _DaPasteboardTextNative snapshot = output.ref;
+      if ((snapshot.hasText != 0 && snapshot.hasText != 1) ||
+          snapshot.changeCount < 0 ||
+          (snapshot.hasText == 0 &&
+              (snapshot.text.address != 0 || snapshot.textLength != 0)) ||
+          (snapshot.textLength > 0 && snapshot.text.address == 0)) {
+        return const NativeValueResult<NativePasteboardTextSnapshot>.failure(
+          7,
+          'native bridge returned an invalid pasteboard snapshot',
+        );
+      }
+      String? text;
+      if (snapshot.hasText == 1) {
+        if (snapshot.textLength == 0) {
+          text = '';
+        } else {
+          try {
+            text = utf8.decode(
+              snapshot.text
+                  .asTypedList(snapshot.textLength)
+                  .toList(growable: false),
+            );
+          } on FormatException {
+            return const NativeValueResult<
+              NativePasteboardTextSnapshot
+            >.failure(
+              7,
+              'native bridge returned invalid UTF-8 pasteboard text',
+            );
+          }
+        }
+      }
+      return NativeValueResult<NativePasteboardTextSnapshot>.success(
+        NativePasteboardTextSnapshot(
+          text: text,
+          changeCount: snapshot.changeCount,
+        ),
+      );
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<int> pasteboardWriteText(String text) {
+    final _PasteboardWriteDart? function = _pasteboardWrite;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support pasteboard writes',
+      );
+    }
+    return _withUtf8(text, (Pointer<Uint8> pointer, int length) {
+      return _pasteboardCountResult(
+        (Pointer<Int64> output) => function(pointer, length, output),
+      );
+    });
+  }
+
+  @override
+  NativeValueResult<int> pasteboardClear() {
+    final _Int64OutputDart? function = _pasteboardClear;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support pasteboard clear',
+      );
+    }
+    return _pasteboardCountResult(function);
+  }
+
+  @override
+  NativeValueResult<int> pasteboardGetChangeCount() {
+    final _Int64OutputDart? function = _pasteboardChangeCount;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support pasteboard change counts',
+      );
+    }
+    return _pasteboardCountResult(function);
+  }
+
+  NativeValueResult<int> _pasteboardCountResult(
+    int Function(Pointer<Int64>) body,
+  ) {
+    final Pointer<Int64> output = _allocate(sizeOf<Int64>()).cast<Int64>();
+    try {
+      output.value = 0;
+      final int status = body(output);
+      final NativeValueResult<int> result = _valueResult<int>(
+        status,
+        output.value,
+      );
+      if (result.isSuccess && result.value! < 0) {
+        return const NativeValueResult<int>.failure(
+          7,
+          'native bridge returned a negative pasteboard change count',
+        );
+      }
+      return result;
+    } finally {
+      _free(output.cast<Void>());
+    }
   }
 
   @override

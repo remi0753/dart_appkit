@@ -58,5 +58,11 @@ void main(List<String> arguments) {
           8) {
     _fail('legacy bridge did not reject additive lifecycle APIs');
   }
+  if (bindings.pasteboardReadText().status != 8 ||
+      bindings.pasteboardWriteText('text').status != 8 ||
+      bindings.pasteboardClear().status != 8 ||
+      bindings.pasteboardGetChangeCount().status != 8) {
+    _fail('legacy bridge did not reject additive pasteboard APIs');
+  }
   stdout.writeln('legacy event bridge fallback smoke test passed');
 }

@@ -644,6 +644,61 @@ Future<void> _testLifecycleRequestEvents() async {
   await raw.close();
 }
 
+Future<void> _testPasteboardApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Pasteboard pasteboard = app.generalPasteboard;
+  _expect(
+    identical(pasteboard, app.generalPasteboard),
+    'general pasteboard wrapper is stable',
+  );
+
+  PasteboardTextSnapshot snapshot = pasteboard.readText();
+  _expect(
+    snapshot.text == null && snapshot.changeCount == 0,
+    'absent text snapshot',
+  );
+  final int unicodeCount = pasteboard.writeText('A\u0000é — 日本語');
+  _expect(unicodeCount == 1, 'write returns change count');
+  snapshot = pasteboard.readText();
+  _expect(
+    snapshot.text == 'A\u0000é — 日本語' && snapshot.changeCount == 1,
+    'unicode and embedded NUL round trip',
+  );
+
+  final int emptyCount = pasteboard.writeText('');
+  snapshot = pasteboard.readText();
+  _expect(
+    snapshot.text == '' &&
+        snapshot.changeCount == emptyCount &&
+        pasteboard.changeCount == emptyCount,
+    'empty text remains present',
+  );
+  final int clearCount = pasteboard.clear();
+  snapshot = pasteboard.readText();
+  _expect(
+    snapshot.text == null && snapshot.changeCount == clearCount,
+    'clear restores absent text',
+  );
+
+  bindings.failNextOperation = 'pasteboardReadText';
+  final AppKitNativeException readError =
+      await _expectThrows<AppKitNativeException>(pasteboard.readText);
+  _expect(readError.status == 7, 'pasteboard read error retained');
+  bindings.failNextOperation = 'pasteboardWriteText';
+  await _expectThrows<AppKitNativeException>(
+    () => pasteboard.writeText('unchanged'),
+  );
+  _expect(bindings.pasteboardText == null, 'failed write does not change fake');
+
+  await app.terminate();
+  await _expectThrows<StateError>(() => pasteboard.changeCount);
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -713,6 +768,7 @@ Future<void> main() async {
     'application and window lifecycle request events',
     _testLifecycleRequestEvents,
   );
+  await _test('plain-text pasteboard snapshots', _testPasteboardApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test(
     'cross-application content view guard',
