@@ -37,6 +37,12 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
   a specialized handle that is accepted by generic-view lookups.
 - `da_window_set_content_view` borrows both handles, accepts either view kind,
   and consumes neither.
+- Menu and menu-item create calls return independent handles. Adding an item,
+  attaching a submenu, and setting the application main menu borrow every
+  handle and consume none; AppKit's retain graph is not a registry lease.
+- Releasing a menu item clears its target/action/handle before dropping the
+  registry reference. Releasing the currently attached main menu detaches it
+  from `NSApplication`.
 - Text-only calls require the specialized kind and reject a generic view.
 - `da_window_close` performs an unconditional programmatic window action but
   does not release ownership. `da_window_request_close` follows the user-facing
@@ -141,7 +147,22 @@ text item; an empty string remains present. Clear removes every item. All four
 operations are main-thread-only and initialize outputs to a safe zero state
 before validating the thread or arguments.
 
-Automated native tests call the same conversion helpers with an AppKit-created
-unique named pasteboard. They never read or mutate the user's general
-pasteboard. Product code is responsible for limiting general-pasteboard reads
-to an explicit user action.
+Automated native tests call the same conversion helpers with an in-process
+pasteboard test double. They never connect to, read, or mutate the user's
+general pasteboard. Product code is responsible for limiting
+general-pasteboard reads to an explicit user action.
+
+## Menu policy
+
+Menu and item titles plus key equivalents use the same copied UTF-8 convention
+as other bridge strings. Shortcut masks accept only the seven stable
+`DaModifier` bits and translate them to AppKit flags internally. Menus disable
+AppKit auto-enablement so the explicit enabled state remains authoritative.
+
+Actionable items use a private native target that posts
+`DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and
+operation ID zero. Separators reject submenu, enabled-state, and perform calls.
+`da_menu_item_perform_action` uses the same target path as an AppKit click and
+exists for deterministic product/integration exercise; an enabled actionable
+item is required. A v1-v3 sink suppresses the v4 action record without changing
+the synchronous call result.

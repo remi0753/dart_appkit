@@ -1,6 +1,6 @@
 # MVP Verification
 
-Verification date: 2026-09-03 (Asia/Tokyo).
+Verification date: 2026-09-04 (Asia/Tokyo).
 
 ## Result
 
@@ -30,7 +30,8 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Handle generations/domains, async release, UTF-8, errors, main-thread guard, finalizer | Native contract tests including concurrent claim, shutdown, and 1,000-slot churn | Verified |
 | close/resize/mouse/key and v3 window-state native model | Native payload/snapshot/deduplication tests plus Dart decoder/routing/state tests | Verified |
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
-| Plain-text pasteboard snapshot/write/clear | Unique named-pasteboard native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
+| Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
+| Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |

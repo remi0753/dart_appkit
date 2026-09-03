@@ -61,6 +61,19 @@ abstract interface class NativeBindings {
   NativeValueResult<int> pasteboardClear();
   NativeValueResult<int> pasteboardGetChangeCount();
 
+  NativeValueResult<int> menuCreate(String title);
+  NativeValueResult<int> menuItemCreate({
+    required String title,
+    required String keyEquivalent,
+    required int modifiers,
+  });
+  NativeValueResult<int> menuItemCreateSeparator();
+  NativeCallResult menuAddItem(int menuHandle, int itemHandle);
+  NativeCallResult menuItemSetSubmenu(int itemHandle, int submenuHandle);
+  NativeCallResult menuItemSetEnabled(int itemHandle, bool enabled);
+  NativeCallResult applicationSetMainMenu(int menuHandle);
+  NativeCallResult menuItemPerformAction(int itemHandle);
+
   NativeValueResult<int> windowCreate({
     required double x,
     required double y,

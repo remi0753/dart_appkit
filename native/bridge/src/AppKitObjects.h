@@ -59,6 +59,25 @@
 
 @end
 
+@interface DaMenuItemOwner : NSObject {
+ @private
+  NSMenuItem* _item;
+  BOOL _separator;
+}
+
+@property(nonatomic, strong, readonly) NSMenuItem* item;
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign, readonly, getter=isSeparator) BOOL separator;
+
+- (instancetype)initWithTitle:(NSString*)title
+                keyEquivalent:(NSString*)keyEquivalent
+                    modifiers:(NSEventModifierFlags)modifiers;
+- (instancetype)initSeparator;
+- (void)daPerformAction:(id)sender;
+- (void)daPrepareForRelease;
+
+@end
+
 namespace dart_appkit {
 
 int32_t ReadPasteboardText(NSPasteboard* pasteboard,

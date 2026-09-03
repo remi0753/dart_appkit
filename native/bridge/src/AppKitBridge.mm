@@ -15,6 +15,56 @@
 #include "BridgeInternal.h"
 #include "ObjectRegistry.h"
 
+@implementation DaMenuItemOwner
+
+@synthesize item = _item;
+@synthesize separator = _separator;
+
+- (instancetype)initWithTitle:(NSString*)title
+                keyEquivalent:(NSString*)keyEquivalent
+                    modifiers:(NSEventModifierFlags)modifiers {
+  self = [super init];
+  if (self != nil) {
+    _separator = NO;
+    _item = [[NSMenuItem alloc] initWithTitle:title
+                                       action:@selector(daPerformAction:)
+                                keyEquivalent:keyEquivalent];
+    _item.keyEquivalentModifierMask = modifiers;
+    _item.target = self;
+  }
+  return self;
+}
+
+- (instancetype)initSeparator {
+  self = [super init];
+  if (self != nil) {
+    _separator = YES;
+    _item = [NSMenuItem separatorItem];
+  }
+  return self;
+}
+
+- (void)daPerformAction:(id)sender {
+  (void)sender;
+  if (_separator || _daHandle == 0) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_MENU_ITEM_INVOKED;
+  event.window = _daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  (void)dart_appkit::PostEvent(event);
+}
+
+- (void)daPrepareForRelease {
+  _daHandle = 0;
+  _item.enabled = NO;
+  _item.target = nil;
+  _item.action = nil;
+}
+
+@end
+
 namespace dart_appkit {
 namespace {
 
@@ -30,6 +80,10 @@ std::atomic<uint64_t> g_async_release_epoch{1};
 bool g_defers_application_termination_requests = false;
 int64_t g_pending_application_termination_operation_id = 0;
 bool g_programmatic_application_termination = false;
+constexpr uint64_t kStableModifierMask =
+    DA_MODIFIER_CAPS_LOCK | DA_MODIFIER_SHIFT | DA_MODIFIER_CONTROL |
+    DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND | DA_MODIFIER_NUMERIC_PAD |
+    DA_MODIFIER_FUNCTION;
 
 NSString* CopyUtf8(const char* bytes, size_t length, int32_t* out_status) {
   if (bytes == nullptr && length != 0) {
@@ -86,6 +140,49 @@ DaTextView* TextView(DaHandle handle, int32_t* out_status) {
       handle, ObjectKind::kTextView, ThreadDomain::kAppKitMain, out_status));
 }
 
+NSMenu* Menu(DaHandle handle, int32_t* out_status) {
+  return static_cast<NSMenu*>(ObjectRegistry::Shared().Lookup(
+      handle, ObjectKind::kMenu, ThreadDomain::kAppKitMain, out_status));
+}
+
+DaMenuItemOwner* MenuItemOwner(DaHandle handle, int32_t* out_status) {
+  return static_cast<DaMenuItemOwner*>(ObjectRegistry::Shared().Lookup(
+      handle, ObjectKind::kMenuItem, ThreadDomain::kAppKitMain, out_status));
+}
+
+NSEventModifierFlags AppKitModifiers(uint64_t modifiers, int32_t* out_status) {
+  if ((modifiers & ~kStableModifierMask) != 0) {
+    *out_status =
+        SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                     "menu shortcut contains unsupported modifier bits");
+    return 0;
+  }
+  NSEventModifierFlags result = 0;
+  if ((modifiers & DA_MODIFIER_CAPS_LOCK) != 0) {
+    result |= NSEventModifierFlagCapsLock;
+  }
+  if ((modifiers & DA_MODIFIER_SHIFT) != 0) {
+    result |= NSEventModifierFlagShift;
+  }
+  if ((modifiers & DA_MODIFIER_CONTROL) != 0) {
+    result |= NSEventModifierFlagControl;
+  }
+  if ((modifiers & DA_MODIFIER_OPTION) != 0) {
+    result |= NSEventModifierFlagOption;
+  }
+  if ((modifiers & DA_MODIFIER_COMMAND) != 0) {
+    result |= NSEventModifierFlagCommand;
+  }
+  if ((modifiers & DA_MODIFIER_NUMERIC_PAD) != 0) {
+    result |= NSEventModifierFlagNumericPad;
+  }
+  if ((modifiers & DA_MODIFIER_FUNCTION) != 0) {
+    result |= NSEventModifierFlagFunction;
+  }
+  *out_status = DA_STATUS_OK;
+  return result;
+}
+
 void PrepareWindowForRelease(DaWindowOwner* owner) {
   if (owner == nil) {
     return;
@@ -95,6 +192,12 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
   owner.window.delegate = nil;
   [owner.window orderOut:nil];
   [owner daCloseProgrammatically];
+}
+
+void PrepareMenuForRelease(NSMenu* menu) {
+  if (menu != nil && NSApp.mainMenu == menu) {
+    NSApp.mainMenu = nil;
+  }
 }
 
 int32_t CompletePendingRelease(DaHandle handle) {
@@ -108,6 +211,10 @@ int32_t CompletePendingRelease(DaHandle handle) {
   }
   if (kind == ObjectKind::kWindow) {
     PrepareWindowForRelease(static_cast<DaWindowOwner*>(object));
+  } else if (kind == ObjectKind::kMenu) {
+    PrepareMenuForRelease(static_cast<NSMenu*>(object));
+  } else if (kind == ObjectKind::kMenuItem) {
+    [static_cast<DaMenuItemOwner*>(object) daPrepareForRelease];
   }
   __strong id released_object =
       registry.CompleteRelease(handle, ThreadDomain::kAppKitMain, &status);
@@ -547,6 +654,255 @@ int32_t da_pasteboard_get_change_count(int64_t* out_change_count) {
                                       ? exception.reason.UTF8String
                                       : "pasteboard change-count read failed");
   }
+}
+
+int32_t da_menu_create(const char* title, size_t title_length,
+                       DaHandle* out_menu) {
+  dart_appkit::ClearLastError();
+  if (out_menu == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_menu must not be null");
+  }
+  *out_menu = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_title = dart_appkit::CopyUtf8(title, title_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:copied_title];
+    menu.autoenablesItems = NO;
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        menu, dart_appkit::ObjectKind::kMenu,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    *out_menu = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "AppKit menu creation failed");
+  }
+}
+
+int32_t da_menu_item_create(const char* title, size_t title_length,
+                            const char* key_equivalent,
+                            size_t key_equivalent_length, uint64_t modifiers,
+                            DaHandle* out_item) {
+  dart_appkit::ClearLastError();
+  if (out_item == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_item must not be null");
+  }
+  *out_item = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  const NSEventModifierFlags appkit_modifiers =
+      dart_appkit::AppKitModifiers(modifiers, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* copied_title = dart_appkit::CopyUtf8(title, title_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* copied_key =
+      dart_appkit::CopyUtf8(key_equivalent, key_equivalent_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    DaMenuItemOwner* owner =
+        [[DaMenuItemOwner alloc] initWithTitle:copied_title
+                                 keyEquivalent:copied_key
+                                     modifiers:appkit_modifiers];
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        owner, dart_appkit::ObjectKind::kMenuItem,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    owner.daHandle = handle;
+    *out_item = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "AppKit menu-item creation failed");
+  }
+}
+
+int32_t da_menu_item_create_separator(DaHandle* out_item) {
+  dart_appkit::ClearLastError();
+  if (out_item == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_item must not be null");
+  }
+  *out_item = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  @try {
+    DaMenuItemOwner* owner = [[DaMenuItemOwner alloc] initSeparator];
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        owner, dart_appkit::ObjectKind::kMenuItem,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    owner.daHandle = handle;
+    *out_item = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "AppKit separator creation failed");
+  }
+}
+
+int32_t da_menu_add_item(DaHandle menu, DaHandle item) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSMenu* native_menu = dart_appkit::Menu(menu, &status);
+  if (native_menu == nil) {
+    return status;
+  }
+  DaMenuItemOwner* owner = dart_appkit::MenuItemOwner(item, &status);
+  if (owner == nil) {
+    return status;
+  }
+  @try {
+    [native_menu addItem:owner.item];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "menu rejected the item");
+  }
+}
+
+int32_t da_menu_item_set_submenu(DaHandle item, DaHandle submenu) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaMenuItemOwner* owner = dart_appkit::MenuItemOwner(item, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (owner.isSeparator) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "a separator cannot own a submenu");
+  }
+  NSMenu* native_submenu = nil;
+  if (submenu != 0) {
+    native_submenu = dart_appkit::Menu(submenu, &status);
+    if (native_submenu == nil) {
+      return status;
+    }
+  }
+  @try {
+    owner.item.submenu = native_submenu;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "menu item rejected the submenu");
+  }
+}
+
+int32_t da_menu_item_set_enabled(DaHandle item, int32_t enabled) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (enabled != 0 && enabled != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "enabled must be 0 or 1");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaMenuItemOwner* owner = dart_appkit::MenuItemOwner(item, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (owner.isSeparator) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "a separator has no enabled state");
+  }
+  owner.item.enabled = enabled == 1;
+  return DA_STATUS_OK;
+}
+
+int32_t da_application_set_main_menu(DaHandle menu) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (NSApp == nil) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "NSApplication is not initialized");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSMenu* native_menu = nil;
+  if (menu != 0) {
+    native_menu = dart_appkit::Menu(menu, &status);
+    if (native_menu == nil) {
+      return status;
+    }
+  }
+  @try {
+    NSApp.mainMenu = native_menu;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "application rejected the menu");
+  }
+}
+
+int32_t da_menu_item_perform_action(DaHandle item) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaMenuItemOwner* owner = dart_appkit::MenuItemOwner(item, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (owner.isSeparator || !owner.item.isEnabled || owner.item.action == nil ||
+      owner.item.target == nil) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "menu item must be enabled and actionable before it is performed");
+  }
+  [owner daPerformAction:owner.item];
+  return DA_STATUS_OK;
 }
 
 int32_t da_window_create(DaRect frame, const char* title, size_t title_length,

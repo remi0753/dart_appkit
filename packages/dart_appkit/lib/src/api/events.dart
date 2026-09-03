@@ -292,6 +292,7 @@ final class ModifierKeys {
   static const int commandBit = 1 << 4;
   static const int numericPadBit = 1 << 5;
   static const int functionBit = 1 << 6;
+  static const int supportedBits = (1 << 7) - 1;
 
   final int bits;
 

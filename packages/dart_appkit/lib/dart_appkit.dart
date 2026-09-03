@@ -17,6 +17,8 @@ export 'src/api.dart'
         AppKitNativeException,
         AppKitScreen,
         ModifierKeys,
+        Menu,
+        MenuItem,
         MenuItemInvokedEvent,
         Pasteboard,
         PasteboardTextSnapshot,

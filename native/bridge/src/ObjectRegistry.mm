@@ -26,6 +26,10 @@ const char* ObjectKindName(ObjectKind kind) {
       return "view";
     case ObjectKind::kTextView:
       return "text view";
+    case ObjectKind::kMenu:
+      return "menu";
+    case ObjectKind::kMenuItem:
+      return "menu item";
   }
   return "unknown";
 }

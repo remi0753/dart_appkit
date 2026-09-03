@@ -699,6 +699,155 @@ Future<void> _testPasteboardApi() async {
   await raw.close();
 }
 
+Future<void> _testMenuApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (9 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+
+  final Menu mainMenu = Menu(title: 'Main');
+  final Menu applicationMenu = Menu(title: 'Application');
+  final MenuItem applicationItem = MenuItem(title: 'Application')
+    ..submenu = applicationMenu;
+  final MenuItem separator = MenuItem.separator();
+  final MenuItem quit = MenuItem(
+    title: 'Quit — 日本語',
+    keyEquivalent: 'q',
+    modifiers: const ModifierKeys(
+      ModifierKeys.commandBit | ModifierKeys.shiftBit,
+    ),
+  );
+  mainMenu.addItem(applicationItem);
+  applicationMenu
+    ..addItem(separator)
+    ..addItem(quit);
+  app.mainMenu = mainMenu;
+
+  final int mainHandle = bindings.menuTitles.entries
+      .singleWhere((MapEntry<int, String> entry) => entry.value == 'Main')
+      .key;
+  final int applicationMenuHandle = bindings.menuTitles.entries
+      .singleWhere(
+        (MapEntry<int, String> entry) => entry.value == 'Application',
+      )
+      .key;
+  final int applicationItemHandle = bindings.menuItems.entries
+      .singleWhere(
+        (MapEntry<int, FakeMenuItemState> entry) =>
+            entry.value.title == 'Application',
+      )
+      .key;
+  final int quitHandle = bindings.menuItems.entries
+      .singleWhere(
+        (MapEntry<int, FakeMenuItemState> entry) =>
+            entry.value.title.startsWith('Quit'),
+      )
+      .key;
+  _expect(
+    app.mainMenu == mainMenu && bindings.mainMenu == mainHandle,
+    'main menu ownership and native attachment',
+  );
+  _expect(
+    mainMenu.items.single == applicationItem &&
+        applicationMenu.items.length == 2 &&
+        applicationItem.submenu == applicationMenu &&
+        bindings.submenus[applicationItemHandle] == applicationMenuHandle,
+    'menu item and submenu ownership',
+  );
+  final FakeMenuItemState quitState = bindings.menuItems[quitHandle]!;
+  _expect(
+    quitState.keyEquivalent == 'q' &&
+        quitState.modifiers ==
+            ModifierKeys.commandBit | ModifierKeys.shiftBit &&
+        separator.isSeparator,
+    'menu metadata forwarded',
+  );
+
+  int appActionCount = 0;
+  int itemActionCount = 0;
+  final List<Object> actionErrors = <Object>[];
+  final StreamSubscription<AppKitEvent> appEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is MenuItemInvokedEvent) {
+      ++appActionCount;
+    }
+  }, onError: (Object error) => actionErrors.add(error));
+  final StreamSubscription<MenuItemInvokedEvent> itemEvents = quit.onInvoked
+      .listen((MenuItemInvokedEvent event) {
+        _expect(event.menuItemHandle == quitHandle, 'item event identity');
+        ++itemActionCount;
+      });
+  quit.performAction();
+  _expect(
+    bindings.performedMenuItems.single == quitHandle,
+    'explicit action forwarded',
+  );
+  raw.add(<Object?>[4, 40, quitHandle, 9, 500000, 0]);
+  _expect(
+    appActionCount == 1 && itemActionCount == 1,
+    'action reaches application and item streams',
+  );
+  raw.add(<Object?>[4, 40, quitHandle, 10, 500500, 0]);
+  _expect(
+    actionErrors.length == 1 && actionErrors.single is FormatException,
+    'mismatched action generation is rejected',
+  );
+
+  quit.isEnabled = false;
+  _expect(
+    !quit.isEnabled && bindings.menuItemEnabled[quitHandle] == false,
+    'disabled state forwarded',
+  );
+  await _expectThrows<StateError>(quit.performAction);
+  quit.isEnabled = true;
+  bindings.failNextOperation = 'menuItemSetEnabled';
+  await _expectThrows<AppKitNativeException>(() => quit.isEnabled = false);
+  _expect(quit.isEnabled, 'failed enabled update is not cached');
+  await _expectThrows<StateError>(separator.performAction);
+  await _expectThrows<StateError>(() => separator.submenu = applicationMenu);
+  await _expectThrows<ArgumentError>(
+    () => MenuItem(title: 'Invalid', modifiers: const ModifierKeys(1 << 20)),
+  );
+
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(quit.dispose);
+  _expect(!quit.isDisposed, 'failed item release preserves wrapper state');
+  raw.add(<Object?>[4, 40, quitHandle, 9, 500750, 0]);
+  _expect(
+    appActionCount == 2 && itemActionCount == 2,
+    'failed item release preserves routing',
+  );
+  quit.dispose();
+  raw.add(<Object?>[4, 40, quitHandle, 9, 501000, 0]);
+  _expect(
+    appActionCount == 3 && itemActionCount == 2,
+    'disposed item ignores a late routed action',
+  );
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(mainMenu.dispose);
+  _expect(
+    app.mainMenu == mainMenu && !mainMenu.isDisposed,
+    'failed main-menu release preserves attachment state',
+  );
+  mainMenu.dispose();
+  _expect(
+    app.mainMenu == null && bindings.mainMenu == null,
+    'disposing the main menu clears attachment state',
+  );
+
+  await itemEvents.cancel();
+  await appEvents.cancel();
+  separator.dispose();
+  applicationItem.dispose();
+  applicationMenu.dispose();
+  _expect(bindings.objects.isEmpty, 'all menu handles released');
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -717,6 +866,7 @@ Future<void> _testLegacyProtocolSelection() async {
   await _expectThrows<UnsupportedError>(
     () => window.defersCloseRequests = true,
   );
+  await _expectThrows<UnsupportedError>(() => Menu(title: 'Unavailable'));
   window.dispose();
   await app.terminate();
   await raw.close();
@@ -729,6 +879,8 @@ Future<void> _testCrossApplicationGuard() async {
   final FakeNativeBindings bindingsOne = FakeNativeBindings();
   final AppKitApplication appOne = await _attach(bindingsOne, rawOne);
   final TextView oldView = TextView();
+  final Menu oldMenu = Menu(title: 'Old');
+  final MenuItem oldItem = MenuItem(title: 'Old item');
   await appOne.terminate();
   await rawOne.close();
 
@@ -741,9 +893,18 @@ Future<void> _testCrossApplicationGuard() async {
     frame: const Rect.fromLTWH(0, 0, 100, 100),
     title: 'Second',
   );
+  final Menu newMenu = Menu(title: 'New');
+  final MenuItem newItem = MenuItem(title: 'New item');
   await _expectThrows<StateError>(() => newWindow.contentView = oldView);
+  await _expectThrows<StateError>(() => newMenu.addItem(oldItem));
+  await _expectThrows<StateError>(() => newItem.submenu = oldMenu);
+  await _expectThrows<StateError>(() => appTwo.mainMenu = oldMenu);
 
   oldView.dispose();
+  oldItem.dispose();
+  oldMenu.dispose();
+  newItem.dispose();
+  newMenu.dispose();
   newWindow.dispose();
   await appTwo.terminate();
   await rawTwo.close();
@@ -769,6 +930,7 @@ Future<void> main() async {
     _testLifecycleRequestEvents,
   );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
+  await _test('menu ownership and action routing', _testMenuApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test(
     'cross-application content view guard',

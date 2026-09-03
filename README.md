@@ -6,8 +6,9 @@ Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
 Dart message work is limited per run-loop turn.
 
 The reusable surface is deliberately small: one window, generic and text views,
-periodic `Timer` updates, lifecycle/window/input events, plain-text pasteboard
-snapshots, explicit native ownership, and a restart-based developer command.
+menus and menu-item actions, periodic `Timer` updates,
+lifecycle/window/input events, plain-text pasteboard snapshots, explicit native
+ownership, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -15,7 +16,8 @@ the original event set with source generation, nanosecond monotonic time, and
 operation identity. Version 3 adds focus, visibility, occlusion,
 backing-scale, and screen state. Current Dart/native pairs negotiate version 4,
 which adds application active/reopen/termination and user-close request events
-while preserving older records. The Dart API decodes all four versions.
+plus menu-item actions while preserving older records. The Dart API decodes all
+four versions.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other
@@ -77,8 +79,9 @@ returns the Runner's exit status. For ad-hoc shell work, the bootstrap also
 generates `.dart_tool/dart-engine/env.zsh`.
 
 The example should count once per second while the UI remains interactive. It
-logs input and resize events; closing the window must log that close reached
-Dart, release both handles, and request normal application termination.
+logs input, resize, and Quit-menu action events; closing the window must log
+that close reached Dart, release every handle, and request normal application
+termination.
 
 ## Dart API shape
 
@@ -91,6 +94,14 @@ final window = Window(
 )
   ..contentView = view
   ..show();
+final Menu mainMenu = Menu();
+final MenuItem closeItem = MenuItem(
+  title: 'Close',
+  keyEquivalent: 'w',
+  modifiers: const ModifierKeys(ModifierKeys.commandBit),
+);
+mainMenu.addItem(closeItem);
+app.mainMenu = mainMenu;
 
 await window.onClosed.first;
 window.dispose();

@@ -41,6 +41,45 @@
 
 @end
 
+@interface DaTestPasteboard : NSObject {
+ @private
+  NSString* _text;
+  NSInteger _changeCount;
+  BOOL _hasText;
+}
+
+@end
+
+@implementation DaTestPasteboard
+
+- (NSInteger)changeCount {
+  return _changeCount;
+}
+
+- (NSString*)stringForType:(NSPasteboardType)dataType {
+  if (!_hasText || ![dataType isEqualToString:NSPasteboardTypeString]) {
+    return nil;
+  }
+  return _text;
+}
+
+- (NSInteger)clearContents {
+  _text = nil;
+  _hasText = NO;
+  return ++_changeCount;
+}
+
+- (BOOL)setString:(NSString*)string forType:(NSPasteboardType)dataType {
+  if (![dataType isEqualToString:NSPasteboardTypeString]) {
+    return NO;
+  }
+  _text = [string copy];
+  _hasText = YES;
+  return YES;
+}
+
+@end
+
 namespace {
 
 int g_failures = 0;
@@ -118,6 +157,23 @@ DaHandle CreateView() {
   return handle;
 }
 
+DaHandle CreateMenu(const std::string& title) {
+  DaHandle handle = 0;
+  EXPECT_EQ(da_menu_create(title.data(), title.size(), &handle), DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  return handle;
+}
+
+DaHandle CreateMenuItem(const std::string& title, const std::string& key,
+                        uint64_t modifiers) {
+  DaHandle handle = 0;
+  EXPECT_EQ(da_menu_item_create(title.data(), title.size(), key.data(),
+                                key.size(), modifiers, &handle),
+            DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  return handle;
+}
+
 DaWindowOwner* OwnerFor(DaHandle handle) {
   int32_t status = DA_STATUS_OK;
   id object = dart_appkit::ObjectRegistry::Shared().Lookup(
@@ -125,6 +181,24 @@ DaWindowOwner* OwnerFor(DaHandle handle) {
       dart_appkit::ThreadDomain::kAppKitMain, &status);
   EXPECT_EQ(status, DA_STATUS_OK);
   return static_cast<DaWindowOwner*>(object);
+}
+
+NSMenu* MenuFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kMenu,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  return static_cast<NSMenu*>(object);
+}
+
+DaMenuItemOwner* MenuItemOwnerFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kMenuItem,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  return static_cast<DaMenuItemOwner*>(object);
 }
 
 void ResetWithCapture(Capture* capture) {
@@ -364,8 +438,7 @@ void TestLifecycleRequests() {
 
 void TestPasteboardText() {
   dart_appkit::ResetBridgeForTesting();
-  NSPasteboard* pasteboard =
-      [NSPasteboard pasteboardWithName:@"dev.dart-appkit.bridge-tests"];
+  NSPasteboard* pasteboard = (NSPasteboard*)[[DaTestPasteboard alloc] init];
   EXPECT_TRUE(pasteboard != nil);
 
   int64_t cleared_count = -1;
@@ -435,7 +508,105 @@ void TestPasteboardText() {
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(dart_appkit::ReadPasteboardText(nil, &snapshot),
             DA_STATUS_INTERNAL_ERROR);
-  [pasteboard releaseGlobally];
+}
+
+void TestMenus() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+
+  DaHandle output = 99;
+  EXPECT_EQ(da_menu_create(nullptr, 0, nullptr), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_create(nullptr, 0, nullptr, 0, 0, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_create_separator(nullptr), DA_STATUS_INVALID_ARGUMENT);
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_menu_create(invalid_utf8, sizeof(invalid_utf8), &output),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(output, static_cast<DaHandle>(0));
+  output = 99;
+  EXPECT_EQ(da_menu_item_create("Invalid", 7, "i", 1, 1ULL << 20, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(output, static_cast<DaHandle>(0));
+
+  const DaHandle main_menu = CreateMenu("Main");
+  const DaHandle app_menu = CreateMenu("Application");
+  const DaHandle app_item = CreateMenuItem("Application", "", 0);
+  const DaHandle quit_item = CreateMenuItem(
+      "Quit — 日本語", "q", DA_MODIFIER_COMMAND | DA_MODIFIER_SHIFT);
+  DaHandle separator = 0;
+  EXPECT_EQ(da_menu_item_create_separator(&separator), DA_STATUS_OK);
+  EXPECT_TRUE(separator != 0);
+
+  NSMenu* native_main_menu = MenuFor(main_menu);
+  NSMenu* native_app_menu = MenuFor(app_menu);
+  DaMenuItemOwner* native_app_item = MenuItemOwnerFor(app_item);
+  DaMenuItemOwner* native_quit_item = MenuItemOwnerFor(quit_item);
+  DaMenuItemOwner* native_separator = MenuItemOwnerFor(separator);
+  EXPECT_EQ(std::string(native_main_menu.title.UTF8String),
+            std::string("Main"));
+  EXPECT_TRUE(!native_main_menu.autoenablesItems);
+  EXPECT_EQ(std::string(native_quit_item.item.title.UTF8String),
+            std::string("Quit — 日本語"));
+  EXPECT_EQ(std::string(native_quit_item.item.keyEquivalent.UTF8String),
+            std::string("q"));
+  EXPECT_TRUE((native_quit_item.item.keyEquivalentModifierMask &
+               NSEventModifierFlagCommand) != 0);
+  EXPECT_TRUE((native_quit_item.item.keyEquivalentModifierMask &
+               NSEventModifierFlagShift) != 0);
+  EXPECT_TRUE(native_separator.isSeparator);
+
+  EXPECT_EQ(da_menu_add_item(main_menu, app_item), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_item_set_submenu(app_item, app_menu), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_add_item(app_menu, separator), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_add_item(app_menu, quit_item), DA_STATUS_OK);
+  EXPECT_EQ(native_main_menu.numberOfItems, static_cast<NSInteger>(1));
+  EXPECT_TRUE(native_app_item.item.submenu == native_app_menu);
+  EXPECT_EQ(native_app_menu.numberOfItems, static_cast<NSInteger>(2));
+
+  EXPECT_EQ(da_application_set_main_menu(main_menu), DA_STATUS_OK);
+  EXPECT_TRUE(NSApp.mainMenu == native_main_menu);
+  EXPECT_EQ(da_menu_item_set_enabled(quit_item, 0), DA_STATUS_OK);
+  EXPECT_TRUE(!native_quit_item.item.isEnabled);
+  EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_set_enabled(quit_item, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_OK);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events.back().type, DA_EVENT_MENU_ITEM_INVOKED);
+  EXPECT_EQ(capture.events.back().window, quit_item);
+  EXPECT_EQ(capture.events.back().operation_id, static_cast<int64_t>(0));
+
+  EXPECT_EQ(da_menu_add_item(quit_item, app_item), DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_menu_item_set_submenu(quit_item, app_item),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_menu_item_set_submenu(separator, app_menu),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_set_enabled(separator, 1), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_perform_action(separator), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_set_enabled(quit_item, 2), DA_STATUS_INVALID_ARGUMENT);
+
+  dart_appkit::InstallEventPoster(CapturePoster, &capture);
+  uint32_t selected_version = 0;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 3, 3, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_OK);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+
+  EXPECT_EQ(da_release(quit_item), DA_STATUS_OK);
+  EXPECT_TRUE(native_quit_item.item.target == nil);
+  EXPECT_TRUE(native_quit_item.item.action == nil);
+  EXPECT_TRUE(!native_quit_item.item.isEnabled);
+  EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_INVALID_HANDLE);
+  [native_quit_item daPerformAction:native_quit_item.item];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+
+  EXPECT_EQ(da_release(main_menu), DA_STATUS_OK);
+  EXPECT_TRUE(NSApp.mainMenu != native_main_menu);
+  EXPECT_EQ(da_application_set_main_menu(main_menu), DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(separator), DA_STATUS_OK);
+  EXPECT_EQ(da_release(app_item), DA_STATUS_OK);
+  EXPECT_EQ(da_release(app_menu), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
 void TestRegistryLifecycleAndTypes() {
@@ -514,6 +685,22 @@ void TestThreadGuardAndFinalizer() {
     EXPECT_EQ(da_pasteboard_get_change_count(&change_count),
               DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(change_count, static_cast<int64_t>(0));
+    DaHandle menu_handle = 99;
+    EXPECT_EQ(da_menu_create(nullptr, 0, &menu_handle), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(menu_handle, static_cast<DaHandle>(0));
+    DaHandle item_handle = 99;
+    EXPECT_EQ(da_menu_item_create(nullptr, 0, nullptr, 0, 0, &item_handle),
+              DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(item_handle, static_cast<DaHandle>(0));
+    item_handle = 99;
+    EXPECT_EQ(da_menu_item_create_separator(&item_handle),
+              DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(item_handle, static_cast<DaHandle>(0));
+    EXPECT_EQ(da_menu_add_item(1, 2), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_menu_item_set_submenu(1, 2), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_menu_item_set_enabled(1, 1), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_application_set_main_menu(1), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_menu_item_perform_action(1), DA_STATUS_WRONG_THREAD);
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
@@ -863,6 +1050,7 @@ int main() {
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
     TestPasteboardText();
+    TestMenus();
     TestRegistryLifecycleAndTypes();
     TestThreadGuardAndFinalizer();
     TestRegistryDomainsAndAsyncRelease();

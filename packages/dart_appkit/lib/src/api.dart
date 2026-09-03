@@ -10,6 +10,7 @@ import 'native/native_bindings.dart';
 part 'api/application.dart';
 part 'api/events.dart';
 part 'api/geometry.dart';
+part 'api/menu.dart';
 part 'api/native_resource.dart';
 part 'api/pasteboard.dart';
 part 'api/text_view.dart';

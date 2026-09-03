@@ -17,9 +17,13 @@ int da_header_compiles_as_c(void) {
   int32_t (*close_reply)(DaHandle, int64_t, int32_t) =
       da_window_reply_to_close_request;
   int32_t (*pasteboard_read)(DaPasteboardText*) = da_pasteboard_read_text;
+  int32_t (*menu_create)(const char*, size_t, DaHandle*) = da_menu_create;
+  int32_t (*menu_item_create)(const char*, size_t, const char*, size_t,
+                              uint64_t, DaHandle*) = da_menu_item_create;
   return rect.width == 640.0 && versioned_registration != 0 &&
                  termination_reply != 0 && close_reply != 0 &&
-                 pasteboard_read != 0 && selected_version == 0
+                 pasteboard_read != 0 && menu_create != 0 &&
+                 menu_item_create != 0 && selected_version == 0
              ? DA_STATUS_OK
              : DA_STATUS_INTERNAL_ERROR;
 }

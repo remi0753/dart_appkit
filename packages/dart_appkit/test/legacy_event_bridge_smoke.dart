@@ -64,5 +64,18 @@ void main(List<String> arguments) {
       bindings.pasteboardGetChangeCount().status != 8) {
     _fail('legacy bridge did not reject additive pasteboard APIs');
   }
+  if (bindings.menuCreate('Menu').status != 8 ||
+      bindings
+              .menuItemCreate(title: 'Item', keyEquivalent: 'i', modifiers: 0)
+              .status !=
+          8 ||
+      bindings.menuItemCreateSeparator().status != 8 ||
+      bindings.menuAddItem(1, 2).status != 8 ||
+      bindings.menuItemSetSubmenu(1, 2).status != 8 ||
+      bindings.menuItemSetEnabled(1, true).status != 8 ||
+      bindings.applicationSetMainMenu(1).status != 8 ||
+      bindings.menuItemPerformAction(1).status != 8) {
+    _fail('legacy bridge did not reject additive menu APIs');
+  }
   stdout.writeln('legacy event bridge fallback smoke test passed');
 }

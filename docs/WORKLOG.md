@@ -1421,9 +1421,8 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   distinct without relying on NUL termination.
 - Native conversion helpers accept an `NSPasteboard` selected by the caller.
   Public functions always select the general pasteboard; automated tests use
-  an isolated test-only named pasteboard and therefore never inspect or replace
-  user clipboard contents. The test releases that pasteboard globally after
-  each process run.
+  an in-process test double and therefore never connect to, inspect, or replace
+  user clipboard contents.
 - Writes validate and copy UTF-8 before clearing existing formats, then publish
   one `NSPasteboardTypeString` item. Native tests cover absent, empty, Unicode,
   embedded NUL, increasing counts, invalid UTF-8, null outputs, unavailable
@@ -1439,10 +1438,61 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   count call and observes the expected standalone wrong-thread diagnostic.
 - The first ten-run audit exposed that repeatedly creating globally retained
   `pasteboardWithUniqueName` instances eventually makes the pasteboard server
-  return `nil`. The fixture now reuses one test-only name and calls
-  `releaseGlobally`; after rebuilding, all ten consecutive executions passed.
+  return `nil`. Reusing and globally releasing one test-only name passed the
+  immediate repeat, but a later cross-feature audit reproduced service
+  exhaustion after a real GUI run. The unit fixture now uses an in-process
+  pasteboard double and never depends on the system pasteboard server.
 - Final verification passed the full scaffold/header/native/Runner/event/Dart/
   example/real-FFI/legacy suite, warning-as-error native formatting, Dart
   Terminal's complete runtime source check, and `git diff --check`. The built
   bridge exports exactly 28 public `da_*` symbols, including all four new
   pasteboard calls.
+
+## 2026-09-04 — Menu ownership and action boundary
+
+- Added independent registry kinds and C/Dart creation APIs for menus,
+  actionable items, and separators. Attachment calls add items, attach or clear
+  submenus, and attach or clear the application main menu without consuming a
+  handle. Dart mirrors the public graph with strong item/submenu/main-menu
+  references and rejects cross-application attachment before FFI.
+- Menu shortcut masks accept only the existing seven stable modifier bits and
+  convert them to AppKit flags internally. Menus disable auto-enablement;
+  actionable items expose explicit enabled state and deterministic action
+  performance, while separators reject state, submenu, and action operations.
+- Each item handle owns a native target. AppKit clicks and the explicit test
+  operation post the same v4 payload-free event with the item's encoded
+  generation and operation ID zero. Dart publishes it on the application
+  stream and routes it through a weak handle map to the live item-local stream.
+  V1-v3 sinks suppress the record.
+- Release clears an item's handle, target, action, and enabled state before
+  dropping its registry lease, making an AppKit-retained late action harmless.
+  Releasing the currently attached main-menu handle detaches it from
+  `NSApplication`. Other AppKit retain edges remain independent of handles.
+  Dart updates its route/main-menu state only after native release succeeds;
+  injected failures prove the wrapper and routing stay usable on failure.
+- New FFI lookups remain optional; the legacy fixture reports unsupported only
+  when menu operations are called. The real-dylib smoke resolves menu creation
+  and confirms its main-thread guard without altering application UI state.
+- The first focused run passed the native menu suite, then Dart analysis caught
+  a lost type promotion at the later item-dispatch site. Rechecking the decoded
+  event type at that call fixed the static error without changing behavior. The
+  focused header/native/Dart/FFI/legacy rerun passed.
+- The hello example now installs an application menu. Its unattended path
+  performs the real Quit item action, waits for the Dart action event, and then
+  enters the existing deferred window-close request/reply path.
+- The first post-GUI ten-process audit exposed two AppKit test assumptions:
+  the pasteboard server can refuse even a reused private name after rapid
+  process churn, and assigning `nil` to `NSApplication.mainMenu` may result in
+  AppKit installing a replacement empty menu. The pasteboard test now uses an
+  in-process double, and main-menu release asserts detachment from the released
+  object rather than requiring `nil`; neither change weakens the public
+  ownership contract.
+- Final verification passed the complete scaffold/header/native/Runner/event/
+  Dart/example/real-FFI/legacy suite and ten consecutive native executions.
+  The real Engine-backed GUI reported the Quit action in Dart, delivered close
+  operation 1, accepted its reply, released all handles, and exited 0.
+- Native and Dart format audits, `git diff --check`, Dart Terminal's complete
+  `runtime-source-check`, and `make engine-check` passed. The dylib exposes
+  exactly 36 public `da_*` symbols, including all eight new menu calls, and the
+  official SDK is clean at
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.

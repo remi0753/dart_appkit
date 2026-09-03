@@ -78,6 +78,28 @@ typedef _PasteboardWriteDart = int Function(
 );
 typedef _Int64OutputNative = Int32 Function(Pointer<Int64>);
 typedef _Int64OutputDart = int Function(Pointer<Int64>);
+typedef _StringCreateNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint64>,
+);
+typedef _StringCreateDart = int Function(Pointer<Uint8>, int, Pointer<Uint64>);
+typedef _MenuItemCreateNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Uint64,
+  Pointer<Uint64>,
+);
+typedef _MenuItemCreateDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  int,
+  Pointer<Uint64>,
+);
 typedef _WindowCreateNative = Int32 Function(
   _DaRectNative,
   Pointer<Uint8>,
@@ -230,6 +252,87 @@ _Int64OutputDart? _lookupPasteboardChangeCount(DynamicLibrary library) {
   }
 }
 
+_StringCreateDart? _lookupMenuCreate(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_StringCreateNative, _StringCreateDart>(
+      'da_menu_create',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_MenuItemCreateDart? _lookupMenuItemCreate(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_MenuItemCreateNative, _MenuItemCreateDart>(
+      'da_menu_item_create',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_CreateHandleDart? _lookupMenuItemCreateSeparator(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_CreateHandleNative, _CreateHandleDart>(
+      'da_menu_item_create_separator',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TwoHandlesDart? _lookupMenuAddItem(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(
+      'da_menu_add_item',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TwoHandlesDart? _lookupMenuItemSetSubmenu(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(
+      'da_menu_item_set_submenu',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleBoolStatusDart? _lookupMenuItemSetEnabled(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_HandleBoolStatusNative, _HandleBoolStatusDart>(
+          'da_menu_item_set_enabled',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStatusDart? _lookupApplicationSetMainMenu(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
+      'da_application_set_main_menu',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStatusDart? _lookupMenuItemPerformAction(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
+      'da_menu_item_perform_action',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -254,6 +357,14 @@ final class FfiNativeBindings implements NativeBindings {
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
       _pasteboardChangeCount = _lookupPasteboardChangeCount(library),
+      _menuCreate = _lookupMenuCreate(library),
+      _menuItemCreate = _lookupMenuItemCreate(library),
+      _menuItemCreateSeparator = _lookupMenuItemCreateSeparator(library),
+      _menuAddItem = _lookupMenuAddItem(library),
+      _menuItemSetSubmenu = _lookupMenuItemSetSubmenu(library),
+      _menuItemSetEnabled = _lookupMenuItemSetEnabled(library),
+      _applicationSetMainMenu = _lookupApplicationSetMainMenu(library),
+      _menuItemPerformAction = _lookupMenuItemPerformAction(library),
       _windowCreate = library
           .lookupFunction<_WindowCreateNative, _WindowCreateDart>(
             'da_window_create',
@@ -331,6 +442,14 @@ final class FfiNativeBindings implements NativeBindings {
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
   final _Int64OutputDart? _pasteboardChangeCount;
+  final _StringCreateDart? _menuCreate;
+  final _MenuItemCreateDart? _menuItemCreate;
+  final _CreateHandleDart? _menuItemCreateSeparator;
+  final _TwoHandlesDart? _menuAddItem;
+  final _TwoHandlesDart? _menuItemSetSubmenu;
+  final _HandleBoolStatusDart? _menuItemSetEnabled;
+  final _HandleStatusDart? _applicationSetMainMenu;
+  final _HandleStatusDart? _menuItemPerformAction;
   final _WindowCreateDart _windowCreate;
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
@@ -617,6 +736,150 @@ final class FfiNativeBindings implements NativeBindings {
     } finally {
       _free(output.cast<Void>());
     }
+  }
+
+  @override
+  NativeValueResult<int> menuCreate(String title) {
+    final _StringCreateDart? function = _menuCreate;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support menus',
+      );
+    }
+    final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    try {
+      output.value = 0;
+      return _withUtf8(title, (Pointer<Uint8> pointer, int length) {
+        return _valueResult<int>(
+          function(pointer, length, output),
+          output.value,
+        );
+      });
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<int> menuItemCreate({
+    required String title,
+    required String keyEquivalent,
+    required int modifiers,
+  }) {
+    final _MenuItemCreateDart? function = _menuItemCreate;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support menu items',
+      );
+    }
+    if (modifiers < 0 || (modifiers & ~0x7f) != 0) {
+      return const NativeValueResult<int>.failure(
+        1,
+        'menu shortcut contains unsupported modifier bits',
+      );
+    }
+    final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    try {
+      output.value = 0;
+      return _withUtf8(title, (Pointer<Uint8> titlePointer, int titleLength) {
+        return _withUtf8(keyEquivalent, (
+          Pointer<Uint8> keyPointer,
+          int keyLength,
+        ) {
+          final int status = function(
+            titlePointer,
+            titleLength,
+            keyPointer,
+            keyLength,
+            modifiers,
+            output,
+          );
+          return _valueResult<int>(status, output.value);
+        });
+      });
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<int> menuItemCreateSeparator() {
+    final _CreateHandleDart? function = _menuItemCreateSeparator;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support menu separators',
+      );
+    }
+    final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    try {
+      output.value = 0;
+      return _valueResult<int>(function(output), output.value);
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult menuAddItem(int menuHandle, int itemHandle) {
+    final _TwoHandlesDart? function = _menuAddItem;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support menu item attachment',
+      );
+    }
+    return _callResult(function(menuHandle, itemHandle));
+  }
+
+  @override
+  NativeCallResult menuItemSetSubmenu(int itemHandle, int submenuHandle) {
+    final _TwoHandlesDart? function = _menuItemSetSubmenu;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support submenus',
+      );
+    }
+    return _callResult(function(itemHandle, submenuHandle));
+  }
+
+  @override
+  NativeCallResult menuItemSetEnabled(int itemHandle, bool enabled) {
+    final _HandleBoolStatusDart? function = _menuItemSetEnabled;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support menu item state',
+      );
+    }
+    return _callResult(function(itemHandle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult applicationSetMainMenu(int menuHandle) {
+    final _HandleStatusDart? function = _applicationSetMainMenu;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support application menus',
+      );
+    }
+    return _callResult(function(menuHandle));
+  }
+
+  @override
+  NativeCallResult menuItemPerformAction(int itemHandle) {
+    final _HandleStatusDart? function = _menuItemPerformAction;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support menu actions',
+      );
+    }
+    return _callResult(function(itemHandle));
   }
 
   @override

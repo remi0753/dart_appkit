@@ -19,6 +19,18 @@ Future<void> main(List<String> arguments) async {
         )
         ..contentView = textView
         ..defersCloseRequests = true;
+  final Menu mainMenu = Menu();
+  final Menu applicationMenu = Menu(title: 'Dart AppKit');
+  final MenuItem applicationMenuItem = MenuItem(title: 'Dart AppKit')
+    ..submenu = applicationMenu;
+  final MenuItem quitItem = MenuItem(
+    title: 'Quit Dart AppKit',
+    keyEquivalent: 'q',
+    modifiers: const ModifierKeys(ModifierKeys.commandBit),
+  );
+  mainMenu.addItem(applicationMenuItem);
+  applicationMenu.addItem(quitItem);
+  application.mainMenu = mainMenu;
   final Completer<void> closed = Completer<void>();
   var ticks = 0;
 
@@ -88,6 +100,14 @@ Future<void> main(List<String> arguments) async {
       }
     },
   );
+  final StreamSubscription<MenuItemInvokedEvent> menuSubscription = quitItem
+      .onInvoked
+      .listen((MenuItemInvokedEvent event) {
+        stdout.writeln(
+          'Quit menu action reached Dart (item ${event.menuItemHandle}).',
+        );
+        window.requestClose();
+      });
   final Timer timer = Timer.periodic(const Duration(seconds: 1), (_) {
     ++ticks;
     updateText();
@@ -103,8 +123,8 @@ Future<void> main(List<String> arguments) async {
       'Automated close scheduled after ${autoCloseAfter.inSeconds} seconds.',
     );
     autoCloseTimer = Timer(autoCloseAfter, () {
-      stdout.writeln('Automated smoke close requested.');
-      window.requestClose();
+      stdout.writeln('Automated smoke menu action requested.');
+      quitItem.performAction();
     });
   }
   try {
@@ -113,6 +133,12 @@ Future<void> main(List<String> arguments) async {
     autoCloseTimer?.cancel();
     timer.cancel();
     await eventSubscription.cancel();
+    await menuSubscription.cancel();
+    application.mainMenu = null;
+    quitItem.dispose();
+    applicationMenuItem.dispose();
+    applicationMenu.dispose();
+    mainMenu.dispose();
     if (!window.isDisposed) {
       window.dispose();
     }

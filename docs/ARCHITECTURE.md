@@ -140,9 +140,18 @@ The general pasteboard is a process-global AppKit service, not a registered
 object. Dart receives a stable `Pasteboard` facade bound to its attached
 application. Every call remains on the root UI/main thread. A read copies an
 immutable nullable-text/change-count snapshot across FFI immediately; native
-thread-local UTF-8 storage never escapes into Dart. Tests substitute a unique
-named pasteboard at the internal helper boundary, while the public ABI alone
-selects the user's general pasteboard.
+thread-local UTF-8 storage never escapes into Dart. Tests substitute an
+in-process pasteboard double at the internal helper boundary, while the public
+ABI alone selects the user's general pasteboard.
+
+Menus and menu items are independent registry objects. Native attachment
+relationships borrow handles even though `NSMenu`, `NSMenuItem`, submenus, and
+`NSApplication.mainMenu` establish normal AppKit retains. Dart mirrors the
+public ownership graph by retaining added item, submenu, and main-menu wrappers.
+Each actionable item owns a native target that posts its v4 event by handle;
+release disables and disconnects that target before invalidating the lease.
+The application uses a weak handle map to route a decoded action to the live
+item-local stream while still publishing it on the application event stream.
 
 Handles use a one-based slot plus a generation. Generations remain in the
 positive signed range so a handle has the same value in `Uint64` FFI calls and

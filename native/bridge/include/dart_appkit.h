@@ -161,6 +161,38 @@ DA_EXPORT int32_t da_pasteboard_clear(int64_t* out_change_count);
 /** Main thread only. Reads the general pasteboard change count. */
 DA_EXPORT int32_t da_pasteboard_get_change_count(int64_t* out_change_count);
 
+/** Main thread only. Creates a menu and copies its UTF-8 title. */
+DA_EXPORT int32_t da_menu_create(const char* title, size_t title_length,
+                                 DaHandle* out_menu);
+
+/**
+ * Main thread only. Creates an actionable menu item and copies both strings.
+ *
+ * modifiers must contain only DaModifier bits. key_equivalent may be empty.
+ */
+DA_EXPORT int32_t da_menu_item_create(const char* title, size_t title_length,
+                                      const char* key_equivalent,
+                                      size_t key_equivalent_length,
+                                      uint64_t modifiers, DaHandle* out_item);
+
+/** Main thread only. Creates a separator menu item. */
+DA_EXPORT int32_t da_menu_item_create_separator(DaHandle* out_item);
+
+/** Main thread only. Appends an item and consumes neither handle. */
+DA_EXPORT int32_t da_menu_add_item(DaHandle menu, DaHandle item);
+
+/** Main thread only. Attaches a submenu, or clears it when submenu is zero. */
+DA_EXPORT int32_t da_menu_item_set_submenu(DaHandle item, DaHandle submenu);
+
+/** Main thread only. enabled must be 0 or 1. */
+DA_EXPORT int32_t da_menu_item_set_enabled(DaHandle item, int32_t enabled);
+
+/** Main thread only. Attaches the main menu, or clears it when menu is zero. */
+DA_EXPORT int32_t da_application_set_main_menu(DaHandle menu);
+
+/** Main thread only. Performs one non-separator item's registered action. */
+DA_EXPORT int32_t da_menu_item_perform_action(DaHandle item);
+
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_create(DaRect frame, const char* title,
                                    size_t title_length, DaHandle* out_window);

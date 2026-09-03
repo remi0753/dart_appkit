@@ -2,7 +2,21 @@ import 'dart:ffi';
 
 import 'package:dart_appkit/src/native/native_bindings.dart';
 
-enum FakeObjectKind { window, view, textView }
+enum FakeObjectKind { window, view, textView, menu, menuItem }
+
+final class FakeMenuItemState {
+  const FakeMenuItemState({
+    required this.title,
+    required this.keyEquivalent,
+    required this.modifiers,
+    required this.isSeparator,
+  });
+
+  final String title;
+  final String keyEquivalent;
+  final int modifiers;
+  final bool isSeparator;
+}
 
 final class FakeNativeBindings implements NativeBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -18,12 +32,19 @@ final class FakeNativeBindings implements NativeBindings {
   bool? applicationTerminationReplyAllow;
   String? pasteboardText;
   int pasteboardChangeCount = 0;
+  int? mainMenu;
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, int> contentViews = <int, int>{};
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
+  final Map<int, String> menuTitles = <int, String>{};
+  final Map<int, FakeMenuItemState> menuItems = <int, FakeMenuItemState>{};
+  final Map<int, List<int>> menuContents = <int, List<int>>{};
+  final Map<int, int> submenus = <int, int>{};
+  final Map<int, bool> menuItemEnabled = <int, bool>{};
+  final List<int> performedMenuItems = <int>[];
   final List<int> windowCloseRequests = <int>[];
   int? windowCloseReplyHandle;
   int? windowCloseReplyOperationId;
@@ -159,6 +180,107 @@ final class FakeNativeBindings implements NativeBindings {
       _value<int>('pasteboardGetChangeCount', pasteboardChangeCount);
 
   @override
+  NativeValueResult<int> menuCreate(String title) {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>('menuCreate', handle);
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.menu;
+      menuTitles[handle] = title;
+      menuContents[handle] = <int>[];
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> menuItemCreate({
+    required String title,
+    required String keyEquivalent,
+    required int modifiers,
+  }) {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>('menuItemCreate', handle);
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.menuItem;
+      menuItems[handle] = FakeMenuItemState(
+        title: title,
+        keyEquivalent: keyEquivalent,
+        modifiers: modifiers,
+        isSeparator: false,
+      );
+      menuItemEnabled[handle] = true;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> menuItemCreateSeparator() {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'menuItemCreateSeparator',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.menuItem;
+      menuItems[handle] = const FakeMenuItemState(
+        title: '',
+        keyEquivalent: '',
+        modifiers: 0,
+        isSeparator: true,
+      );
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult menuAddItem(int menuHandle, int itemHandle) {
+    final NativeCallResult result = _status('menuAddItem');
+    if (result.isSuccess) {
+      menuContents[menuHandle]!.add(itemHandle);
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult menuItemSetSubmenu(int itemHandle, int submenuHandle) {
+    final NativeCallResult result = _status('menuItemSetSubmenu');
+    if (result.isSuccess) {
+      if (submenuHandle == 0) {
+        submenus.remove(itemHandle);
+      } else {
+        submenus[itemHandle] = submenuHandle;
+      }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult menuItemSetEnabled(int itemHandle, bool enabled) {
+    final NativeCallResult result = _status('menuItemSetEnabled');
+    if (result.isSuccess) {
+      menuItemEnabled[itemHandle] = enabled;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationSetMainMenu(int menuHandle) {
+    final NativeCallResult result = _status('applicationSetMainMenu');
+    if (result.isSuccess) {
+      mainMenu = menuHandle == 0 ? null : menuHandle;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult menuItemPerformAction(int itemHandle) {
+    final NativeCallResult result = _status('menuItemPerformAction');
+    if (result.isSuccess) {
+      performedMenuItems.add(itemHandle);
+    }
+    return result;
+  }
+
+  @override
   NativeValueResult<int> windowCreate({
     required double x,
     required double y,
@@ -271,6 +393,14 @@ final class FakeNativeBindings implements NativeBindings {
       texts.remove(handle);
       contentViews.remove(handle);
       windowCloseDeferrals.remove(handle);
+      menuTitles.remove(handle);
+      menuItems.remove(handle);
+      menuContents.remove(handle);
+      submenus.remove(handle);
+      menuItemEnabled.remove(handle);
+      if (mainMenu == handle) {
+        mainMenu = null;
+      }
     }
     return result;
   }

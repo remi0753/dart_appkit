@@ -17,6 +17,8 @@ enum class ObjectKind : uint8_t {
   kWindow = 1,
   kView = 2,
   kTextView = 3,
+  kMenu = 4,
+  kMenuItem = 5,
 };
 
 enum class ThreadDomain : uint8_t {

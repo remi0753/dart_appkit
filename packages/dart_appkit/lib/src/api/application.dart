@@ -51,12 +51,15 @@ final class AppKitApplication {
   final int eventProtocolVersion;
   final Map<int, WeakReference<Window>> _windows =
       <int, WeakReference<Window>>{};
+  final Map<int, WeakReference<MenuItem>> _menuItems =
+      <int, WeakReference<MenuItem>>{};
 
   late final StreamSubscription<Object?> _eventSubscription;
   bool _terminated = false;
   bool _active = false;
   bool _defersTerminationRequests = false;
   Pasteboard? _generalPasteboard;
+  Menu? _mainMenu;
 
   static Future<AppKitApplication> attach() async {
     final AppKitApplication? existing = _current;
@@ -155,6 +158,27 @@ final class AppKitApplication {
     return _generalPasteboard ??= Pasteboard._(this);
   }
 
+  Menu? get mainMenu {
+    _ensureRunning();
+    return _mainMenu;
+  }
+
+  set mainMenu(Menu? value) {
+    _ensureRunning();
+    value?.ensureAlive();
+    if (value != null && !identical(value._application, this)) {
+      throw StateError('main menu belongs to a different AppKit application');
+    }
+    if (identical(value, _mainMenu)) {
+      return;
+    }
+    _checkCall(
+      _bindings.applicationSetMainMenu(value?._handle ?? 0),
+      'AppKitApplication.mainMenu',
+    );
+    _mainMenu = value;
+  }
+
   bool get defersTerminationRequests => _defersTerminationRequests;
 
   set defersTerminationRequests(bool value) {
@@ -217,6 +241,27 @@ final class AppKitApplication {
     }
   }
 
+  void _registerMenuItem(MenuItem item) {
+    _ensureRunning();
+    if (_menuItems.containsKey(item._handle)) {
+      throw StateError('native menu item handle ${item._handle} is duplicated');
+    }
+    _menuItems[item._handle] = WeakReference<MenuItem>(item);
+  }
+
+  void _unregisterMenuItem(MenuItem item) {
+    final WeakReference<MenuItem>? reference = _menuItems[item._handle];
+    if (identical(reference?.target, item) || reference?.target == null) {
+      _menuItems.remove(item._handle);
+    }
+  }
+
+  void _menuDisposed(Menu menu) {
+    if (identical(_mainMenu, menu)) {
+      _mainMenu = null;
+    }
+  }
+
   void _handleRawEvent(Object? message) {
     if (_terminated) {
       return;
@@ -236,9 +281,21 @@ final class AppKitApplication {
           window._updateState(event);
         }
       }
+      MenuItem? menuItem;
+      if (event is MenuItemInvokedEvent) {
+        final WeakReference<MenuItem>? reference =
+            _menuItems[event.menuItemHandle];
+        menuItem = reference?.target;
+        if (menuItem == null) {
+          _menuItems.remove(event.menuItemHandle);
+        }
+      }
       _events.add(event);
       if (window != null) {
         window._dispatch(event);
+      }
+      if (menuItem != null && event is MenuItemInvokedEvent) {
+        menuItem._dispatch(event);
       }
     } on Object catch (error, stackTrace) {
       _events.addError(error, stackTrace);
@@ -258,9 +315,11 @@ final class AppKitApplication {
     _eventSource.close();
     await _events.close();
     _windows.clear();
+    _menuItems.clear();
     _active = false;
     _defersTerminationRequests = false;
     _generalPasteboard = null;
+    _mainMenu = null;
   }
 }
 
