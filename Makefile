@@ -29,11 +29,14 @@ APPKIT_LIBS := -framework AppKit -framework CoreFoundation
 
 BRIDGE_HEADERS := \
 	$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
+	$(PROJECT_ROOT)/native/bridge/include/dart_appkit_custom_view.h \
 	$(PROJECT_ROOT)/native/bridge/src/AppKitObjects.h \
 	$(PROJECT_ROOT)/native/bridge/src/BridgeInternal.h \
+	$(PROJECT_ROOT)/native/bridge/src/CustomViewRegistry.h \
 	$(PROJECT_ROOT)/native/bridge/src/ObjectRegistry.h
 BRIDGE_SOURCES := \
 	$(PROJECT_ROOT)/native/bridge/src/AppKitBridge.mm \
+	$(PROJECT_ROOT)/native/bridge/src/CustomViewRegistry.mm \
 	$(PROJECT_ROOT)/native/bridge/src/EventSink.mm \
 	$(PROJECT_ROOT)/native/bridge/src/ObjectRegistry.mm \
 	$(PROJECT_ROOT)/native/bridge/src/TextView.mm

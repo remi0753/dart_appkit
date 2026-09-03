@@ -136,6 +136,15 @@ handle satisfies a generic-view lookup, while a generic view never satisfies a
 text-only lookup. `Window.contentView` borrows either kind and retains its Dart
 wrapper without transferring the registry lease.
 
+Native products may register a named `NSView` subclass through the separate
+Objective-C++ custom-view provider header before starting Dart. The plain-C
+`da_view_create_custom` call copies the provider name, constructs the class on
+the AppKit main thread, and inserts the instance as an ordinary generic-view
+handle. `View.custom` exposes only that newly minted handle; there is no Dart
+API for adopting a pointer or wrapping an arbitrary numeric handle. Provider
+classes are process-lifetime metadata. Instance ownership, attachment, release,
+and shutdown use the existing registry contract.
+
 The general pasteboard is a process-global AppKit service, not a registered
 object. Dart receives a stable `Pasteboard` facade bound to its attached
 application. Every call remains on the root UI/main thread. A read copies an

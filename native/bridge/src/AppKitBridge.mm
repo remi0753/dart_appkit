@@ -13,6 +13,7 @@
 
 #include "AppKitObjects.h"
 #include "BridgeInternal.h"
+#include "CustomViewRegistry.h"
 #include "ObjectRegistry.h"
 
 @implementation DaMenuItemOwner
@@ -130,8 +131,8 @@ DaWindowOwner* WindowOwner(DaHandle handle, int32_t* out_status) {
       handle, ObjectKind::kWindow, ThreadDomain::kAppKitMain, out_status));
 }
 
-DaView* View(DaHandle handle, int32_t* out_status) {
-  return static_cast<DaView*>(ObjectRegistry::Shared().Lookup(
+NSView* View(DaHandle handle, int32_t* out_status) {
+  return static_cast<NSView*>(ObjectRegistry::Shared().Lookup(
       handle, ObjectKind::kView, ThreadDomain::kAppKitMain, out_status));
 }
 
@@ -432,6 +433,7 @@ void ShutdownBridge() {
 
 void ResetBridgeForTesting() {
   ShutdownBridge();
+  ClearCustomViewClassesForTesting();
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
@@ -1109,6 +1111,46 @@ int32_t da_view_create(DaHandle* out_view) {
   return DA_STATUS_OK;
 }
 
+int32_t da_view_create_custom(const char* provider_identifier,
+                              size_t provider_identifier_length,
+                              DaHandle* out_view) {
+  dart_appkit::ClearLastError();
+  if (out_view == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_view must not be null");
+  }
+  *out_view = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* identifier = dart_appkit::CopyUtf8(
+      provider_identifier, provider_identifier_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    NSView* view = dart_appkit::CreateRegisteredCustomView(identifier, &status);
+    if (view == nil) {
+      return status;
+    }
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        view, dart_appkit::ObjectKind::kView,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    *out_view = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr
+                                      ? exception.reason.UTF8String
+                                      : "custom view provider creation failed");
+  }
+}
+
 int32_t da_text_view_create(DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {
@@ -1162,7 +1204,7 @@ int32_t da_window_set_content_view(DaHandle window, DaHandle view) {
   if (owner == nil) {
     return status;
   }
-  DaView* content_view = dart_appkit::View(view, &status);
+  NSView* content_view = dart_appkit::View(view, &status);
   if (content_view == nil) {
     return status;
   }

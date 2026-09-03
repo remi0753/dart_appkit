@@ -11,5 +11,8 @@ static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 4);
 
 int da_header_compiles_as_cpp() {
   const DaRect rect{0.0, 0.0, 640.0, 480.0};
-  return rect.height == 480.0 ? DA_STATUS_OK : DA_STATUS_INTERNAL_ERROR;
+  auto* custom_view_create = &da_view_create_custom;
+  return rect.height == 480.0 && custom_view_create != nullptr
+             ? DA_STATUS_OK
+             : DA_STATUS_INTERNAL_ERROR;
 }

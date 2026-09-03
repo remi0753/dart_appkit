@@ -45,6 +45,12 @@ void main(List<String> arguments) {
   if (genericView.isSuccess || genericView.status != 8) {
     _fail('legacy bridge did not reject the additive generic-view API');
   }
+  final NativeValueResult<int> customView = bindings.customViewCreate(
+    'example.CustomView',
+  );
+  if (customView.isSuccess || customView.status != 8) {
+    _fail('legacy bridge did not reject the custom-view provider API');
+  }
   if (bindings.applicationSetTerminationRequestDeferral(true).status != 8 ||
       bindings
               .applicationReplyToTerminationRequest(operationId: 1, allow: true)

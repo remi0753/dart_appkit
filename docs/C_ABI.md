@@ -35,6 +35,9 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
   and owning thread domain. Current objects belong to the AppKit main domain.
 - `da_view_create` returns a generic view handle. `da_text_view_create` returns
   a specialized handle that is accepted by generic-view lookups.
+- `da_view_create_custom` copies a non-empty provider identifier, asks the
+  native provider registry to construct its `NSView` subclass, and returns the
+  instance as a generic view handle.
 - `da_window_set_content_view` borrows both handles, accepts either view kind,
   and consumes neither.
 - Menu and menu-item create calls return independent handles. Adding an item,
@@ -63,6 +66,24 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
   harmless.
 - A slot at the maximum positive signed generation is retired instead of
   wrapping to a value that could validate an ancient stale handle.
+
+## Native custom-view providers
+
+`dart_appkit_custom_view.h` is a separate Objective-C++ extension surface; it
+is not part of the plain-C FFI header. A product registers a non-empty provider
+identifier and an `NSView` subclass on the AppKit main thread before Dart
+requests the view. The class must support `initWithFrame:`. Registering the same
+identifier/class pair again is idempotent, while replacing an identifier with a
+different class is rejected.
+
+The provider registry retains class metadata for the process lifetime but
+never owns live instances. `da_view_create_custom` constructs the instance on
+the main thread and registers it as `ObjectKind::kView`; all later attachment,
+generation, domain, release, finalizer, and shutdown rules are identical to
+`da_view_create`. Unknown or empty identifiers fail with
+`DA_STATUS_INVALID_ARGUMENT`, and a provider that cannot create a view fails
+with `DA_STATUS_INTERNAL_ERROR`. Dart receives no class, callback, object
+pointer, or arbitrary-handle adoption capability.
 
 ## Event envelope
 

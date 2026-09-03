@@ -158,6 +158,16 @@ _CreateHandleDart? _lookupViewCreate(DynamicLibrary library) {
   }
 }
 
+_StringCreateDart? _lookupCustomViewCreate(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_StringCreateNative, _StringCreateDart>(
+      'da_view_create_custom',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _BoolStatusDart? _lookupApplicationTerminationDeferral(DynamicLibrary library) {
   try {
     return library.lookupFunction<_BoolStatusNative, _BoolStatusDart>(
@@ -385,6 +395,7 @@ final class FfiNativeBindings implements NativeBindings {
             'da_window_set_title',
           ),
       _viewCreate = _lookupViewCreate(library),
+      _customViewCreate = _lookupCustomViewCreate(library),
       _textViewCreate = library
           .lookupFunction<_CreateHandleNative, _CreateHandleDart>(
             'da_text_view_create',
@@ -458,6 +469,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleOperationReplyDart? _windowCloseReply;
   final _HandleStringDart _windowSetTitle;
   final _CreateHandleDart? _viewCreate;
+  final _StringCreateDart? _customViewCreate;
   final _CreateHandleDart _textViewCreate;
   final _HandleStringDart _textViewSetText;
   final _TwoHandlesDart _windowSetContentView;
@@ -987,6 +999,28 @@ final class FfiNativeBindings implements NativeBindings {
     } finally {
       _free(handlePointer.cast<Void>());
     }
+  }
+
+  @override
+  NativeValueResult<int> customViewCreate(String providerIdentifier) {
+    final _StringCreateDart? customViewCreate = _customViewCreate;
+    if (customViewCreate == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support registered custom views',
+      );
+    }
+    return _withUtf8(providerIdentifier, (Pointer<Uint8> pointer, int length) {
+      final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
+          .cast<Uint64>();
+      try {
+        handlePointer.value = 0;
+        final int status = customViewCreate(pointer, length, handlePointer);
+        return _valueResult<int>(status, handlePointer.value);
+      } finally {
+        _free(handlePointer.cast<Void>());
+      }
+    });
   }
 
   @override

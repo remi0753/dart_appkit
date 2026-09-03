@@ -56,6 +56,14 @@ void main(List<String> arguments) {
   if (menu.isSuccess || menu.status != 5 || menu.message.isEmpty) {
     _fail('menu symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> customView = bindings.customViewCreate(
+    'missing.Provider',
+  );
+  if (customView.isSuccess ||
+      customView.status != 5 ||
+      customView.message.isEmpty) {
+    _fail('custom-view symbol did not preserve its main-thread guard');
+  }
 
   final NativeValueResult<int> invalidWindow = bindings.windowCreate(
     x: 0,

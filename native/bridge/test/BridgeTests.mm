@@ -13,6 +13,19 @@
 #include "BridgeInternal.h"
 #include "ObjectRegistry.h"
 #include "dart_appkit.h"
+#include "dart_appkit_custom_view.h"
+
+@interface DaTestCustomView : NSView
+@end
+
+@implementation DaTestCustomView
+@end
+
+@interface DaAlternateCustomView : NSView
+@end
+
+@implementation DaAlternateCustomView
+@end
 
 @interface DaReleaseThreadProbe : NSObject {
  @private
@@ -654,6 +667,83 @@ void TestRegistryLifecycleAndTypes() {
   EXPECT_EQ(da_release(second), DA_STATUS_OK);
 }
 
+void TestRegisteredCustomViews() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  EXPECT_EQ(dart_appkit::RegisterCustomViewClass(nil, DaTestCustomView.class),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_TRUE(LastErrorMessage().find("must not be empty") !=
+              std::string::npos);
+  EXPECT_EQ(dart_appkit::RegisterCustomViewClass(@"test.invalid", Nil),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(
+      dart_appkit::RegisterCustomViewClass(@"test.invalid", NSObject.class),
+      DA_STATUS_INVALID_ARGUMENT);
+
+  DaHandle handle = 99;
+  EXPECT_EQ(da_view_create_custom("missing", 7, &handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(handle, static_cast<DaHandle>(0));
+  EXPECT_TRUE(LastErrorMessage().find("not registered") != std::string::npos);
+  EXPECT_EQ(da_view_create_custom(nullptr, 1, &handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(handle, static_cast<DaHandle>(0));
+  EXPECT_EQ(da_view_create_custom("test.custom", 11, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  EXPECT_EQ(dart_appkit::RegisterCustomViewClass(@"test.custom",
+                                                 DaTestCustomView.class),
+            DA_STATUS_OK);
+  EXPECT_EQ(dart_appkit::RegisterCustomViewClass(@"test.custom",
+                                                 DaTestCustomView.class),
+            DA_STATUS_OK);
+  EXPECT_EQ(dart_appkit::RegisterCustomViewClass(@"test.custom",
+                                                 DaAlternateCustomView.class),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_TRUE(LastErrorMessage().find("already registered") !=
+              std::string::npos);
+
+  EXPECT_EQ(da_view_create_custom("test.custom", 11, &handle), DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaTestCustomView.class]);
+
+  const DaHandle window = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window);
+  EXPECT_EQ(da_window_set_content_view(window, handle), DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.contentView == object);
+  EXPECT_EQ(da_text_view_set_text(handle, "bad", 3),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> worker_registration_status{DA_STATUS_OK};
+  std::thread worker([&worker_status, &worker_registration_status]() {
+    DaHandle worker_handle = 99;
+    worker_status.store(
+        da_view_create_custom("test.custom", 11, &worker_handle));
+    EXPECT_EQ(worker_handle, static_cast<DaHandle>(0));
+    worker_registration_status.store(dart_appkit::RegisterCustomViewClass(
+        @"test.worker", DaTestCustomView.class));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_registration_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.contentView == object);
+  EXPECT_EQ(da_window_set_content_view(window, handle),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(handle), DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(window), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestThreadGuardAndFinalizer() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -1052,6 +1142,7 @@ int main() {
     TestPasteboardText();
     TestMenus();
     TestRegistryLifecycleAndTypes();
+    TestRegisteredCustomViews();
     TestThreadGuardAndFinalizer();
     TestRegistryDomainsAndAsyncRelease();
     TestConcurrentAsyncRelease();

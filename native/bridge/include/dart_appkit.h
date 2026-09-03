@@ -227,6 +227,16 @@ DA_EXPORT int32_t da_window_set_title(DaHandle window, const char* title,
 /** Main thread only. Creates a generic AppKit view. */
 DA_EXPORT int32_t da_view_create(DaHandle* out_view);
 
+/**
+ * Main thread only. Creates a generic view from a registered native provider.
+ *
+ * provider_identifier is copied UTF-8 and must identify an NSView subclass
+ * registered through the Objective-C++ custom-view extension surface.
+ */
+DA_EXPORT int32_t da_view_create_custom(const char* provider_identifier,
+                                        size_t provider_identifier_length,
+                                        DaHandle* out_view);
+
 /** Main thread only. */
 DA_EXPORT int32_t da_text_view_create(DaHandle* out_view);
 

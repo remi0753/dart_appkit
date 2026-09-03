@@ -133,6 +133,7 @@ Future<void> _testGenericViewBoundary() async {
   final FakeNativeBindings bindings = FakeNativeBindings();
   final AppKitApplication app = await _attach(bindings, raw);
   final View genericView = View();
+  final View customView = View.custom('example.CustomView');
   final TextView textView = TextView()..text = 'specialized';
   final Window window = Window(
     frame: const Rect.fromLTWH(0, 0, 320, 200),
@@ -146,6 +147,16 @@ Future<void> _testGenericViewBoundary() async {
     'generic native kind',
   );
 
+  window.contentView = customView;
+  _expect(
+    window.contentView == customView,
+    'registered custom view attachment',
+  );
+  _expect(
+    bindings.customViewProviders.values.single == 'example.CustomView',
+    'custom provider identifier forwarded',
+  );
+
   window.contentView = textView;
   _expect(window.contentView == textView, 'text view is a View');
   _expect(
@@ -153,9 +164,10 @@ Future<void> _testGenericViewBoundary() async {
         FakeObjectKind.textView,
     'specialized view attachment',
   );
-  _expect(bindings.attachedFinalizers.length == 3, 'all handles finalized');
+  _expect(bindings.attachedFinalizers.length == 4, 'all handles finalized');
 
   genericView.dispose();
+  customView.dispose();
   textView.dispose();
   window.dispose();
   _expect(bindings.objects.isEmpty, 'generic view objects released');

@@ -1496,3 +1496,29 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   exactly 36 public `da_*` symbols, including all eight new menu calls, and the
   official SDK is clean at
   `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
+
+## 2026-09-04 — Registered custom-view provider boundary
+
+- Added a separate Objective-C++ provider surface that registers named
+  `NSView` subclasses on the AppKit main thread. Registration copies the name,
+  accepts an idempotent same-name/same-class call, and rejects empty names,
+  non-view classes, and conflicting replacement.
+- Added `da_view_create_custom`, which copies a UTF-8 provider identifier,
+  constructs the registered class with `initWithFrame:`, and inserts the
+  instance as an ordinary generic-view handle. Generic lookup now returns
+  `NSView*` rather than assuming every generic handle is a `DaView` subclass.
+- Added `View.custom` and optional FFI symbol lookup. The API intentionally has
+  no numeric-handle constructor: Dart can request a registered provider but
+  cannot forge a view wrapper around an event-exposed handle or pass an
+  Objective-C pointer across FFI.
+- Native tests cover provider validation, missing/conflicting registrations,
+  class identity, window attachment, text-only rejection, wrong-thread create,
+  stale/double release, and the independent AppKit retain edge. Dart tests
+  cover provider-name forwarding, generic attachment, ownership, and disposal.
+- The complete scaffold/header/native/Runner/event/Dart/example/real-FFI/
+  legacy suite passed, followed by native and Dart format audits and
+  `git diff --check`. The dylib exposes 37 public `da_*` symbols including
+  `da_view_create_custom`, exports the native registration entry point, and the
+  official SDK remains clean at
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`. Consuming-product verification
+  remains in the ordered Dart Terminal subtasks.

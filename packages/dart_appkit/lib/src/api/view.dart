@@ -10,5 +10,14 @@ base class View extends _NativeResource {
     return View._(application._bindings, handle);
   }
 
+  factory View.custom(String providerIdentifier) {
+    final AppKitApplication application = AppKitApplication._requireCurrent();
+    final int handle = _checkValue<int>(
+      application._bindings.customViewCreate(providerIdentifier),
+      'View.custom',
+    );
+    return View._(application._bindings, handle);
+  }
+
   View._(NativeBindings bindings, int handle) : super(bindings, handle);
 }

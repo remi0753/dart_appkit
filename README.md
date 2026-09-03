@@ -5,10 +5,10 @@ thread without Flutter. The native Runner owns `NSApplication` and its run loop;
 Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
 Dart message work is limited per run-loop turn.
 
-The reusable surface is deliberately small: one window, generic and text views,
-menus and menu-item actions, periodic `Timer` updates,
-lifecycle/window/input events, plain-text pasteboard snapshots, explicit native
-ownership, and a restart-based developer command.
+The reusable surface is deliberately small: one window, generic, text, and
+registered native-provider views, menus and menu-item actions, periodic
+`Timer` updates, lifecycle/window/input events, plain-text pasteboard snapshots,
+explicit native ownership, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -108,6 +108,11 @@ window.dispose();
 view.dispose();
 await app.terminate();
 ```
+
+A native product can register an `NSView` subclass through the separate
+Objective-C++ `dart_appkit_custom_view.h` extension surface before Dart starts.
+Dart then creates a normal owned generic-view handle with
+`View.custom('product.ProviderName')`; Objective-C pointers never cross FFI.
 
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
 the embedded root isolate. Ordinary in-process workers are not part of the

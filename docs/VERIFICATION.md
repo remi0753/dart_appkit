@@ -32,6 +32,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
+| Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |

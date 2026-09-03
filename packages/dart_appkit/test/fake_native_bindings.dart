@@ -37,6 +37,7 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, String> texts = <int, String>{};
+  final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, int> contentViews = <int, int>{};
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
   final Map<int, String> menuTitles = <int, String>{};
@@ -356,6 +357,20 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeValueResult<int> customViewCreate(String providerIdentifier) {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'customViewCreate',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.view;
+      customViewProviders[handle] = providerIdentifier;
+    }
+    return result;
+  }
+
+  @override
   NativeValueResult<int> textViewCreate() {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('textViewCreate', handle);
@@ -391,6 +406,7 @@ final class FakeNativeBindings implements NativeBindings {
       objects.remove(handle);
       windowTitles.remove(handle);
       texts.remove(handle);
+      customViewProviders.remove(handle);
       contentViews.remove(handle);
       windowCloseDeferrals.remove(handle);
       menuTitles.remove(handle);

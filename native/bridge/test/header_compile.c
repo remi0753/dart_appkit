@@ -20,10 +20,13 @@ int da_header_compiles_as_c(void) {
   int32_t (*menu_create)(const char*, size_t, DaHandle*) = da_menu_create;
   int32_t (*menu_item_create)(const char*, size_t, const char*, size_t,
                               uint64_t, DaHandle*) = da_menu_item_create;
+  int32_t (*custom_view_create)(const char*, size_t, DaHandle*) =
+      da_view_create_custom;
   return rect.width == 640.0 && versioned_registration != 0 &&
                  termination_reply != 0 && close_reply != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
-                 menu_item_create != 0 && selected_version == 0
+                 menu_item_create != 0 && custom_view_create != 0 &&
+                 selected_version == 0
              ? DA_STATUS_OK
              : DA_STATUS_INTERNAL_ERROR;
 }
