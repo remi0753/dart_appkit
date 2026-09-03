@@ -12,7 +12,8 @@ namespace dart_appkit {
 struct NativeEvent {
   DaEventType type = DA_EVENT_WINDOW_CLOSED;
   DaHandle window = 0;
-  int64_t monotonic_micros = 0;
+  int64_t monotonic_nanos = 0;
+  int64_t operation_id = 0;
 
   double width = 0.0;
   double height = 0.0;
@@ -29,8 +30,8 @@ struct NativeEvent {
   std::string characters_ignoring_modifiers;
 };
 
-using EventPoster = bool (*)(int64_t dart_port, const NativeEvent& event,
-                             void* context);
+using EventPoster = bool (*)(int64_t dart_port, uint32_t event_protocol_version,
+                             const NativeEvent& event, void* context);
 
 void ClearLastError();
 int32_t SetLastError(DaStatus status, std::string_view message);
@@ -40,9 +41,12 @@ void InstallEventPoster(EventPoster poster, void* context);
 void DisableEventPoster();
 bool HasEventPoster();
 int32_t SetEventPort(int64_t dart_port);
+int32_t SetEventPortVersioned(int64_t dart_port, uint32_t min_version,
+                              uint32_t max_version,
+                              uint32_t* out_selected_version);
 bool PostEvent(const NativeEvent& event);
 
-int64_t MonotonicMicros();
+int64_t MonotonicNanos();
 uint64_t StableModifiers(uint64_t appkit_modifiers);
 
 void ShutdownBridge();

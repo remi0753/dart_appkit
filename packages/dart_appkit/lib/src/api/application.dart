@@ -37,14 +37,18 @@ final class _ProvidedEventSource implements _EventSource {
 }
 
 final class AppKitApplication {
-  AppKitApplication._(this._bindings, this._eventSource)
-    : _events = StreamController<AppKitEvent>.broadcast(sync: true);
+  AppKitApplication._(
+    this._bindings,
+    this._eventSource,
+    this.eventProtocolVersion,
+  ) : _events = StreamController<AppKitEvent>.broadcast(sync: true);
 
   static AppKitApplication? _current;
 
   final NativeBindings _bindings;
   final _EventSource _eventSource;
   final StreamController<AppKitEvent> _events;
+  final int eventProtocolVersion;
   final Map<int, WeakReference<Window>> _windows =
       <int, WeakReference<Window>>{};
 
@@ -100,12 +104,20 @@ final class AppKitApplication {
         'the root UI isolate is not executing on the macOS main thread',
       );
     }
-    _checkCall(
-      bindings.applicationSetEventPort(source.port),
+    final int eventProtocolVersion = _checkValue<int>(
+      bindings.applicationSetEventPortVersioned(
+        port: source.port,
+        minimumVersion: dartAppKitMinimumEventProtocolVersion,
+        maximumVersion: dartAppKitCurrentEventProtocolVersion,
+      ),
       'AppKitApplication.attach.eventPort',
     );
 
-    final AppKitApplication application = AppKitApplication._(bindings, source);
+    final AppKitApplication application = AppKitApplication._(
+      bindings,
+      source,
+      eventProtocolVersion,
+    );
     application._eventSubscription = source.events.listen(
       application._handleRawEvent,
       onError: application._events.addError,

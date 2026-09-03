@@ -4,16 +4,28 @@ sealed class AppKitEvent {
   const AppKitEvent({
     required this.windowHandle,
     required this.monotonicMicros,
-  });
+    this.protocolVersion = 1,
+    this.sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    this.operationId = 0,
+  }) : monotonicNanoseconds = monotonicNanoseconds ?? monotonicMicros * 1000;
 
   final int windowHandle;
   final int monotonicMicros;
+  final int protocolVersion;
+  final int sourceGeneration;
+  final int monotonicNanoseconds;
+  final int operationId;
 }
 
 sealed class WindowEvent extends AppKitEvent {
   const WindowEvent({
     required super.windowHandle,
     required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
   });
 }
 
@@ -21,6 +33,10 @@ final class WindowClosedEvent extends WindowEvent {
   const WindowClosedEvent({
     required super.windowHandle,
     required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
   });
 }
 
@@ -28,6 +44,10 @@ final class WindowResizedEvent extends WindowEvent {
   const WindowResizedEvent({
     required super.windowHandle,
     required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
     required this.width,
     required this.height,
   });
@@ -42,6 +62,10 @@ final class AppKitMouseEvent extends WindowEvent {
   const AppKitMouseEvent({
     required super.windowHandle,
     required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
     required this.kind,
     required this.x,
     required this.y,
@@ -64,6 +88,10 @@ final class AppKitKeyEvent extends WindowEvent {
   const AppKitKeyEvent({
     required super.windowHandle,
     required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
     required this.kind,
     required this.keyCode,
     required this.modifiers,
@@ -122,77 +150,127 @@ final class _EventCodec {
     if (message is! List<Object?>) {
       throw const FormatException('native event must be a list');
     }
-    if (message.length < 4) {
-      throw const FormatException('native event envelope is too short');
+    if (message.isEmpty) {
+      throw const FormatException('native event envelope is empty');
     }
-
     final int version = _integer(message, 0, 'protocolVersion');
-    if (version != dartAppKitAbiVersion) {
+    if (version < dartAppKitMinimumEventProtocolVersion ||
+        version > dartAppKitCurrentEventProtocolVersion) {
       throw FormatException(
         'unsupported native event protocol version $version',
       );
     }
+    final int payloadOffset = version == 1 ? 4 : 6;
+    if (message.length < payloadOffset) {
+      throw FormatException(
+        'native event version $version envelope is too short',
+      );
+    }
     final int type = _integer(message, 1, 'eventType');
     final int handle = _integer(message, 2, 'windowHandle');
-    final int timestamp = _integer(message, 3, 'monotonicMicros');
     if (handle <= 0) {
       throw const FormatException('native event has an invalid window handle');
     }
-    if (timestamp < 0) {
+    final int encodedHandleGeneration = handle >> 32;
+    final int sourceGeneration = version == 1
+        ? encodedHandleGeneration
+        : _integer(message, 3, 'sourceGeneration');
+    final int monotonicNanoseconds;
+    final int monotonicMicros;
+    final int operationId;
+    if (version == 1) {
+      monotonicMicros = _integer(message, 3, 'monotonicMicros');
+      monotonicNanoseconds = monotonicMicros * 1000;
+      operationId = 0;
+    } else {
+      monotonicNanoseconds = _integer(message, 4, 'monotonicNanoseconds');
+      monotonicMicros = monotonicNanoseconds ~/ 1000;
+      operationId = _integer(message, 5, 'operationId');
+      if (sourceGeneration <= 0 ||
+          sourceGeneration != encodedHandleGeneration) {
+        throw const FormatException(
+          'native event source generation does not match its handle',
+        );
+      }
+    }
+    if (monotonicNanoseconds < 0) {
       throw const FormatException('native event has a negative timestamp');
+    }
+    if (operationId < 0) {
+      throw const FormatException('native event has a negative operation ID');
     }
 
     switch (type) {
       case _windowClosed:
-        _expectLength(message, 4, 'window closed');
+        _expectLength(message, payloadOffset, 'window closed');
         return WindowClosedEvent(
           windowHandle: handle,
-          monotonicMicros: timestamp,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
         );
       case _windowResized:
-        _expectLength(message, 6, 'window resized');
+        _expectLength(message, payloadOffset + 2, 'window resized');
         return WindowResizedEvent(
           windowHandle: handle,
-          monotonicMicros: timestamp,
-          width: _number(message, 4, 'width'),
-          height: _number(message, 5, 'height'),
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          width: _number(message, payloadOffset, 'width'),
+          height: _number(message, payloadOffset + 1, 'height'),
         );
       case _mouseDown:
       case _mouseUp:
       case _mouseMoved:
       case _mouseDragged:
-        _expectLength(message, 9, 'mouse');
+        _expectLength(message, payloadOffset + 5, 'mouse');
         return AppKitMouseEvent(
           windowHandle: handle,
-          monotonicMicros: timestamp,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
           kind: switch (type) {
             _mouseDown => AppKitMouseEventKind.down,
             _mouseUp => AppKitMouseEventKind.up,
             _mouseMoved => AppKitMouseEventKind.moved,
             _ => AppKitMouseEventKind.dragged,
           },
-          x: _number(message, 4, 'x'),
-          y: _number(message, 5, 'y'),
-          button: _integer(message, 6, 'button'),
-          modifiers: ModifierKeys(_integer(message, 7, 'modifiers')),
-          clickCount: _integer(message, 8, 'clickCount'),
+          x: _number(message, payloadOffset, 'x'),
+          y: _number(message, payloadOffset + 1, 'y'),
+          button: _integer(message, payloadOffset + 2, 'button'),
+          modifiers: ModifierKeys(
+            _integer(message, payloadOffset + 3, 'modifiers'),
+          ),
+          clickCount: _integer(message, payloadOffset + 4, 'clickCount'),
         );
       case _keyDown:
       case _keyUp:
-        _expectLength(message, 9, 'key');
+        _expectLength(message, payloadOffset + 5, 'key');
         return AppKitKeyEvent(
           windowHandle: handle,
-          monotonicMicros: timestamp,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
           kind: type == _keyDown
               ? AppKitKeyEventKind.down
               : AppKitKeyEventKind.up,
-          keyCode: _integer(message, 4, 'keyCode'),
-          modifiers: ModifierKeys(_integer(message, 5, 'modifiers')),
-          isRepeat: _boolean(message, 6, 'isRepeat'),
-          characters: _string(message, 7, 'characters'),
+          keyCode: _integer(message, payloadOffset, 'keyCode'),
+          modifiers: ModifierKeys(
+            _integer(message, payloadOffset + 1, 'modifiers'),
+          ),
+          isRepeat: _boolean(message, payloadOffset + 2, 'isRepeat'),
+          characters: _string(message, payloadOffset + 3, 'characters'),
           charactersIgnoringModifiers: _string(
             message,
-            8,
+            payloadOffset + 4,
             'charactersIgnoringModifiers',
           ),
         );

@@ -48,6 +48,28 @@ be preempted, so root-isolate handlers must remain short. Consumers that need
 dynamic background workers must move that work across an explicit process
 boundary rather than spawning hosted in-process isolates.
 
+## Native event protocol
+
+The event protocol is negotiated independently from `DA_ABI_VERSION`. The
+original `da_application_set_event_port` entry point remains a compatibility
+API and selects version 1. Current clients call the additive versioned entry
+point with an inclusive supported range; the bridge selects the highest common
+version and clears the registration if the ranges do not overlap.
+
+Version 1 remains
+`[version, type, source_handle, monotonic_micros, ...payload]`. Version 2 is
+`[version, type, source_handle, source_generation, monotonic_ns, operation_id,
+...payload]`. Current window/input events are unsolicited and therefore use
+operation ID zero. The explicit source generation must match the high 32 bits
+of the generation-checked source handle. The Dart decoder accepts both
+versions, preserves the existing `monotonicMicros` API, and exposes the exact
+negotiated metadata for newer consumers.
+
+The internal event model stores nanoseconds. A version-1 serializer converts
+to microseconds only while posting, so an old Dart client receives its original
+field order and timestamp unit. The Runner owns the shared encoder; consuming
+AOT hosts use the same encoder to prevent JIT/AOT wire drift.
+
 ## Hosted-isolate boundary
 
 The stock Dart 3.13.2 Engine contract used here supports one process-lifetime

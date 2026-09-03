@@ -14,8 +14,12 @@ extern "C" {
 #define DA_EXPORT
 #endif
 
-/** ABI version returned by da_abi_version and sent with every event. */
+/** ABI version returned by da_abi_version. */
 #define DA_ABI_VERSION ((uint32_t)1)
+
+/** Supported native event protocol range. Independent from DA_ABI_VERSION. */
+#define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)2)
 
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
@@ -47,10 +51,11 @@ typedef enum DaStatus {
   DA_STATUS_WRONG_HANDLE_TYPE = 4,
   DA_STATUS_WRONG_THREAD = 5,
   DA_STATUS_EVENT_PORT_UNAVAILABLE = 6,
-  DA_STATUS_INTERNAL_ERROR = 7
+  DA_STATUS_INTERNAL_ERROR = 7,
+  DA_STATUS_UNSUPPORTED_VERSION = 8
 } DaStatus;
 
-/** Event list slot 1; slot 0 is always DA_ABI_VERSION. */
+/** Event list slot 1; slot 0 is the negotiated event protocol version. */
 typedef enum DaEventType {
   DA_EVENT_WINDOW_CLOSED = 1,
   DA_EVENT_WINDOW_RESIZED = 2,
@@ -82,8 +87,25 @@ DA_EXPORT const char* da_status_name(int32_t status);
 /** Safe on any thread. Does not clear or replace the current error. */
 DA_EXPORT void da_get_last_error(DaError* out_error);
 
-/** Main thread only. A positive Dart SendPort.nativePort is required. */
+/**
+ * Main thread only. A positive Dart SendPort.nativePort is required.
+ *
+ * Legacy registration that always selects event protocol version 1. New
+ * callers should use da_application_set_event_port_versioned.
+ */
 DA_EXPORT int32_t da_application_set_event_port(int64_t dart_port);
+
+/**
+ * Main thread only. Negotiates the highest mutually supported event version.
+ *
+ * min_version and max_version are inclusive and must describe a nonempty
+ * positive range. out_selected_version is set to zero before validation and
+ * receives the selected version only on success. Failed negotiation clears
+ * any existing event-port registration.
+ */
+DA_EXPORT int32_t da_application_set_event_port_versioned(
+    int64_t dart_port, uint32_t min_version, uint32_t max_version,
+    uint32_t* out_selected_version);
 
 /** Main thread only. Requests normal NSApplication termination. */
 DA_EXPORT int32_t da_application_terminate(void);

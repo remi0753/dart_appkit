@@ -3,13 +3,12 @@
 #import <AppKit/AppKit.h>
 
 #include <pthread.h>
-#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <string_view>
 
+#include "DartEventEncoder.h"
 #include "include/dart_engine.h"
-#include "include/dart_native_api.h"
 
 #ifndef DA_DART_ENGINE_REVISION
 #define DA_DART_ENGINE_REVISION "unknown"
@@ -232,78 +231,11 @@ void DartHost::HandleMessageError(Dart_Handle error,
   }
 }
 
-void DartHost::SetInt64(Dart_CObject* object, int64_t value) {
-  object->type = Dart_CObject_kInt64;
-  object->value.as_int64 = value;
-}
-
-void DartHost::SetDouble(Dart_CObject* object, double value) {
-  object->type = Dart_CObject_kDouble;
-  object->value.as_double = value;
-}
-
-void DartHost::SetBool(Dart_CObject* object, bool value) {
-  object->type = Dart_CObject_kBool;
-  object->value.as_bool = value;
-}
-
-void DartHost::SetString(Dart_CObject* object, const std::string& value) {
-  object->type = Dart_CObject_kString;
-  object->value.as_string = value.c_str();
-}
-
-bool DartHost::PostNativeEvent(int64_t dart_port, const NativeEvent& event,
-                               void* context) {
+bool DartHost::PostNativeEvent(int64_t dart_port,
+                               uint32_t event_protocol_version,
+                               const NativeEvent& event, void* context) {
   (void)context;
-  std::array<Dart_CObject, 9> values{};
-  std::array<Dart_CObject*, 9> pointers{};
-  for (size_t index = 0; index < pointers.size(); ++index) {
-    pointers[index] = &values[index];
-  }
-
-  SetInt64(&values[0], DA_ABI_VERSION);
-  SetInt64(&values[1], event.type);
-  SetInt64(&values[2], static_cast<int64_t>(event.window));
-  SetInt64(&values[3], event.monotonic_micros);
-
-  intptr_t length = 4;
-  switch (event.type) {
-    case DA_EVENT_WINDOW_CLOSED:
-      break;
-    case DA_EVENT_WINDOW_RESIZED:
-      length = 6;
-      SetDouble(&values[4], event.width);
-      SetDouble(&values[5], event.height);
-      break;
-    case DA_EVENT_MOUSE_DOWN:
-    case DA_EVENT_MOUSE_UP:
-    case DA_EVENT_MOUSE_MOVED:
-    case DA_EVENT_MOUSE_DRAGGED:
-      length = 9;
-      SetDouble(&values[4], event.x);
-      SetDouble(&values[5], event.y);
-      SetInt64(&values[6], event.button);
-      SetInt64(&values[7], event.modifiers);
-      SetInt64(&values[8], event.click_count);
-      break;
-    case DA_EVENT_KEY_DOWN:
-    case DA_EVENT_KEY_UP:
-      length = 9;
-      SetInt64(&values[4], event.key_code);
-      SetInt64(&values[5], event.modifiers);
-      SetBool(&values[6], event.is_repeat);
-      SetString(&values[7], event.characters);
-      SetString(&values[8], event.characters_ignoring_modifiers);
-      break;
-    default:
-      return false;
-  }
-
-  Dart_CObject message{};
-  message.type = Dart_CObject_kArray;
-  message.value.as_array.length = length;
-  message.value.as_array.values = pointers.data();
-  return Dart_PostCObject(dart_port, &message);
+  return PostNativeEventToDartPort(dart_port, event_protocol_version, event);
 }
 
 }  // namespace dart_appkit

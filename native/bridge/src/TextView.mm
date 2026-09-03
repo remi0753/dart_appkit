@@ -105,7 +105,7 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
 
   dart_appkit::NativeEvent native_event;
   native_event.window = self.daHandle;
-  native_event.monotonic_micros = dart_appkit::MonotonicMicros();
+  native_event.monotonic_nanos = dart_appkit::MonotonicNanos();
   native_event.modifiers =
       static_cast<int64_t>(dart_appkit::StableModifiers(event.modifierFlags));
 
@@ -162,7 +162,7 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   dart_appkit::NativeEvent event;
   event.type = DA_EVENT_WINDOW_CLOSED;
   event.window = self.daHandle;
-  event.monotonic_micros = dart_appkit::MonotonicMicros();
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
   dart_appkit::PostEvent(event);
 }
 
@@ -175,7 +175,7 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   dart_appkit::NativeEvent event;
   event.type = DA_EVENT_WINDOW_RESIZED;
   event.window = self.daHandle;
-  event.monotonic_micros = dart_appkit::MonotonicMicros();
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
   event.width = size.width;
   event.height = size.height;
   dart_appkit::PostEvent(event);

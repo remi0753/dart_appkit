@@ -18,3 +18,7 @@ export 'src/api.dart'
         WindowClosedEvent,
         WindowEvent,
         WindowResizedEvent;
+export 'src/native/native_bindings.dart'
+    show
+        dartAppKitCurrentEventProtocolVersion,
+        dartAppKitMinimumEventProtocolVersion;

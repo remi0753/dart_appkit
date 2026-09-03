@@ -9,6 +9,12 @@ The MVP surface is deliberately small: one window, one text view, periodic
 `Timer` updates, close/resize/mouse/key events, explicit native ownership, and a
 restart-based developer command.
 
+Native events use a protocol version independent from the C ABI version. The
+legacy port-registration API continues to emit version 1; current Dart/native
+pairs negotiate version 2, whose common envelope includes source generation,
+nanosecond monotonic time, and operation identity. The Dart API decodes both
+versions.
+
 ## Current status
 
 The bridge, Dart API, Runner, bounded scheduler, launcher, `.app` bundle,

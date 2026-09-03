@@ -18,6 +18,18 @@ void main(List<String> arguments) {
     _fail('ABI version mismatch');
   }
 
+  final NativeValueResult<int> eventRegistration = bindings
+      .applicationSetEventPortVersioned(
+        port: 4242,
+        minimumVersion: dartAppKitMinimumEventProtocolVersion,
+        maximumVersion: dartAppKitCurrentEventProtocolVersion,
+      );
+  if (eventRegistration.isSuccess ||
+      (eventRegistration.status != 5 && eventRegistration.status != 6) ||
+      eventRegistration.message.isEmpty) {
+    _fail('versioned event registration did not reach the native bridge');
+  }
+
   final NativeValueResult<int> threadResult = bindings.debugIsMainThread();
   if (!threadResult.isSuccess ||
       (threadResult.value != 0 && threadResult.value != 1)) {

@@ -1207,3 +1207,38 @@ A second direct launch explicitly removed every `DART_ENGINE_*` variable and
 also attached, ticked, closed, released, and exited 0, verifying default
 discovery. The full `make test` regression suite passed afterward. The four
 formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
+
+## 2026-09-03 — Native event protocol negotiation extension
+
+- Dart Terminal's next platform-substrate task required the existing event
+  list to evolve without breaking the MVP API. The C ABI version had also been
+  used as the event discriminator, the port registration could not negotiate,
+  and the Dart decoder accepted only version 1.
+- Kept `DA_ABI_VERSION` at 1 and kept the original event-port registration as
+  a version-1 compatibility entry point. Added an additive range-negotiation
+  entry point that chooses the highest common event version, reports a stable
+  unsupported-version status for disjoint ranges, and clears registration on
+  failure.
+- Added version 2 with source generation, monotonic nanoseconds, and operation
+  ID in its six-field common prefix. Current unsolicited window/input events
+  use operation ID zero. The shared Runner encoder continues to serialize the
+  exact original version-1 lists for legacy registration.
+- The Dart API now negotiates version 2 when available, falls back through the
+  legacy symbol when paired with an older native bridge, decodes both v1 and
+  v2, preserves public constructors and `monotonicMicros`, and exposes current
+  protocol metadata.
+- Native negotiation tests cover v1, v2, invalid ranges, disjoint ranges, and
+  legacy registration. A standalone encoder test verifies the exact v1 resize
+  and v2 key `Dart_CObject` layouts and fail-closed invalid input. Dart tests
+  cover both versions plus malformed envelope/type/length/generation/time/
+  operation cases.
+- The first standalone FFI assertion expected the missing Runner poster status,
+  but standalone Dart is also off the AppKit process main thread and therefore
+  correctly returned the earlier wrong-thread guard. The test was corrected to
+  accept either valid precondition failure while still requiring a native
+  diagnostic; no product behavior changed for that failed attempt.
+- `make test` passed scaffold/header validation, native bridge tests, strict
+  Runner compilation/link checks, message-pump and exact event-encoder tests,
+  Dart analysis/API/launcher tests, example analysis/Kernel compilation, the
+  current FFI bridge smoke, and the explicit new-Dart/legacy-native fallback
+  fixture. Native and Dart formatting checks reported no changes.

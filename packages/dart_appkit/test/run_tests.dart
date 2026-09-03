@@ -79,6 +79,12 @@ Future<void> _testLifecycleAndErrors() async {
   final FakeNativeBindings bindings = FakeNativeBindings();
   final AppKitApplication app = await _attach(bindings, raw);
   _expect(bindings.eventPort == 4242, 'native event port registration');
+  _expect(
+    bindings.requestedMinimumEventProtocolVersion == 1 &&
+        bindings.requestedMaximumEventProtocolVersion == 2 &&
+        app.eventProtocolVersion == 2,
+    'current event protocol negotiation',
+  );
 
   final TextView view = TextView()..text = 'Hello — 日本語';
   final Window window = Window(
@@ -124,7 +130,8 @@ Future<void> _testEventRoutingAndDecoding() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
   );
-  final FakeNativeBindings bindings = FakeNativeBindings();
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (7 << 32) | 1;
   final AppKitApplication app = await _attach(bindings, raw);
   final Window window = Window(
     frame: const Rect.fromLTWH(0, 0, 320, 200),
@@ -167,10 +174,45 @@ Future<void> _testEventRoutingAndDecoding() async {
       'e',
     ])
     ..add(<Object?>[1, 1, handle, 103])
-    ..add(<Object?>[99, 1, handle, 104]);
+    ..add(<Object?>[2, 2, handle, 7, 200000, 0, 640.0, 480.0])
+    ..add(<Object?>[
+      2,
+      10,
+      handle,
+      7,
+      201001,
+      0,
+      1.5,
+      2.5,
+      1,
+      ModifierKeys.controlBit,
+      1,
+    ])
+    ..add(<Object?>[
+      2,
+      20,
+      handle,
+      7,
+      202999,
+      0,
+      36,
+      ModifierKeys.commandBit,
+      false,
+      '\n',
+      '\n',
+    ])
+    ..add(<Object?>[2, 1, handle, 7, 203000, 0])
+    ..add(<Object?>[99, 1, handle, 104])
+    ..add(<Object?>[2, 1, handle])
+    ..add(<Object?>[2, 1, handle, 8, 204000, 0])
+    ..add(<Object?>[2, 1, handle, 7, -1, 0])
+    ..add(<Object?>[2, 1, handle, 7, 204000, -1])
+    ..add(<Object?>[2, 999, handle, 7, 204000, 0])
+    ..add(<Object?>[2, 1, handle, 7, 204000, 0, 'trailing'])
+    ..add(<Object?>[2, 2, handle, 7, 204000, 0, 'wide', 480.0]);
 
-  _expect(appEvents.length == 4, 'application receives four valid events');
-  _expect(windowEvents.length == 4, 'window receives four valid events');
+  _expect(appEvents.length == 8, 'application receives v1 and v2 events');
+  _expect(windowEvents.length == 8, 'window receives v1 and v2 events');
   final WindowResizedEvent resized = appEvents[0] as WindowResizedEvent;
   _expect(resized.width == 800 && resized.height == 500, 'resize payload');
   final AppKitMouseEvent mouse = appEvents[1] as AppKitMouseEvent;
@@ -178,15 +220,46 @@ Future<void> _testEventRoutingAndDecoding() async {
   _expect(mouse.clickCount == 2, 'mouse click count');
   final AppKitKeyEvent key = appEvents[2] as AppKitKeyEvent;
   _expect(key.isRepeat && key.characters == 'é', 'key payload');
+  final WindowResizedEvent versionTwo = appEvents[4] as WindowResizedEvent;
+  _expect(
+    versionTwo.protocolVersion == 2 &&
+        versionTwo.sourceGeneration == 7 &&
+        versionTwo.monotonicNanoseconds == 200000 &&
+        versionTwo.monotonicMicros == 200 &&
+        versionTwo.operationId == 0,
+    'version 2 common metadata',
+  );
+  final WindowClosedEvent sourceCompatible = WindowClosedEvent(
+    windowHandle: handle,
+    monotonicMicros: 12,
+  );
+  _expect(
+    sourceCompatible.protocolVersion == 1 &&
+        sourceCompatible.monotonicNanoseconds == 12000,
+    'legacy public event constructor defaults',
+  );
   _expect(window.isClosed, 'close event updates window state');
   _expect(
-    streamErrors.single is FormatException,
-    'malformed event is surfaced',
+    streamErrors.length == 8 &&
+        streamErrors.every((Object error) => error is FormatException),
+    'malformed and unsupported events are surfaced',
   );
 
   await appSubscription.cancel();
   await windowSubscription.cancel();
   window.dispose();
+  await app.terminate();
+  await raw.close();
+}
+
+Future<void> _testLegacyProtocolSelection() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..selectedEventProtocolVersion = 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  _expect(app.eventProtocolVersion == 1, 'legacy event protocol selected');
   await app.terminate();
   await raw.close();
 }
@@ -225,6 +298,7 @@ Future<void> main() async {
     'event decoding and weak window routing',
     _testEventRoutingAndDecoding,
   );
+  await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test(
     'cross-application content view guard',
     _testCrossApplicationGuard,

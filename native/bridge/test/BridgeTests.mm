@@ -41,13 +41,15 @@ int g_failures = 0;
 
 struct Capture {
   std::vector<dart_appkit::NativeEvent> events;
+  std::vector<uint32_t> protocol_versions;
   int64_t last_port = 0;
 };
 
-bool CapturePoster(int64_t port, const dart_appkit::NativeEvent& event,
-                   void* context) {
+bool CapturePoster(int64_t port, uint32_t protocol_version,
+                   const dart_appkit::NativeEvent& event, void* context) {
   auto* capture = static_cast<Capture*>(context);
   capture->last_port = port;
+  capture->protocol_versions.push_back(protocol_version);
   capture->events.push_back(event);
   return true;
 }
@@ -100,6 +102,8 @@ void TestContractAndErrors() {
   EXPECT_EQ(da_abi_version(), static_cast<uint32_t>(1));
   EXPECT_EQ(std::string(da_status_name(DA_STATUS_INVALID_UTF8)),
             std::string("invalid_utf8"));
+  EXPECT_EQ(std::string(da_status_name(DA_STATUS_UNSUPPORTED_VERSION)),
+            std::string("unsupported_version"));
 
   int32_t is_main = 0;
   EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
@@ -121,6 +125,51 @@ void TestContractAndErrors() {
   EXPECT_EQ(handle, static_cast<DaHandle>(0));
 
   EXPECT_EQ(da_application_set_event_port(1), DA_STATUS_EVENT_PORT_UNAVAILABLE);
+}
+
+void TestEventProtocolNegotiation() {
+  Capture capture;
+  dart_appkit::ResetBridgeForTesting();
+  dart_appkit::InstallEventPoster(CapturePoster, &capture);
+
+  uint32_t selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 1, 2, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(2));
+
+  dart_appkit::NativeEvent event;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  event.monotonic_nanos = 123456789;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(2));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 1, 1, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(1));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(1));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 3, 3, &selected_version),
+      DA_STATUS_UNSUPPORTED_VERSION);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 2, 1, &selected_version),
+      DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
+  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 2, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(1));
 }
 
 void TestRegistryLifecycleAndTypes() {
@@ -211,12 +260,14 @@ void TestWindowEvents() {
 
   EXPECT_EQ(capture.last_port, static_cast<int64_t>(4242));
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.protocol_versions.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(1));
   EXPECT_EQ(capture.events[0].type, DA_EVENT_WINDOW_RESIZED);
   EXPECT_EQ(capture.events[0].window, window_handle);
   EXPECT_TRUE(std::abs(capture.events[0].width - 777.0) < 0.001);
   EXPECT_TRUE(std::abs(capture.events[0].height - 333.0) < 0.001);
   EXPECT_EQ(capture.events[1].type, DA_EVENT_WINDOW_CLOSED);
-  EXPECT_TRUE(capture.events[1].monotonic_micros > 0);
+  EXPECT_TRUE(capture.events[1].monotonic_nanos > 0);
 
   EXPECT_EQ(da_release(view_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
@@ -253,6 +304,8 @@ void TestInputEvents() {
   [owner.window daPostInputEvent:key];
 
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.protocol_versions.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(1));
   const dart_appkit::NativeEvent& mouse_event = capture.events[0];
   EXPECT_EQ(mouse_event.type, DA_EVENT_MOUSE_DOWN);
   EXPECT_EQ(mouse_event.button, static_cast<int64_t>(0));
@@ -277,6 +330,7 @@ int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
     TestContractAndErrors();
+    TestEventProtocolNegotiation();
     TestRegistryLifecycleAndTypes();
     TestThreadGuardAndFinalizer();
     TestWindowEvents();

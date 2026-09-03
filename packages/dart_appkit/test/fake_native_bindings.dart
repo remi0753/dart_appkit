@@ -9,6 +9,9 @@ final class FakeNativeBindings implements NativeBindings {
   int mainThreadValue = 1;
   int nextHandle = 100;
   int? eventPort;
+  int selectedEventProtocolVersion = dartAppKitCurrentEventProtocolVersion;
+  int? requestedMinimumEventProtocolVersion;
+  int? requestedMaximumEventProtocolVersion;
   bool terminateCalled = false;
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
@@ -46,6 +49,24 @@ final class FakeNativeBindings implements NativeBindings {
   @override
   NativeCallResult applicationSetEventPort(int port) {
     final NativeCallResult result = _status('applicationSetEventPort');
+    if (result.isSuccess) {
+      eventPort = port;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> applicationSetEventPortVersioned({
+    required int port,
+    required int minimumVersion,
+    required int maximumVersion,
+  }) {
+    requestedMinimumEventProtocolVersion = minimumVersion;
+    requestedMaximumEventProtocolVersion = maximumVersion;
+    final NativeValueResult<int> result = _value<int>(
+      'applicationSetEventPortVersioned',
+      selectedEventProtocolVersion,
+    );
     if (result.isSuccess) {
       eventPort = port;
     }

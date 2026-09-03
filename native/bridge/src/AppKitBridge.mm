@@ -158,6 +158,8 @@ const char* da_status_name(int32_t status) {
       return "event_port_unavailable";
     case DA_STATUS_INTERNAL_ERROR:
       return "internal_error";
+    case DA_STATUS_UNSUPPORTED_VERSION:
+      return "unsupported_version";
     default:
       return "unknown_status";
   }
@@ -179,6 +181,21 @@ int32_t da_application_set_event_port(int64_t dart_port) {
     return thread_status;
   }
   return dart_appkit::SetEventPort(dart_port);
+}
+
+int32_t da_application_set_event_port_versioned(
+    int64_t dart_port, uint32_t min_version, uint32_t max_version,
+    uint32_t* out_selected_version) {
+  dart_appkit::ClearLastError();
+  if (out_selected_version != nullptr) {
+    *out_selected_version = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  return dart_appkit::SetEventPortVersioned(dart_port, min_version, max_version,
+                                            out_selected_version);
 }
 
 int32_t da_application_terminate(void) {

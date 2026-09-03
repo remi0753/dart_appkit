@@ -1,6 +1,8 @@
 import 'dart:ffi';
 
 const int dartAppKitAbiVersion = 1;
+const int dartAppKitMinimumEventProtocolVersion = 1;
+const int dartAppKitCurrentEventProtocolVersion = 2;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -32,6 +34,11 @@ abstract interface class NativeBindings {
   int abiVersion();
 
   NativeCallResult applicationSetEventPort(int port);
+  NativeValueResult<int> applicationSetEventPortVersioned({
+    required int port,
+    required int minimumVersion,
+    required int maximumVersion,
+  });
   NativeCallResult applicationTerminate();
 
   NativeValueResult<int> windowCreate({

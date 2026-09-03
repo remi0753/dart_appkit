@@ -9,7 +9,6 @@
 #include "DartMessagePump.h"
 #include "RunnerConfiguration.h"
 #include "include/dart_api.h"
-#include "include/dart_native_api.h"
 
 namespace dart_appkit {
 
@@ -28,15 +27,11 @@ class DartHost final {
   DartHost& operator=(const DartHost&) = delete;
 
  private:
-  static bool PostNativeEvent(int64_t dart_port, const NativeEvent& event,
-                              void* context);
+  static bool PostNativeEvent(int64_t dart_port,
+                              uint32_t event_protocol_version,
+                              const NativeEvent& event, void* context);
   static void HandleMessageError(Dart_Handle error,
                                  Dart_Isolate destination_isolate);
-  static void SetInt64(Dart_CObject* object, int64_t value);
-  static void SetDouble(Dart_CObject* object, double value);
-  static void SetBool(Dart_CObject* object, bool value);
-  static void SetString(Dart_CObject* object, const std::string& value);
-
   bool InvokeMain(const std::vector<std::string>& arguments,
                   std::string* out_error);
   void RecordFatalError(std::string message);

@@ -31,6 +31,18 @@ typedef _AbiVersionNative = Uint32 Function();
 typedef _AbiVersionDart = int Function();
 typedef _SetEventPortNative = Int32 Function(Int64);
 typedef _SetEventPortDart = int Function(int);
+typedef _SetEventPortVersionedNative = Int32 Function(
+  Int64,
+  Uint32,
+  Uint32,
+  Pointer<Uint32>,
+);
+typedef _SetEventPortVersionedDart = int Function(
+  int,
+  int,
+  int,
+  Pointer<Uint32>,
+);
 typedef _NoArgsStatusNative = Int32 Function();
 typedef _NoArgsStatusDart = int Function();
 typedef _WindowCreateNative = Int32 Function(
@@ -64,6 +76,19 @@ typedef _MallocDart = Pointer<Void> Function(int);
 typedef _FreeNative = Void Function(Pointer<Void>);
 typedef _FreeDart = void Function(Pointer<Void>);
 
+_SetEventPortVersionedDart? _lookupSetEventPortVersioned(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _SetEventPortVersionedNative,
+      _SetEventPortVersionedDart
+    >('da_application_set_event_port_versioned');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -73,6 +98,7 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_SetEventPortNative, _SetEventPortDart>(
             'da_application_set_event_port',
           ),
+      _setEventPortVersioned = _lookupSetEventPortVersioned(library),
       _terminate = library
           .lookupFunction<_NoArgsStatusNative, _NoArgsStatusDart>(
             'da_application_terminate',
@@ -142,6 +168,7 @@ final class FfiNativeBindings implements NativeBindings {
 
   final _AbiVersionDart _abiVersion;
   final _SetEventPortDart _setEventPort;
+  final _SetEventPortVersionedDart? _setEventPortVersioned;
   final _NoArgsStatusDart _terminate;
   final _WindowCreateDart _windowCreate;
   final _HandleStatusDart _windowShow;
@@ -222,6 +249,49 @@ final class FfiNativeBindings implements NativeBindings {
   @override
   NativeCallResult applicationSetEventPort(int port) =>
       _callResult(_setEventPort(port));
+
+  @override
+  NativeValueResult<int> applicationSetEventPortVersioned({
+    required int port,
+    required int minimumVersion,
+    required int maximumVersion,
+  }) {
+    if (minimumVersion <= 0 ||
+        maximumVersion <= 0 ||
+        minimumVersion > maximumVersion ||
+        maximumVersion > 0xffffffff) {
+      return const NativeValueResult<int>.failure(
+        1,
+        'event protocol range must be positive, ordered, and unsigned 32-bit',
+      );
+    }
+    final _SetEventPortVersionedDart? versioned = _setEventPortVersioned;
+    if (versioned == null) {
+      if (minimumVersion > 1 || maximumVersion < 1) {
+        return const NativeValueResult<int>.failure(
+          8,
+          'legacy native bridge only supports event protocol version 1',
+        );
+      }
+      final NativeCallResult result = applicationSetEventPort(port);
+      return result.isSuccess
+          ? const NativeValueResult<int>.success(1)
+          : NativeValueResult<int>.failure(result.status, result.message);
+    }
+    final Pointer<Uint32> selected = _allocate(sizeOf<Uint32>()).cast<Uint32>();
+    try {
+      selected.value = 0;
+      final int status = versioned(
+        port,
+        minimumVersion,
+        maximumVersion,
+        selected,
+      );
+      return _valueResult<int>(status, selected.value);
+    } finally {
+      _free(selected.cast<Void>());
+    }
+  }
 
   @override
   NativeCallResult applicationTerminate() => _callResult(_terminate());

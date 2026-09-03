@@ -40,11 +40,13 @@ BRIDGE_SOURCES := \
 RUNNER_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/main.mm \
 	$(PROJECT_ROOT)/native/runner/AppDelegate.mm \
+	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
 	$(PROJECT_ROOT)/native/runner/DartHost.mm \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
 	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc
 RUNNER_HEADERS := \
 	$(PROJECT_ROOT)/native/runner/AppDelegate.h \
+	$(PROJECT_ROOT)/native/runner/DartEventEncoder.h \
 	$(PROJECT_ROOT)/native/runner/DartHost.h \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.h \
 	$(PROJECT_ROOT)/native/runner/RunnerArguments.h \
@@ -54,13 +56,19 @@ NATIVE_TEST_SOURCES := \
 MESSAGE_PUMP_TEST_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
 	$(PROJECT_ROOT)/native/runner/test/DartMessagePumpTests.mm
+EVENT_ENCODER_TEST_SOURCES := \
+	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
+	$(PROJECT_ROOT)/native/runner/test/DartEventEncoderTests.cc
 RUNNER_ARGUMENT_TEST_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc \
 	$(PROJECT_ROOT)/native/runner/test/RunnerArgumentsTests.cc
 
 BRIDGE_LIBRARY := $(NATIVE_BUILD_DIR)/libdart_appkit_bridge.dylib
+LEGACY_EVENT_BRIDGE_FIXTURE := \
+	$(NATIVE_BUILD_DIR)/libdart_appkit_legacy_event_fixture.dylib
 NATIVE_TEST_BINARY := $(NATIVE_BUILD_DIR)/bridge_tests
 MESSAGE_PUMP_TEST_BINARY := $(NATIVE_BUILD_DIR)/message_pump_tests
+EVENT_ENCODER_TEST_BINARY := $(NATIVE_BUILD_DIR)/event_encoder_tests
 RUNNER_ARGUMENT_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_argument_tests
 RUNNER_SHELL_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_shell_test
 RUNNER_BINARY := $(NATIVE_BUILD_DIR)/dart_appkit_runner
@@ -99,7 +107,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -112,6 +120,7 @@ help:
 	@echo "  make runner-argument-test  Test Runner CLI parsing and exit contract"
 	@echo "  make runner-shell-test  Link Runner shell and execute pre-VM failures"
 	@echo "  make message-pump-test  Test bounded main-run-loop Dart scheduling"
+	@echo "  make event-encoder-test  Test v1/v2 native event serialization"
 	@echo "  make runner         Build the embedded Dart/AppKit Runner"
 	@echo "  make dart-test      Analyze and test the Dart package"
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"
@@ -149,6 +158,14 @@ $(BRIDGE_LIBRARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES)
 		-o $@
 
 bridge: $(BRIDGE_LIBRARY)
+
+$(LEGACY_EVENT_BRIDGE_FIXTURE): \
+		$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
+		$(PROJECT_ROOT)/native/bridge/test/LegacyEventBridgeFixture.c
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANG) $(COMMON_FLAGS) -std=c11 -dynamiclib \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		$(PROJECT_ROOT)/native/bridge/test/LegacyEventBridgeFixture.c -o $@
 
 $(NATIVE_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(NATIVE_TEST_SOURCES)
 	@mkdir -p $(NATIVE_BUILD_DIR)
@@ -202,6 +219,19 @@ $(MESSAGE_PUMP_TEST_BINARY): $(RUNNER_HEADERS) $(MESSAGE_PUMP_TEST_SOURCES)
 
 message-pump-test: $(MESSAGE_PUMP_TEST_BINARY)
 	@$(MESSAGE_PUMP_TEST_BINARY)
+
+$(EVENT_ENCODER_TEST_BINARY): $(BRIDGE_HEADERS) $(RUNNER_HEADERS) \
+		$(EVENT_ENCODER_TEST_SOURCES)
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(COMMON_FLAGS) -std=c++20 \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/native/bridge/src \
+		-I$(PROJECT_ROOT)/native/runner \
+		-iquote$(shell realpath $(shell command -v dart) | xargs dirname | xargs dirname) \
+		$(EVENT_ENCODER_TEST_SOURCES) -o $@
+
+event-encoder-test: $(EVENT_ENCODER_TEST_BINARY)
+	@$(EVENT_ENCODER_TEST_BINARY)
 
 runner-syntax: $(BRIDGE_HEADERS) $(RUNNER_HEADERS) $(RUNNER_SOURCES)
 	@$(CLANGXX) $(OBJCXX_FLAGS) \
@@ -263,9 +293,12 @@ run-example: engine-check
 		DART_ENGINE_LIBRARY="$(DART_ENGINE_LIBRARY)" \
 		dart run dart_appkit:run bin/main.dart
 
-ffi-smoke: bridge
+ffi-smoke: bridge $(LEGACY_EVENT_BRIDGE_FIXTURE)
 	@cd $(PROJECT_ROOT)/packages/dart_appkit && \
 		dart run test/ffi_bridge_smoke.dart $(BRIDGE_LIBRARY)
+	@cd $(PROJECT_ROOT)/packages/dart_appkit && \
+		dart run test/legacy_event_bridge_smoke.dart \
+			$(LEGACY_EVENT_BRIDGE_FIXTURE)
 
 public-dart-api-host-engine: engine-check
 	@test "$(HOST_ARCH)" = arm64 || \
@@ -337,7 +370,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \
