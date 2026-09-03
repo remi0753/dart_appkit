@@ -38,6 +38,8 @@
   int64_t _lastScreenId;
   NSRect _lastScreenFrame;
   NSRect _lastVisibleScreenFrame;
+  BOOL _defersCloseRequests;
+  int64_t _pendingCloseOperationId;
 }
 
 @property(nonatomic, strong, readonly) DaWindow* window;
@@ -50,6 +52,10 @@
 - (void)daPostOcclusionState:(BOOL)isOccluded;
 - (void)daPostBackingScaleFactor:(double)scaleFactor;
 - (void)daPostScreen:(NSScreen*)screen;
+- (BOOL)daSetDefersCloseRequests:(BOOL)enabled;
+- (int64_t)daPendingCloseOperationId;
+- (BOOL)daReplyToCloseRequest:(int64_t)operationId allow:(BOOL)allow;
+- (void)daCloseProgrammatically;
 
 @end
 

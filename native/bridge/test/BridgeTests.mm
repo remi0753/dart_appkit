@@ -142,6 +142,9 @@ void ResetWithCurrentCapture(Capture* capture) {
                 DA_EVENT_PROTOCOL_VERSION_CURRENT, &selected_version),
             DA_STATUS_OK);
   EXPECT_EQ(selected_version, DA_EVENT_PROTOCOL_VERSION_CURRENT);
+  capture->events.clear();
+  capture->protocol_versions.clear();
+  capture->last_port = 0;
 }
 
 size_t CountEvents(const Capture& capture, DaEventType type) {
@@ -194,20 +197,41 @@ void TestEventProtocolNegotiation() {
 
   uint32_t selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 1, 3, &selected_version),
+      da_application_set_event_port_versioned(4242, 1, 4, &selected_version),
       DA_STATUS_OK);
-  EXPECT_EQ(selected_version, static_cast<uint32_t>(3));
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(4));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_APPLICATION_ACTIVE_CHANGED);
+  EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
+  EXPECT_EQ(capture.events[0].operation_id, static_cast<int64_t>(0));
 
   dart_appkit::NativeEvent event;
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   event.monotonic_nanos = 123456789;
   EXPECT_TRUE(dart_appkit::PostEvent(event));
-  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(3));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(4));
 
   event.type = DA_EVENT_WINDOW_FOCUS_CHANGED;
   event.state = true;
   EXPECT_TRUE(dart_appkit::PostEvent(event));
-  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(3));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(4));
+
+  event.type = DA_EVENT_APPLICATION_ACTIVE_CHANGED;
+  event.window = 0;
+  event.state = true;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(4));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 1, 3, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(3));
+  const size_t before_version_four_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_four_event);
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  event.type = DA_EVENT_WINDOW_FOCUS_CHANGED;
 
   selected_version = 99;
   EXPECT_EQ(
@@ -231,7 +255,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 4, 4, &selected_version),
+      da_application_set_event_port_versioned(4242, 5, 5, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -241,12 +265,101 @@ void TestEventProtocolNegotiation() {
       da_application_set_event_port_versioned(4242, 2, 1, &selected_version),
       DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
-  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 3, nullptr),
+  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 4, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(1));
+}
+
+void TestLifecycleRequests() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+
+  dart_appkit::PostApplicationActiveChanged(true);
+  dart_appkit::PostApplicationReopenRequested(false);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_APPLICATION_ACTIVE_CHANGED);
+  EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
+  EXPECT_TRUE(capture.events[0].state);
+  EXPECT_EQ(capture.events[0].operation_id, static_cast<int64_t>(0));
+  EXPECT_EQ(capture.events[1].type, DA_EVENT_APPLICATION_REOPEN_REQUESTED);
+  EXPECT_TRUE(!capture.events[1].state);
+
+  EXPECT_EQ(da_application_set_termination_request_deferral(2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_set_termination_request_deferral(1), DA_STATUS_OK);
+  EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
+              dart_appkit::ApplicationTerminationDecision::kTerminateLater);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
+  const int64_t termination_operation = capture.events.back().operation_id;
+  EXPECT_EQ(capture.events.back().type,
+            DA_EVENT_APPLICATION_TERMINATE_REQUESTED);
+  EXPECT_TRUE(termination_operation > 0);
+  EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
+              dart_appkit::ApplicationTerminationDecision::kTerminateLater);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
+  EXPECT_EQ(da_application_set_termination_request_deferral(0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(
+      da_application_reply_to_termination_request(termination_operation + 1, 0),
+      DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(
+      da_application_reply_to_termination_request(termination_operation, 2),
+      DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(
+      da_application_reply_to_termination_request(termination_operation, 0),
+      DA_STATUS_OK);
+  EXPECT_EQ(
+      da_application_reply_to_termination_request(termination_operation, 0),
+      DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_set_termination_request_deferral(0), DA_STATUS_OK);
+  EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
+              dart_appkit::ApplicationTerminationDecision::kTerminateNow);
+
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+  EXPECT_TRUE([owner windowShouldClose:owner.window]);
+  EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 1),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_request_close(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  const int64_t close_operation = capture.events.back().operation_id;
+  EXPECT_EQ(capture.events.back().type, DA_EVENT_WINDOW_CLOSE_REQUESTED);
+  EXPECT_EQ(capture.events.back().window, window_handle);
+  EXPECT_TRUE(close_operation > 0);
+  EXPECT_EQ(da_window_request_close(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(
+      da_window_reply_to_close_request(window_handle, close_operation + 1, 0),
+      DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_reply_to_close_request(window_handle, close_operation, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_reply_to_close_request(window_handle, close_operation, 0),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_reply_to_close_request(window_handle, close_operation, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 0),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+
+  Capture legacy_capture;
+  ResetWithCapture(&legacy_capture);
+  EXPECT_EQ(da_application_set_termination_request_deferral(1), DA_STATUS_OK);
+  EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
+              dart_appkit::ApplicationTerminationDecision::kTerminateNow);
+  const DaHandle legacy_window = CreateWindow();
+  DaWindowOwner* legacy_owner = OwnerFor(legacy_window);
+  EXPECT_EQ(da_window_set_close_request_deferral(legacy_window, 1),
+            DA_STATUS_OK);
+  EXPECT_TRUE([legacy_owner windowShouldClose:legacy_owner.window]);
+  EXPECT_TRUE(legacy_capture.events.empty());
+  EXPECT_EQ(da_release(legacy_window), DA_STATUS_OK);
 }
 
 void TestRegistryLifecycleAndTypes() {
@@ -505,7 +618,7 @@ void TestWindowStateEvents() {
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
             static_cast<size_t>(1));
   for (size_t index = 0; index < capture.events.size(); ++index) {
-    EXPECT_EQ(capture.protocol_versions[index], static_cast<uint32_t>(3));
+    EXPECT_EQ(capture.protocol_versions[index], static_cast<uint32_t>(4));
     EXPECT_EQ(capture.events[index].window, window_handle);
     EXPECT_TRUE(capture.events[index].monotonic_nanos > 0);
   }
@@ -653,6 +766,7 @@ int main() {
     [NSApplication sharedApplication];
     TestContractAndErrors();
     TestEventProtocolNegotiation();
+    TestLifecycleRequests();
     TestRegistryLifecycleAndTypes();
     TestThreadGuardAndFinalizer();
     TestRegistryDomainsAndAsyncRelease();

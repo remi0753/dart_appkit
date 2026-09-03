@@ -1352,3 +1352,62 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   points.
 - Final native/Dart formatting and `git diff --check` reported no changes or
   whitespace errors.
+
+## 2026-09-04 — Application and window lifecycle protocol
+
+- Dart Terminal's next platform-substrate item was split before implementation.
+  Its first deliverable requires lifecycle request/reply semantics before menu
+  actions can safely drive Close and Quit.
+- Bumped the independently negotiated event protocol to version 4 while keeping
+  C ABI version 1 and the exact v1-v3 record layouts. V4 adds application
+  active, reopen, and termination events; a window-close request; and the
+  payload-free menu-action record needed by the following additive menu API.
+- Application events use source handle/generation zero. Registry-backed window
+  and menu records retain generation-checked identity. Notifications require
+  operation ID zero; close and termination requests require a positive ID.
+- Deferral is opt-in and one request may be pending per application or window.
+  Duplicate delegate calls are coalesced, stale/wrong-target/reused replies are
+  rejected, and deferral cannot be disabled while a decision is outstanding.
+  A failed or down-negotiated event post permits the OS action. Programmatic
+  close and termination bypass the user-decision path so Dart teardown cannot
+  wait on an event source it has already closed.
+- Registering a v4 event port posts the current active-state snapshot. Later
+  AppDelegate callbacks post active/resign and reopen transitions without
+  entering Dart synchronously.
+- The Dart API exposes cached application activity, typed application and close
+  request streams, explicit request/reply methods, and opt-in deferral toggles.
+  New FFI symbols are optional so loading the legacy-native fixture still works;
+  using an unavailable lifecycle feature returns the stable unsupported status.
+- The first combined verification stopped in the native test compile because
+  the diagnostic-heavy equality macro tried to stream a scoped enum. The four
+  decision assertions were changed to boolean comparisons; product code was
+  unaffected. The second combined run passed header checks, the exact event
+  encoder, and native bridge tests, then found unhandled malformed-event errors
+  on three derived typed streams. No-op error handlers were added to those test
+  subscriptions while the primary application stream retained and asserted all
+  seven `FormatException` values.
+- The corrected Dart analysis, API/launcher tests, and Runner warning-as-error
+  syntax check passed. The first full `make test` then passed every scaffold,
+  header, warning-as-error native/Runner, scheduler/encoder, Dart, example
+  Kernel, real-dylib FFI, and legacy-native fixture check.
+- The first two real hello-window close-request smokes did not deliver a request
+  after the unattended Dart timer called `performClose:` and were interrupted.
+  Adding a temporary arrival log confirmed the request, rather than the reply,
+  was missing. The public `da_window_request_close` implementation now invokes
+  the owner delegate decision directly and closes only when it returns true;
+  actual title-bar user actions still enter the same delegate through AppKit.
+  The final smoke delivered operation 1 to Dart, accepted its reply, emitted
+  focus/visibility/closed events, released both handles, and exited 0.
+- The final full `make test` passed after that runtime correction. The native
+  bridge suite also passed ten consecutive executions. Header/native and Dart
+  format checks, `git diff --check`, and Dart Terminal's complete
+  `runtime-source-check` passed.
+- A `clang-format` invocation resolved to depot_tools and refused to run outside
+  a Chromium checkout without changing files; the pinned Dart SDK ARM64 binary
+  was used successfully. A sandboxed no-write Dart format audit reported zero
+  changed files but failed while updating a user telemetry timestamp; the same
+  audit passed with the required filesystem permission.
+- The built bridge exports 24 public `da_*` symbols, including all five new
+  application/window lifecycle calls. `make engine-check` passed and the
+  official SDK remains clean at
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.

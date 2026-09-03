@@ -7,8 +7,8 @@ Verification date: 2026-09-03 (Asia/Tokyo).
 The pinned Dart Engine has been fetched, built, linked, and exercised in the
 real AppKit Runner. The unattended `hello_window` run attached the Dart root
 isolate to the process main thread, processed three periodic Timer callbacks,
-closed through the native window API, delivered the close event back to Dart,
-released native handles, and exited 0.
+delivered an opted-in user-close request and reply, emitted the resulting close
+event, released native handles, and exited 0.
 
 The checkout is the official Dart repository at exactly
 `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`. The arm64 release dylib is a 36 MB
@@ -29,6 +29,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | C ABI is usable from C and C++ | C11 and C++20 header compilation | Verified |
 | Handle generations/domains, async release, UTF-8, errors, main-thread guard, finalizer | Native contract tests including concurrent claim, shutdown, and 1,000-slot churn | Verified |
 | close/resize/mouse/key and v3 window-state native model | Native payload/snapshot/deduplication tests plus Dart decoder/routing/state tests | Verified |
+| v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |
@@ -76,6 +77,7 @@ Timer tick 1 reached Dart.
 Timer tick 2 reached Dart.
 Timer tick 3 reached Dart.
 Automated smoke close requested.
+Window close request reached Dart (operation 1).
 Window close event reached Dart.
 Clean shutdown requested; native handles released.
 ```

@@ -15,6 +15,7 @@ EventPoster g_event_poster = nullptr;
 void* g_event_poster_context = nullptr;
 int64_t g_event_port = 0;
 uint32_t g_event_protocol_version = 0;
+std::atomic<int64_t> g_next_operation_id{1};
 
 }  // namespace
 
@@ -99,6 +100,16 @@ bool PostEvent(const NativeEvent& event) {
     return false;
   }
   return poster(port, protocol_version, event, context);
+}
+
+int64_t NextOperationId() {
+  const int64_t operation_id =
+      g_next_operation_id.fetch_add(1, std::memory_order_relaxed);
+  if (operation_id > 0) {
+    return operation_id;
+  }
+  g_next_operation_id.store(2, std::memory_order_relaxed);
+  return 1;
 }
 
 int64_t MonotonicNanos() {

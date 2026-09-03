@@ -45,6 +45,10 @@ typedef _SetEventPortVersionedDart = int Function(
 );
 typedef _NoArgsStatusNative = Int32 Function();
 typedef _NoArgsStatusDart = int Function();
+typedef _BoolStatusNative = Int32 Function(Int32);
+typedef _BoolStatusDart = int Function(int);
+typedef _OperationReplyNative = Int32 Function(Int64, Int32);
+typedef _OperationReplyDart = int Function(int, int);
 typedef _WindowCreateNative = Int32 Function(
   _DaRectNative,
   Pointer<Uint8>,
@@ -59,6 +63,10 @@ typedef _WindowCreateDart = int Function(
 );
 typedef _HandleStatusNative = Int32 Function(Uint64);
 typedef _HandleStatusDart = int Function(int);
+typedef _HandleBoolStatusNative = Int32 Function(Uint64, Int32);
+typedef _HandleBoolStatusDart = int Function(int, int);
+typedef _HandleOperationReplyNative = Int32 Function(Uint64, Int64, Int32);
+typedef _HandleOperationReplyDart = int Function(int, int, int);
 typedef _HandleStringNative = Int32 Function(Uint64, Pointer<Uint8>, Size);
 typedef _HandleStringDart = int Function(int, Pointer<Uint8>, int);
 typedef _TwoHandlesNative = Int32 Function(Uint64, Uint64);
@@ -99,6 +107,60 @@ _CreateHandleDart? _lookupViewCreate(DynamicLibrary library) {
   }
 }
 
+_BoolStatusDart? _lookupApplicationTerminationDeferral(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_BoolStatusNative, _BoolStatusDart>(
+      'da_application_set_termination_request_deferral',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_OperationReplyDart? _lookupApplicationTerminationReply(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<_OperationReplyNative, _OperationReplyDart>(
+      'da_application_reply_to_termination_request',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStatusDart? _lookupWindowRequestClose(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
+      'da_window_request_close',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleBoolStatusDart? _lookupWindowCloseDeferral(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_HandleBoolStatusNative, _HandleBoolStatusDart>(
+          'da_window_set_close_request_deferral',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleOperationReplyDart? _lookupWindowCloseReply(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_HandleOperationReplyNative, _HandleOperationReplyDart>(
+          'da_window_reply_to_close_request',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -113,6 +175,12 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_NoArgsStatusNative, _NoArgsStatusDart>(
             'da_application_terminate',
           ),
+      _applicationTerminationDeferral = _lookupApplicationTerminationDeferral(
+        library,
+      ),
+      _applicationTerminationReply = _lookupApplicationTerminationReply(
+        library,
+      ),
       _windowCreate = library
           .lookupFunction<_WindowCreateNative, _WindowCreateDart>(
             'da_window_create',
@@ -125,6 +193,9 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStatusNative, _HandleStatusDart>(
             'da_window_close',
           ),
+      _windowRequestClose = _lookupWindowRequestClose(library),
+      _windowCloseDeferral = _lookupWindowCloseDeferral(library),
+      _windowCloseReply = _lookupWindowCloseReply(library),
       _windowSetTitle = library
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_window_set_title',
@@ -181,9 +252,14 @@ final class FfiNativeBindings implements NativeBindings {
   final _SetEventPortDart _setEventPort;
   final _SetEventPortVersionedDart? _setEventPortVersioned;
   final _NoArgsStatusDart _terminate;
+  final _BoolStatusDart? _applicationTerminationDeferral;
+  final _OperationReplyDart? _applicationTerminationReply;
   final _WindowCreateDart _windowCreate;
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
+  final _HandleStatusDart? _windowRequestClose;
+  final _HandleBoolStatusDart? _windowCloseDeferral;
+  final _HandleOperationReplyDart? _windowCloseReply;
   final _HandleStringDart _windowSetTitle;
   final _CreateHandleDart? _viewCreate;
   final _CreateHandleDart _textViewCreate;
@@ -309,6 +385,33 @@ final class FfiNativeBindings implements NativeBindings {
   NativeCallResult applicationTerminate() => _callResult(_terminate());
 
   @override
+  NativeCallResult applicationSetTerminationRequestDeferral(bool enabled) {
+    final _BoolStatusDart? function = _applicationTerminationDeferral;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support termination request deferral',
+      );
+    }
+    return _callResult(function(enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult applicationReplyToTerminationRequest({
+    required int operationId,
+    required bool allow,
+  }) {
+    final _OperationReplyDart? function = _applicationTerminationReply;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support termination request replies',
+      );
+    }
+    return _callResult(function(operationId, allow ? 1 : 0));
+  }
+
+  @override
   NativeValueResult<int> windowCreate({
     required double x,
     required double y,
@@ -348,6 +451,46 @@ final class FfiNativeBindings implements NativeBindings {
 
   @override
   NativeCallResult windowClose(int handle) => _callResult(_windowClose(handle));
+
+  @override
+  NativeCallResult windowRequestClose(int handle) {
+    final _HandleStatusDart? function = _windowRequestClose;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support user close requests',
+      );
+    }
+    return _callResult(function(handle));
+  }
+
+  @override
+  NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled) {
+    final _HandleBoolStatusDart? function = _windowCloseDeferral;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support close request deferral',
+      );
+    }
+    return _callResult(function(handle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult windowReplyToCloseRequest({
+    required int handle,
+    required int operationId,
+    required bool allow,
+  }) {
+    final _HandleOperationReplyDart? function = _windowCloseReply;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support close request replies',
+      );
+    }
+    return _callResult(function(handle, operationId, allow ? 1 : 0));
+  }
 
   @override
   NativeCallResult windowSetTitle(int handle, String title) =>

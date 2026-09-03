@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)3)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)4)
 
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
@@ -65,12 +65,17 @@ typedef enum DaEventType {
   DA_EVENT_WINDOW_OCCLUSION_CHANGED = 5,
   DA_EVENT_WINDOW_BACKING_SCALE_CHANGED = 6,
   DA_EVENT_WINDOW_SCREEN_CHANGED = 7,
+  DA_EVENT_WINDOW_CLOSE_REQUESTED = 8,
   DA_EVENT_MOUSE_DOWN = 10,
   DA_EVENT_MOUSE_UP = 11,
   DA_EVENT_MOUSE_MOVED = 12,
   DA_EVENT_MOUSE_DRAGGED = 13,
   DA_EVENT_KEY_DOWN = 20,
-  DA_EVENT_KEY_UP = 21
+  DA_EVENT_KEY_UP = 21,
+  DA_EVENT_APPLICATION_ACTIVE_CHANGED = 30,
+  DA_EVENT_APPLICATION_REOPEN_REQUESTED = 31,
+  DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
+  DA_EVENT_MENU_ITEM_INVOKED = 40
 } DaEventType;
 
 /** Stable modifier bits used by mouse and keyboard events. */
@@ -116,6 +121,19 @@ DA_EXPORT int32_t da_application_set_event_port_versioned(
 /** Main thread only. Requests normal NSApplication termination. */
 DA_EXPORT int32_t da_application_terminate(void);
 
+/** Main thread only. Enables or disables asynchronous user-quit decisions. */
+DA_EXPORT int32_t
+da_application_set_termination_request_deferral(int32_t enabled);
+
+/**
+ * Main thread only. Completes the one pending user-quit request.
+ *
+ * operation_id must match the positive ID carried by the corresponding
+ * DA_EVENT_APPLICATION_TERMINATE_REQUESTED event. allow must be 0 or 1.
+ */
+DA_EXPORT int32_t da_application_reply_to_termination_request(
+    int64_t operation_id, int32_t allow);
+
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_create(DaRect frame, const char* title,
                                    size_t title_length, DaHandle* out_window);
@@ -125,6 +143,23 @@ DA_EXPORT int32_t da_window_show(DaHandle window);
 
 /** Main thread only. Closing does not release the handle. */
 DA_EXPORT int32_t da_window_close(DaHandle window);
+
+/** Main thread only. Performs the user-facing close action. */
+DA_EXPORT int32_t da_window_request_close(DaHandle window);
+
+/** Main thread only. Enables or disables asynchronous user-close decisions. */
+DA_EXPORT int32_t da_window_set_close_request_deferral(DaHandle window,
+                                                       int32_t enabled);
+
+/**
+ * Main thread only. Completes the one pending user-close request.
+ *
+ * operation_id must match the positive ID carried by the corresponding
+ * DA_EVENT_WINDOW_CLOSE_REQUESTED event. allow must be 0 or 1.
+ */
+DA_EXPORT int32_t da_window_reply_to_close_request(DaHandle window,
+                                                   int64_t operation_id,
+                                                   int32_t allow);
 
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_set_title(DaHandle window, const char* title,

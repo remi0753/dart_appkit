@@ -16,6 +16,57 @@ sealed class AppKitEvent {
   final int sourceGeneration;
   final int monotonicNanoseconds;
   final int operationId;
+
+  int get sourceHandle => windowHandle;
+}
+
+sealed class ApplicationEvent extends AppKitEvent {
+  const ApplicationEvent({
+    required int monotonicMicros,
+    int protocolVersion = 4,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+  }) : super(
+         windowHandle: 0,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: 0,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+}
+
+final class ApplicationActiveChangedEvent extends ApplicationEvent {
+  const ApplicationActiveChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.isActive,
+  });
+
+  final bool isActive;
+}
+
+final class ApplicationReopenRequestedEvent extends ApplicationEvent {
+  const ApplicationReopenRequestedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.hasVisibleWindows,
+  });
+
+  final bool hasVisibleWindows;
+}
+
+final class ApplicationTerminateRequestedEvent extends ApplicationEvent {
+  const ApplicationTerminateRequestedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.monotonicNanoseconds,
+    required super.operationId,
+  });
 }
 
 sealed class WindowEvent extends AppKitEvent {
@@ -37,6 +88,17 @@ final class WindowClosedEvent extends WindowEvent {
     super.sourceGeneration,
     super.monotonicNanoseconds,
     super.operationId,
+  });
+}
+
+final class WindowCloseRequestedEvent extends WindowEvent {
+  const WindowCloseRequestedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    required super.operationId,
   });
 }
 
@@ -200,6 +262,26 @@ final class AppKitKeyEvent extends WindowEvent {
   final String charactersIgnoringModifiers;
 }
 
+final class MenuItemInvokedEvent extends AppKitEvent {
+  const MenuItemInvokedEvent({
+    required int menuItemHandle,
+    required int monotonicMicros,
+    int protocolVersion = 4,
+    int sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+  }) : super(
+         windowHandle: menuItemHandle,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: sourceGeneration,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+
+  int get menuItemHandle => sourceHandle;
+}
+
 final class ModifierKeys {
   const ModifierKeys(this.bits);
 
@@ -236,12 +318,17 @@ final class _EventCodec {
   static const int _windowOcclusionChanged = 5;
   static const int _windowBackingScaleChanged = 6;
   static const int _windowScreenChanged = 7;
+  static const int _windowCloseRequested = 8;
   static const int _mouseDown = 10;
   static const int _mouseUp = 11;
   static const int _mouseMoved = 12;
   static const int _mouseDragged = 13;
   static const int _keyDown = 20;
   static const int _keyUp = 21;
+  static const int _applicationActiveChanged = 30;
+  static const int _applicationReopenRequested = 31;
+  static const int _applicationTerminateRequested = 32;
+  static const int _menuItemInvoked = 40;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -264,10 +351,8 @@ final class _EventCodec {
       );
     }
     final int type = _integer(message, 1, 'eventType');
-    final int handle = _integer(message, 2, 'windowHandle');
-    if (handle <= 0) {
-      throw const FormatException('native event has an invalid window handle');
-    }
+    final int handle = _integer(message, 2, 'sourceHandle');
+    final bool applicationScoped = _isApplicationScoped(type);
     final int encodedHandleGeneration = handle >> 32;
     final int sourceGeneration = version == 1
         ? encodedHandleGeneration
@@ -283,18 +368,37 @@ final class _EventCodec {
       monotonicNanoseconds = _integer(message, 4, 'monotonicNanoseconds');
       monotonicMicros = monotonicNanoseconds ~/ 1000;
       operationId = _integer(message, 5, 'operationId');
-      if (sourceGeneration <= 0 ||
-          sourceGeneration != encodedHandleGeneration) {
+    }
+    if (applicationScoped) {
+      if (version < 4 || handle != 0 || sourceGeneration != 0) {
         throw const FormatException(
-          'native event source generation does not match its handle',
+          'application event must use the zero source identity in protocol 4',
         );
       }
+    } else if (handle <= 0 ||
+        (version > 1 &&
+            (sourceGeneration <= 0 ||
+                sourceGeneration != encodedHandleGeneration))) {
+      throw const FormatException(
+        'native event has an invalid generation-checked source handle',
+      );
     }
     if (monotonicNanoseconds < 0) {
       throw const FormatException('native event has a negative timestamp');
     }
     if (operationId < 0) {
       throw const FormatException('native event has a negative operation ID');
+    }
+    if (_requiresReply(type)) {
+      if (operationId <= 0) {
+        throw const FormatException(
+          'request event must have a positive operation ID',
+        );
+      }
+    } else if (operationId != 0) {
+      throw const FormatException(
+        'notification event must have operation ID zero',
+      );
     }
 
     switch (type) {
@@ -319,6 +423,17 @@ final class _EventCodec {
           operationId: operationId,
           width: _number(message, payloadOffset, 'width'),
           height: _number(message, payloadOffset + 1, 'height'),
+        );
+      case _windowCloseRequested:
+        _requireVersionFour(version, 'window close requested');
+        _expectLength(message, payloadOffset, 'window close requested');
+        return WindowCloseRequestedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
         );
       case _windowFocusChanged:
         _requireVersionThree(version, 'window focus changed');
@@ -443,6 +558,58 @@ final class _EventCodec {
             'charactersIgnoringModifiers',
           ),
         );
+      case _applicationActiveChanged:
+        _requireVersionFour(version, 'application active changed');
+        _expectLength(message, payloadOffset + 1, 'application active changed');
+        return ApplicationActiveChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          isActive: _boolean(message, payloadOffset, 'isActive'),
+        );
+      case _applicationReopenRequested:
+        _requireVersionFour(version, 'application reopen requested');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'application reopen requested',
+        );
+        return ApplicationReopenRequestedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          hasVisibleWindows: _boolean(
+            message,
+            payloadOffset,
+            'hasVisibleWindows',
+          ),
+        );
+      case _applicationTerminateRequested:
+        _requireVersionFour(version, 'application terminate requested');
+        _expectLength(
+          message,
+          payloadOffset,
+          'application terminate requested',
+        );
+        return ApplicationTerminateRequestedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+        );
+      case _menuItemInvoked:
+        _requireVersionFour(version, 'menu item invoked');
+        _expectLength(message, payloadOffset, 'menu item invoked');
+        return MenuItemInvokedEvent(
+          menuItemHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -465,6 +632,20 @@ final class _EventCodec {
       throw FormatException('$eventName requires native event protocol 3');
     }
   }
+
+  static void _requireVersionFour(int version, String eventName) {
+    if (version < 4) {
+      throw FormatException('$eventName requires native event protocol 4');
+    }
+  }
+
+  static bool _isApplicationScoped(int type) =>
+      type == _applicationActiveChanged ||
+      type == _applicationReopenRequested ||
+      type == _applicationTerminateRequested;
+
+  static bool _requiresReply(int type) =>
+      type == _windowCloseRequested || type == _applicationTerminateRequested;
 
   static AppKitScreen? _screen(List<Object?> values, int offset) {
     final bool hasScreen = _boolean(values, offset, 'hasScreen');

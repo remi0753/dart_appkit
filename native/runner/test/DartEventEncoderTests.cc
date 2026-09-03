@@ -97,6 +97,39 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectDouble(values[13], 25.0);
     ExpectDouble(values[14], 1920.0);
     ExpectDouble(values[15], 1055.0);
+  } else if (g_expected_case == 4) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(6));
+    ExpectInt(values[0], 4);
+    ExpectInt(values[1], DA_EVENT_WINDOW_CLOSE_REQUESTED);
+    ExpectInt(values[2], (static_cast<int64_t>(7) << 32) | 3);
+    ExpectInt(values[3], 7);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 42);
+  } else if (g_expected_case == 5) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(7));
+    ExpectInt(values[0], 4);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_ACTIVE_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectBool(values[6], true);
+  } else if (g_expected_case == 6) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(6));
+    ExpectInt(values[0], 4);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_TERMINATE_REQUESTED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 43);
+  } else if (g_expected_case == 7) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(6));
+    ExpectInt(values[0], 4);
+    ExpectInt(values[1], DA_EVENT_MENU_ITEM_INVOKED);
+    ExpectInt(values[2], (static_cast<int64_t>(7) << 32) | 3);
+    ExpectInt(values[3], 7);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
   } else {
     EXPECT_TRUE(false);
   }
@@ -137,7 +170,43 @@ int main() {
   g_expected_case = 3;
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 3, event));
 
+  event.type = DA_EVENT_WINDOW_CLOSE_REQUESTED;
+  event.operation_id = 42;
+  g_expected_case = 4;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+
+  event.type = DA_EVENT_APPLICATION_ACTIVE_CHANGED;
+  event.window = 0;
+  event.operation_id = 0;
+  event.state = true;
+  g_expected_case = 5;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+
+  event.type = DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
+  event.operation_id = 43;
+  g_expected_case = 6;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+
+  event.type = DA_EVENT_MENU_ITEM_INVOKED;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  event.operation_id = 0;
+  g_expected_case = 7;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+
   const int accepted_posts = g_post_count;
+  event.type = DA_EVENT_APPLICATION_ACTIVE_CHANGED;
+  event.window = 0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+  event.type = DA_EVENT_WINDOW_CLOSE_REQUESTED;
+  event.operation_id = 0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+  event.type = DA_EVENT_WINDOW_CLOSED;
+  event.operation_id = 1;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+  event.operation_id = 0;
+  event.type = DA_EVENT_WINDOW_SCREEN_CHANGED;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.screen_id = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 3, event));
@@ -152,7 +221,7 @@ int main() {
   event.operation_id = 1;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 1, event));
   event.operation_id = 0;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 5, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

@@ -45,5 +45,18 @@ void main(List<String> arguments) {
   if (genericView.isSuccess || genericView.status != 8) {
     _fail('legacy bridge did not reject the additive generic-view API');
   }
+  if (bindings.applicationSetTerminationRequestDeferral(true).status != 8 ||
+      bindings
+              .applicationReplyToTerminationRequest(operationId: 1, allow: true)
+              .status !=
+          8 ||
+      bindings.windowRequestClose(1).status != 8 ||
+      bindings.windowSetCloseRequestDeferral(1, true).status != 8 ||
+      bindings
+              .windowReplyToCloseRequest(handle: 1, operationId: 1, allow: true)
+              .status !=
+          8) {
+    _fail('legacy bridge did not reject additive lifecycle APIs');
+  }
   stdout.writeln('legacy event bridge fallback smoke test passed');
 }

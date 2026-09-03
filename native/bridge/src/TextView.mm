@@ -167,6 +167,55 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   return self;
 }
 
+- (BOOL)daSetDefersCloseRequests:(BOOL)enabled {
+  if (!enabled && _pendingCloseOperationId > 0) {
+    return NO;
+  }
+  _defersCloseRequests = enabled;
+  return YES;
+}
+
+- (int64_t)daPendingCloseOperationId {
+  return _pendingCloseOperationId;
+}
+
+- (BOOL)daReplyToCloseRequest:(int64_t)operationId allow:(BOOL)allow {
+  if (operationId <= 0 || operationId != _pendingCloseOperationId) {
+    return NO;
+  }
+  _pendingCloseOperationId = 0;
+  if (allow) {
+    [self daCloseProgrammatically];
+  }
+  return YES;
+}
+
+- (void)daCloseProgrammatically {
+  _pendingCloseOperationId = 0;
+  [self.window close];
+}
+
+- (BOOL)windowShouldClose:(NSWindow*)sender {
+  (void)sender;
+  if (!_defersCloseRequests) {
+    return YES;
+  }
+  if (_pendingCloseOperationId > 0) {
+    return NO;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_CLOSE_REQUESTED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.operation_id = dart_appkit::NextOperationId();
+  _pendingCloseOperationId = event.operation_id;
+  if (!dart_appkit::PostEvent(event)) {
+    _pendingCloseOperationId = 0;
+    return YES;
+  }
+  return NO;
+}
+
 - (void)daPostFocusState:(BOOL)isFocused {
   if (self.daHandle == 0 || (_hasFocusState && _lastFocusState == isFocused)) {
     return;

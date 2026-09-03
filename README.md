@@ -12,10 +12,10 @@ ownership, and a restart-based developer command.
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
 the original event set with source generation, nanosecond monotonic time, and
-operation identity. Current Dart/native pairs negotiate version 3, which adds
-focus, visibility, occlusion, backing-scale, and screen state events without
-sending those new types to version-1/2 clients. The Dart API decodes all three
-versions.
+operation identity. Version 3 adds focus, visibility, occlusion,
+backing-scale, and screen state. Current Dart/native pairs negotiate version 4,
+which adds application active/reopen/termination and user-close request events
+while preserving older records. The Dart API decodes all four versions.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other

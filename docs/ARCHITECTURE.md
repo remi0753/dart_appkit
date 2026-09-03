@@ -57,17 +57,18 @@ point with an inclusive supported range; the bridge selects the highest common
 version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
-`[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2 and
-3 use
+`[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2
+through 4 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
 ...payload]`. Version 3 adds window focus, visibility, occlusion,
 backing-scale, and screen events. Those types are suppressed before posting to
-a version-1/2 sink, so an older decoder receives only its original event set.
-Current window/input events are unsolicited and therefore use operation ID
-zero. The explicit source generation must match the high 32 bits of the
-generation-checked source handle. The Dart decoder accepts all three versions,
-preserves the existing `monotonicMicros` API, and exposes the exact negotiated
-metadata for newer consumers.
+a version-1/2 sink. Version 4 adds application active/reopen/termination,
+user-close request, and menu-action records; these are suppressed for v1-v3.
+Application records use source handle/generation zero. Registry-sourced records
+carry a generation matching the handle's high 32 bits. Notifications use
+operation ID zero, while deferred close and termination requests carry a
+positive reply identity. The Dart decoder accepts all four versions, preserves
+the existing `monotonicMicros` API, and exposes exact negotiated metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
 to microseconds only while posting, so an old Dart client receives its original
@@ -81,6 +82,15 @@ screen. Delegate callbacks post later transitions. Visibility means
 `NSWindowOcclusionStateVisible` is absent. Screen events carry an explicit
 presence bit, the unsigned `NSScreenNumber` value widened to 64 bits, and full
 plus visible frames in global AppKit point coordinates.
+
+Event-port registration posts an application-active snapshot, after which
+AppDelegate posts active/resign and reopen transitions. User close and
+termination decisions remain synchronous inside AppKit only long enough to
+return `NO`/`NSTerminateLater`; Dart is never entered from the delegate. An
+opted-in target holds one positive operation ID until Dart replies. A duplicate
+delegate request is coalesced, a stale reply is rejected, and posting failure
+allows the OS action. Programmatic close/termination bypass this deferral so
+the ordinary disposal and shutdown path remains one-way.
 
 ## Hosted-isolate boundary
 

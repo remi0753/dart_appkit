@@ -81,8 +81,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 3 &&
-        app.eventProtocolVersion == 3,
+        bindings.requestedMaximumEventProtocolVersion == 4 &&
+        app.eventProtocolVersion == 4,
     'current event protocol negotiation',
   );
 
@@ -321,9 +321,12 @@ Future<void> _testWindowStateEvents() async {
       case WindowScreenChangedEvent(:final screen):
         cachedStateWasCurrent &= window.screen == screen;
       case WindowClosedEvent() ||
+          WindowCloseRequestedEvent() ||
           WindowResizedEvent() ||
           AppKitMouseEvent() ||
-          AppKitKeyEvent():
+          AppKitKeyEvent() ||
+          ApplicationEvent() ||
+          MenuItemInvokedEvent():
         break;
     }
   }, onError: (Object error) => streamErrors.add(error));
@@ -492,6 +495,155 @@ Future<void> _testWindowStateEvents() async {
   await raw.close();
 }
 
+Future<void> _testLifecycleRequestEvents() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (7 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'Lifecycle events',
+  );
+  final int handle = bindings.objects.keys.single;
+
+  var activeCount = 0;
+  var reopenCount = 0;
+  var terminationCount = 0;
+  var closeRequestCount = 0;
+  var activeStateWasCurrent = true;
+  final List<AppKitEvent> events = <AppKitEvent>[];
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> appEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    events.add(event);
+    if (event case ApplicationActiveChangedEvent(:final isActive)) {
+      activeStateWasCurrent &= app.isActive == isActive;
+    }
+  }, onError: (Object error) => errors.add(error));
+  final StreamSubscription<ApplicationActiveChangedEvent> activeEvents = app
+      .onActiveChanged
+      .listen(
+        (ApplicationActiveChangedEvent event) => ++activeCount,
+        onError: (Object _) {},
+      );
+  final StreamSubscription<ApplicationReopenRequestedEvent> reopenEvents = app
+      .onReopenRequested
+      .listen(
+        (ApplicationReopenRequestedEvent event) => ++reopenCount,
+        onError: (Object _) {},
+      );
+  final StreamSubscription<ApplicationTerminateRequestedEvent>
+  terminationEvents = app.onTerminateRequested.listen(
+    (ApplicationTerminateRequestedEvent event) => ++terminationCount,
+    onError: (Object _) {},
+  );
+  final StreamSubscription<WindowCloseRequestedEvent> closeEvents = window
+      .onCloseRequested
+      .listen((WindowCloseRequestedEvent event) => ++closeRequestCount);
+
+  app.defersTerminationRequests = true;
+  window.defersCloseRequests = true;
+  _expect(
+    bindings.applicationTerminationDeferral &&
+        bindings.windowCloseDeferrals[handle] == true,
+    'native lifecycle deferral enabled',
+  );
+  window.requestClose();
+  _expect(
+    bindings.windowCloseRequests.single == handle,
+    'user-facing close requested',
+  );
+
+  raw
+    ..add(<Object?>[4, 30, 0, 0, 400000, 0, true])
+    ..add(<Object?>[4, 31, 0, 0, 401000, 0, false])
+    ..add(<Object?>[4, 8, handle, 7, 402000, 41])
+    ..add(<Object?>[4, 32, 0, 0, 403000, 42])
+    ..add(<Object?>[4, 40, handle, 7, 404000, 0]);
+
+  _expect(app.isActive && activeStateWasCurrent, 'active state cached first');
+  _expect(
+    activeCount == 1 &&
+        reopenCount == 1 &&
+        terminationCount == 1 &&
+        closeRequestCount == 1,
+    'typed lifecycle event streams',
+  );
+  _expect(events.length == 5, 'all lifecycle events reach application');
+  final ApplicationReopenRequestedEvent reopen =
+      events[1] as ApplicationReopenRequestedEvent;
+  _expect(!reopen.hasVisibleWindows, 'reopen payload');
+  final WindowCloseRequestedEvent close =
+      events[2] as WindowCloseRequestedEvent;
+  final ApplicationTerminateRequestedEvent termination =
+      events[3] as ApplicationTerminateRequestedEvent;
+  final MenuItemInvokedEvent menu = events[4] as MenuItemInvokedEvent;
+  _expect(
+    close.operationId == 41 &&
+        termination.operationId == 42 &&
+        termination.sourceHandle == 0 &&
+        menu.menuItemHandle == handle,
+    'version 4 source and operation metadata',
+  );
+
+  window.replyToCloseRequest(close, allow: false);
+  app.replyToTerminationRequest(termination, allow: true);
+  _expect(
+    bindings.windowCloseReplyHandle == handle &&
+        bindings.windowCloseReplyOperationId == 41 &&
+        bindings.windowCloseReplyAllow == false,
+    'window reply forwarded',
+  );
+  _expect(
+    bindings.applicationTerminationReplyOperationId == 42 &&
+        bindings.applicationTerminationReplyAllow == true,
+    'application reply forwarded',
+  );
+
+  final Window other = Window(
+    frame: const Rect.fromLTWH(0, 0, 100, 100),
+    title: 'Other',
+  );
+  await _expectThrows<ArgumentError>(
+    () => other.replyToCloseRequest(close, allow: true),
+  );
+
+  raw
+    ..add(<Object?>[4, 30, handle, 7, 405000, 0, true])
+    ..add(<Object?>[4, 1, 0, 0, 406000, 0])
+    ..add(<Object?>[4, 8, handle, 7, 407000, 0])
+    ..add(<Object?>[4, 30, 0, 0, 408000, 1, false])
+    ..add(<Object?>[4, 32, 0, 0, 409000, 0])
+    ..add(<Object?>[3, 30, 0, 0, 410000, 0, true])
+    ..add(<Object?>[4, 40, 0, 0, 411000, 0]);
+  _expect(
+    errors.length == 7 &&
+        errors.every((Object error) => error is FormatException),
+    'malformed lifecycle events are surfaced',
+  );
+
+  window.defersCloseRequests = false;
+  app.defersTerminationRequests = false;
+  _expect(
+    !bindings.applicationTerminationDeferral &&
+        bindings.windowCloseDeferrals[handle] == false,
+    'native lifecycle deferral disabled',
+  );
+
+  await activeEvents.cancel();
+  await reopenEvents.cancel();
+  await terminationEvents.cancel();
+  await closeEvents.cancel();
+  await appEvents.cancel();
+  other.dispose();
+  window.dispose();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -500,6 +652,17 @@ Future<void> _testLegacyProtocolSelection() async {
     ..selectedEventProtocolVersion = 1;
   final AppKitApplication app = await _attach(bindings, raw);
   _expect(app.eventProtocolVersion == 1, 'legacy event protocol selected');
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 100, 100),
+    title: 'Legacy lifecycle',
+  );
+  await _expectThrows<UnsupportedError>(
+    () => app.defersTerminationRequests = true,
+  );
+  await _expectThrows<UnsupportedError>(
+    () => window.defersCloseRequests = true,
+  );
+  window.dispose();
   await app.terminate();
   await raw.close();
 }
@@ -545,6 +708,10 @@ Future<void> main() async {
   await _test(
     'window state event decoding and caching',
     _testWindowStateEvents,
+  );
+  await _test(
+    'application and window lifecycle request events',
+    _testLifecycleRequestEvents,
   );
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test(

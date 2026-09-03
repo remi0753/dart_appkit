@@ -54,6 +54,8 @@ final class AppKitApplication {
 
   late final StreamSubscription<Object?> _eventSubscription;
   bool _terminated = false;
+  bool _active = false;
+  bool _defersTerminationRequests = false;
 
   static Future<AppKitApplication> attach() async {
     final AppKitApplication? existing = _current;
@@ -135,7 +137,50 @@ final class AppKitApplication {
   }
 
   Stream<AppKitEvent> get events => _events.stream;
+  Stream<ApplicationActiveChangedEvent> get onActiveChanged => events
+      .where((AppKitEvent event) => event is ApplicationActiveChangedEvent)
+      .map((AppKitEvent event) => event as ApplicationActiveChangedEvent);
+  Stream<ApplicationReopenRequestedEvent> get onReopenRequested => events
+      .where((AppKitEvent event) => event is ApplicationReopenRequestedEvent)
+      .map((AppKitEvent event) => event as ApplicationReopenRequestedEvent);
+  Stream<ApplicationTerminateRequestedEvent> get onTerminateRequested => events
+      .where((AppKitEvent event) => event is ApplicationTerminateRequestedEvent)
+      .map((AppKitEvent event) => event as ApplicationTerminateRequestedEvent);
   bool get isTerminated => _terminated;
+  bool get isActive => _active;
+
+  bool get defersTerminationRequests => _defersTerminationRequests;
+
+  set defersTerminationRequests(bool value) {
+    _ensureRunning();
+    if (value && eventProtocolVersion < 4) {
+      throw UnsupportedError(
+        'termination request deferral requires native event protocol 4',
+      );
+    }
+    if (value == _defersTerminationRequests) {
+      return;
+    }
+    _checkCall(
+      _bindings.applicationSetTerminationRequestDeferral(value),
+      'AppKitApplication.defersTerminationRequests',
+    );
+    _defersTerminationRequests = value;
+  }
+
+  void replyToTerminationRequest(
+    ApplicationTerminateRequestedEvent request, {
+    required bool allow,
+  }) {
+    _ensureRunning();
+    _checkCall(
+      _bindings.applicationReplyToTerminationRequest(
+        operationId: request.operationId,
+        allow: allow,
+      ),
+      'AppKitApplication.replyToTerminationRequest',
+    );
+  }
 
   int get debugLiveObjectCount {
     _ensureRunning();
@@ -172,12 +217,18 @@ final class AppKitApplication {
     }
     try {
       final AppKitEvent event = _EventCodec.decode(message);
-      final WeakReference<Window>? reference = _windows[event.windowHandle];
-      final Window? window = reference?.target;
-      if (window == null) {
-        _windows.remove(event.windowHandle);
-      } else {
-        window._updateState(event);
+      if (event case ApplicationActiveChangedEvent(:final isActive)) {
+        _active = isActive;
+      }
+      Window? window;
+      if (event is WindowEvent) {
+        final WeakReference<Window>? reference = _windows[event.windowHandle];
+        window = reference?.target;
+        if (window == null) {
+          _windows.remove(event.windowHandle);
+        } else {
+          window._updateState(event);
+        }
       }
       _events.add(event);
       if (window != null) {
@@ -201,6 +252,8 @@ final class AppKitApplication {
     _eventSource.close();
     await _events.close();
     _windows.clear();
+    _active = false;
+    _defersTerminationRequests = false;
   }
 }
 

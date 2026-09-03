@@ -120,7 +120,7 @@ help:
 	@echo "  make runner-argument-test  Test Runner CLI parsing and exit contract"
 	@echo "  make runner-shell-test  Link Runner shell and execute pre-VM failures"
 	@echo "  make message-pump-test  Test bounded main-run-loop Dart scheduling"
-	@echo "  make event-encoder-test  Test v1/v2 native event serialization"
+	@echo "  make event-encoder-test  Test versioned native event serialization"
 	@echo "  make runner         Build the embedded Dart/AppKit Runner"
 	@echo "  make dart-test      Analyze and test the Dart package"
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"

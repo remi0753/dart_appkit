@@ -12,10 +12,13 @@ Future<void> main(List<String> arguments) async {
   }
 
   final TextView textView = TextView();
-  final Window window = Window(
-    frame: const Rect.fromLTWH(120, 120, 640, 360),
-    title: 'Dart AppKit — Hello Window',
-  )..contentView = textView;
+  final Window window =
+      Window(
+          frame: const Rect.fromLTWH(120, 120, 640, 360),
+          title: 'Dart AppKit — Hello Window',
+        )
+        ..contentView = textView
+        ..defersCloseRequests = true;
   final Completer<void> closed = Completer<void>();
   var ticks = 0;
 
@@ -41,6 +44,12 @@ Future<void> main(List<String> arguments) async {
           if (!closed.isCompleted) {
             closed.complete();
           }
+        case WindowCloseRequestedEvent():
+          stdout.writeln(
+            'Window close request reached Dart '
+            '(operation ${event.operationId}).',
+          );
+          window.replyToCloseRequest(event, allow: true);
         case WindowResizedEvent(:final width, :final height):
           stdout.writeln(
             'resize ${width.toStringAsFixed(0)} x '
@@ -95,7 +104,7 @@ Future<void> main(List<String> arguments) async {
     );
     autoCloseTimer = Timer(autoCloseAfter, () {
       stdout.writeln('Automated smoke close requested.');
-      window.close();
+      window.requestClose();
     });
   }
   try {

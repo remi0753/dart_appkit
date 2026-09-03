@@ -58,6 +58,16 @@ int32_t SetEventPortVersioned(int64_t dart_port, uint32_t min_version,
                               uint32_t max_version,
                               uint32_t* out_selected_version);
 bool PostEvent(const NativeEvent& event);
+int64_t NextOperationId();
+
+enum class ApplicationTerminationDecision {
+  kTerminateNow,
+  kTerminateLater,
+};
+
+void PostApplicationActiveChanged(bool is_active);
+void PostApplicationReopenRequested(bool has_visible_windows);
+ApplicationTerminationDecision HandleApplicationShouldTerminate();
 
 inline bool EventTypeSupportedByProtocol(DaEventType type,
                                          uint32_t protocol_version) {
@@ -81,6 +91,12 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
     case DA_EVENT_WINDOW_BACKING_SCALE_CHANGED:
     case DA_EVENT_WINDOW_SCREEN_CHANGED:
       return protocol_version >= 3;
+    case DA_EVENT_WINDOW_CLOSE_REQUESTED:
+    case DA_EVENT_APPLICATION_ACTIVE_CHANGED:
+    case DA_EVENT_APPLICATION_REOPEN_REQUESTED:
+    case DA_EVENT_APPLICATION_TERMINATE_REQUESTED:
+    case DA_EVENT_MENU_ITEM_INVOKED:
+      return protocol_version >= 4;
   }
   return false;
 }

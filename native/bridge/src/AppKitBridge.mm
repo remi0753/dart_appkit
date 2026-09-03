@@ -26,6 +26,9 @@ struct ErrorState {
 thread_local ErrorState g_last_error;
 std::atomic<bool> g_accept_async_releases{true};
 std::atomic<uint64_t> g_async_release_epoch{1};
+bool g_defers_application_termination_requests = false;
+int64_t g_pending_application_termination_operation_id = 0;
+bool g_programmatic_application_termination = false;
 
 NSString* CopyUtf8(const char* bytes, size_t length, int32_t* out_status) {
   if (bytes == nullptr && length != 0) {
@@ -90,7 +93,7 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
   owner.window.daHandle = 0;
   owner.window.delegate = nil;
   [owner.window orderOut:nil];
-  [owner.window close];
+  [owner daCloseProgrammatically];
 }
 
 int32_t CompletePendingRelease(DaHandle handle) {
@@ -158,6 +161,47 @@ int32_t RequireMainThread() {
   return DA_STATUS_OK;
 }
 
+void PostApplicationActiveChanged(bool is_active) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_ACTIVE_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.state = is_active;
+  (void)PostEvent(event);
+}
+
+void PostApplicationReopenRequested(bool has_visible_windows) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_REOPEN_REQUESTED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.state = has_visible_windows;
+  (void)PostEvent(event);
+}
+
+ApplicationTerminationDecision HandleApplicationShouldTerminate() {
+  if (g_programmatic_application_termination) {
+    g_programmatic_application_termination = false;
+    g_pending_application_termination_operation_id = 0;
+    return ApplicationTerminationDecision::kTerminateNow;
+  }
+  if (!g_defers_application_termination_requests) {
+    return ApplicationTerminationDecision::kTerminateNow;
+  }
+  if (g_pending_application_termination_operation_id > 0) {
+    return ApplicationTerminationDecision::kTerminateLater;
+  }
+
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.operation_id = NextOperationId();
+  g_pending_application_termination_operation_id = event.operation_id;
+  if (!PostEvent(event)) {
+    g_pending_application_termination_operation_id = 0;
+    return ApplicationTerminationDecision::kTerminateNow;
+  }
+  return ApplicationTerminationDecision::kTerminateLater;
+}
+
 void ShutdownBridge() {
   if (pthread_main_np() == 0) {
     return;
@@ -165,6 +209,9 @@ void ShutdownBridge() {
   g_accept_async_releases.store(false, std::memory_order_release);
   g_async_release_epoch.fetch_add(1, std::memory_order_acq_rel);
   DisableEventPoster();
+  g_defers_application_termination_requests = false;
+  g_pending_application_termination_operation_id = 0;
+  g_programmatic_application_termination = false;
 
   ObjectRegistry& registry = ObjectRegistry::Shared();
   const std::vector<DaHandle> handles = registry.LiveHandles();
@@ -245,8 +292,12 @@ int32_t da_application_set_event_port_versioned(
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
-  return dart_appkit::SetEventPortVersioned(dart_port, min_version, max_version,
-                                            out_selected_version);
+  const int32_t status = dart_appkit::SetEventPortVersioned(
+      dart_port, min_version, max_version, out_selected_version);
+  if (status == DA_STATUS_OK) {
+    dart_appkit::PostApplicationActiveChanged(NSApp != nil && NSApp.isActive);
+  }
+  return status;
 }
 
 int32_t da_application_terminate(void) {
@@ -259,9 +310,64 @@ int32_t da_application_terminate(void) {
     return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
                                      "NSApplication is not initialized");
   }
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [NSApp terminate:nil];
-  });
+  if (dart_appkit::g_pending_application_termination_operation_id > 0) {
+    dart_appkit::g_pending_application_termination_operation_id = 0;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [NSApp replyToApplicationShouldTerminate:YES];
+    });
+  } else {
+    dart_appkit::g_programmatic_application_termination = true;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [NSApp terminate:nil];
+    });
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t da_application_set_termination_request_deferral(int32_t enabled) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (enabled != 0 && enabled != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "enabled must be 0 or 1");
+  }
+  if (enabled == 0 &&
+      dart_appkit::g_pending_application_termination_operation_id > 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "reply to the pending termination request before disabling deferral");
+  }
+  dart_appkit::g_defers_application_termination_requests = enabled == 1;
+  return DA_STATUS_OK;
+}
+
+int32_t da_application_reply_to_termination_request(int64_t operation_id,
+                                                    int32_t allow) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (allow != 0 && allow != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "allow must be 0 or 1");
+  }
+  if (operation_id <= 0 ||
+      operation_id !=
+          dart_appkit::g_pending_application_termination_operation_id) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "operation_id does not match the pending termination request");
+  }
+  if (NSApp == nil) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "NSApplication is not initialized");
+  }
+  dart_appkit::g_pending_application_termination_operation_id = 0;
+  [NSApp replyToApplicationShouldTerminate:allow == 1];
   return DA_STATUS_OK;
 }
 
@@ -358,7 +464,72 @@ int32_t da_window_close(DaHandle window) {
   if (owner == nil) {
     return status;
   }
-  [owner.window close];
+  [owner daCloseProgrammatically];
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_request_close(DaHandle window) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if ([owner windowShouldClose:owner.window]) {
+    [owner daCloseProgrammatically];
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_set_close_request_deferral(DaHandle window, int32_t enabled) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (enabled != 0 && enabled != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "enabled must be 0 or 1");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (![owner daSetDefersCloseRequests:enabled == 1]) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "reply to the pending close request before disabling deferral");
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_reply_to_close_request(DaHandle window, int64_t operation_id,
+                                         int32_t allow) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (allow != 0 && allow != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "allow must be 0 or 1");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (operation_id <= 0 || ![owner daReplyToCloseRequest:operation_id
+                                                   allow:allow == 1]) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "operation_id does not match the pending close request");
+  }
   return DA_STATUS_OK;
 }
 

@@ -57,12 +57,23 @@ bool ValidScreen(const NativeEvent& event) {
 bool PostNativeEventToDartPort(int64_t dart_port,
                                uint32_t event_protocol_version,
                                const NativeEvent& event) {
-  if (dart_port <= 0 || event.window == 0 || event.monotonic_nanos < 0 ||
-      event.operation_id < 0) {
+  if (dart_port <= 0 || event.monotonic_nanos < 0 || event.operation_id < 0) {
     return false;
   }
 
   if (!EventTypeSupportedByProtocol(event.type, event_protocol_version)) {
+    return false;
+  }
+
+  const bool application_scoped =
+      event.type == DA_EVENT_APPLICATION_ACTIVE_CHANGED ||
+      event.type == DA_EVENT_APPLICATION_REOPEN_REQUESTED ||
+      event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
+  const bool reply_required =
+      event.type == DA_EVENT_WINDOW_CLOSE_REQUESTED ||
+      event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
+  if ((reply_required && event.operation_id <= 0) ||
+      (!reply_required && event.operation_id != 0)) {
     return false;
   }
 
@@ -75,7 +86,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
   intptr_t payload_offset = 0;
   switch (event_protocol_version) {
     case DA_EVENT_PROTOCOL_VERSION_MIN:
-      if (event.operation_id != 0) {
+      if (application_scoped || event.window == 0) {
         return false;
       }
       SetInt64(&values[0], DA_EVENT_PROTOCOL_VERSION_MIN);
@@ -85,10 +96,14 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       payload_offset = 4;
       break;
     case 2:
+    case 3:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
-      if (source_generation <= 0) {
+      if ((application_scoped &&
+           (event.window != 0 || source_generation != 0)) ||
+          (!application_scoped &&
+           (event.window == 0 || source_generation <= 0))) {
         return false;
       }
       SetInt64(&values[0], event_protocol_version);
@@ -107,6 +122,9 @@ bool PostNativeEventToDartPort(int64_t dart_port,
   intptr_t length = payload_offset;
   switch (event.type) {
     case DA_EVENT_WINDOW_CLOSED:
+    case DA_EVENT_WINDOW_CLOSE_REQUESTED:
+    case DA_EVENT_APPLICATION_TERMINATE_REQUESTED:
+    case DA_EVENT_MENU_ITEM_INVOKED:
       break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;
@@ -116,6 +134,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
+    case DA_EVENT_APPLICATION_ACTIVE_CHANGED:
+    case DA_EVENT_APPLICATION_REOPEN_REQUESTED:
       length += 1;
       SetBool(&values[payload_offset], event.state);
       break;

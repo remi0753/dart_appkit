@@ -13,11 +13,19 @@ final class FakeNativeBindings implements NativeBindings {
   int? requestedMinimumEventProtocolVersion;
   int? requestedMaximumEventProtocolVersion;
   bool terminateCalled = false;
+  bool applicationTerminationDeferral = false;
+  int? applicationTerminationReplyOperationId;
+  bool? applicationTerminationReplyAllow;
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, int> contentViews = <int, int>{};
+  final Map<int, bool> windowCloseDeferrals = <int, bool>{};
+  final List<int> windowCloseRequests = <int>[];
+  int? windowCloseReplyHandle;
+  int? windowCloseReplyOperationId;
+  bool? windowCloseReplyAllow;
   final Set<Object> attachedFinalizers = <Object>{};
   final List<String> operations = <String>[];
 
@@ -83,6 +91,32 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeCallResult applicationSetTerminationRequestDeferral(bool enabled) {
+    final NativeCallResult result = _status(
+      'applicationSetTerminationRequestDeferral',
+    );
+    if (result.isSuccess) {
+      applicationTerminationDeferral = enabled;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationReplyToTerminationRequest({
+    required int operationId,
+    required bool allow,
+  }) {
+    final NativeCallResult result = _status(
+      'applicationReplyToTerminationRequest',
+    );
+    if (result.isSuccess) {
+      applicationTerminationReplyOperationId = operationId;
+      applicationTerminationReplyAllow = allow;
+    }
+    return result;
+  }
+
+  @override
   NativeValueResult<int> windowCreate({
     required double x,
     required double y,
@@ -104,6 +138,39 @@ final class FakeNativeBindings implements NativeBindings {
 
   @override
   NativeCallResult windowClose(int handle) => _status('windowClose');
+
+  @override
+  NativeCallResult windowRequestClose(int handle) {
+    final NativeCallResult result = _status('windowRequestClose');
+    if (result.isSuccess) {
+      windowCloseRequests.add(handle);
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled) {
+    final NativeCallResult result = _status('windowSetCloseRequestDeferral');
+    if (result.isSuccess) {
+      windowCloseDeferrals[handle] = enabled;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowReplyToCloseRequest({
+    required int handle,
+    required int operationId,
+    required bool allow,
+  }) {
+    final NativeCallResult result = _status('windowReplyToCloseRequest');
+    if (result.isSuccess) {
+      windowCloseReplyHandle = handle;
+      windowCloseReplyOperationId = operationId;
+      windowCloseReplyAllow = allow;
+    }
+    return result;
+  }
 
   @override
   NativeCallResult windowSetTitle(int handle, String title) {
@@ -161,6 +228,7 @@ final class FakeNativeBindings implements NativeBindings {
       windowTitles.remove(handle);
       texts.remove(handle);
       contentViews.remove(handle);
+      windowCloseDeferrals.remove(handle);
     }
     return result;
   }

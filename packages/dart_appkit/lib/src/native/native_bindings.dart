@@ -2,7 +2,7 @@ import 'dart:ffi';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 3;
+const int dartAppKitCurrentEventProtocolVersion = 4;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -40,6 +40,11 @@ abstract interface class NativeBindings {
     required int maximumVersion,
   });
   NativeCallResult applicationTerminate();
+  NativeCallResult applicationSetTerminationRequestDeferral(bool enabled);
+  NativeCallResult applicationReplyToTerminationRequest({
+    required int operationId,
+    required bool allow,
+  });
 
   NativeValueResult<int> windowCreate({
     required double x,
@@ -50,6 +55,13 @@ abstract interface class NativeBindings {
   });
   NativeCallResult windowShow(int handle);
   NativeCallResult windowClose(int handle);
+  NativeCallResult windowRequestClose(int handle);
+  NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled);
+  NativeCallResult windowReplyToCloseRequest({
+    required int handle,
+    required int operationId,
+    required bool allow,
+  });
   NativeCallResult windowSetTitle(int handle, String title);
 
   NativeValueResult<int> viewCreate();

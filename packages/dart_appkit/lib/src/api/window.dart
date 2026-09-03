@@ -32,6 +32,7 @@ final class Window extends _NativeResource {
   bool _focused = false;
   bool _visible = false;
   bool _occluded = true;
+  bool _defersCloseRequests = false;
   double? _backingScaleFactor;
   AppKitScreen? _screen;
 
@@ -44,6 +45,10 @@ final class Window extends _NativeResource {
   Stream<WindowResizedEvent> get onResized => events
       .where((WindowEvent event) => event is WindowResizedEvent)
       .map((WindowEvent event) => event as WindowResizedEvent);
+
+  Stream<WindowCloseRequestedEvent> get onCloseRequested => events
+      .where((WindowEvent event) => event is WindowCloseRequestedEvent)
+      .map((WindowEvent event) => event as WindowCloseRequestedEvent);
 
   Stream<WindowFocusChangedEvent> get onFocusChanged => events
       .where((WindowEvent event) => event is WindowFocusChangedEvent)
@@ -103,6 +108,25 @@ final class Window extends _NativeResource {
   double? get backingScaleFactor => _backingScaleFactor;
   AppKitScreen? get screen => _screen;
 
+  bool get defersCloseRequests => _defersCloseRequests;
+
+  set defersCloseRequests(bool value) {
+    ensureAlive();
+    if (value && _application.eventProtocolVersion < 4) {
+      throw UnsupportedError(
+        'close request deferral requires native event protocol 4',
+      );
+    }
+    if (value == _defersCloseRequests) {
+      return;
+    }
+    _checkCall(
+      _bindings.windowSetCloseRequestDeferral(_handle, value),
+      'Window.defersCloseRequests',
+    );
+    _defersCloseRequests = value;
+  }
+
   void show() {
     ensureAlive();
     _checkCall(_bindings.windowShow(_handle), 'Window.show');
@@ -114,6 +138,36 @@ final class Window extends _NativeResource {
       return;
     }
     _checkCall(_bindings.windowClose(_handle), 'Window.close');
+  }
+
+  void requestClose() {
+    ensureAlive();
+    if (_closed) {
+      return;
+    }
+    _checkCall(_bindings.windowRequestClose(_handle), 'Window.requestClose');
+  }
+
+  void replyToCloseRequest(
+    WindowCloseRequestedEvent request, {
+    required bool allow,
+  }) {
+    ensureAlive();
+    if (request.windowHandle != _handle) {
+      throw ArgumentError.value(
+        request.windowHandle,
+        'request',
+        'close request belongs to another window',
+      );
+    }
+    _checkCall(
+      _bindings.windowReplyToCloseRequest(
+        handle: _handle,
+        operationId: request.operationId,
+        allow: allow,
+      ),
+      'Window.replyToCloseRequest',
+    );
   }
 
   void _updateState(AppKitEvent event) {
@@ -135,7 +189,10 @@ final class Window extends _NativeResource {
         _backingScaleFactor = backingScaleFactor;
       case WindowScreenChangedEvent(:final screen):
         _screen = screen;
-      case WindowResizedEvent() || AppKitMouseEvent() || AppKitKeyEvent():
+      case WindowCloseRequestedEvent() ||
+          WindowResizedEvent() ||
+          AppKitMouseEvent() ||
+          AppKitKeyEvent():
         break;
     }
   }
@@ -155,6 +212,7 @@ final class Window extends _NativeResource {
     _application._unregisterWindow(this);
     super.dispose();
     _contentView = null;
+    _defersCloseRequests = false;
     unawaited(_eventController.close());
   }
 }
