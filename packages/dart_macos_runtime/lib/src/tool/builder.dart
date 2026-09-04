@@ -465,8 +465,9 @@ final class RuntimeApplicationBuilder {
       await _existingFile(payload.path, 'Dart AOT snapshot');
     }
 
-    final Map<String, File> capabilityImages = <String, File>{};
-    if (manifest.nativeCapabilities.isNotEmpty) {
+    final Map<String, File> nativeImages = <String, File>{};
+    if (manifest.nativeAssets.isNotEmpty ||
+        manifest.nativeCapabilities.isNotEmpty) {
       final Directory hookOutput = Directory(
         _join(buildRoot.path, 'native-assets'),
       );
@@ -488,13 +489,20 @@ final class RuntimeApplicationBuilder {
         ],
         projectRoot.path,
       );
+      for (final MacosNativeAssetManifest asset in manifest.nativeAssets) {
+        final File image = await _existingFile(
+          _join(hookOutput.path, 'bundle/lib/${asset.library}'),
+          'native asset ${asset.id}',
+        );
+        nativeImages[asset.id] = image;
+      }
       for (final MacosNativeCapabilityManifest capability
           in manifest.nativeCapabilities) {
         final File image = await _existingFile(
           _join(hookOutput.path, 'bundle/lib/${capability.library}'),
           'native capability ${capability.id}',
         );
-        capabilityImages[capability.id] = image;
+        nativeImages[capability.id] = image;
       }
     }
 
@@ -509,7 +517,7 @@ final class RuntimeApplicationBuilder {
       sdkLicense: sdkLicense,
       sdkVersion: sdkVersion,
       sdkRevision: sdkRevision,
-      capabilityImages: capabilityImages,
+      nativeImages: nativeImages,
     );
     output('${bundle.root.path}\n');
     if (!options.runApplication) {
@@ -546,7 +554,7 @@ final class RuntimeApplicationBuilder {
     required File sdkLicense,
     required String sdkVersion,
     required String sdkRevision,
-    required Map<String, File> capabilityImages,
+    required Map<String, File> nativeImages,
   }) async {
     final Directory root = Directory(
       _join(buildRoot.path, '${manifest.name}.app'),
@@ -569,9 +577,19 @@ final class RuntimeApplicationBuilder {
     await engineLibrary.copy(
       _join(frameworks.path, _basename(engineLibrary.path)),
     );
+    for (final MacosNativeAssetManifest asset in manifest.nativeAssets) {
+      final File? image = nativeImages[asset.id];
+      if (image == null) {
+        throw RuntimeBuilderException(
+          'native asset output is missing: ${asset.id}',
+          exitCode: builderSoftwareExitCode,
+        );
+      }
+      await image.copy(_join(frameworks.path, asset.library));
+    }
     for (final MacosNativeCapabilityManifest capability
         in manifest.nativeCapabilities) {
-      final File? image = capabilityImages[capability.id];
+      final File? image = nativeImages[capability.id];
       if (image == null) {
         throw RuntimeBuilderException(
           'native capability output is missing: ${capability.id}',
@@ -619,6 +637,17 @@ final class RuntimeApplicationBuilder {
                 'dartSdkVersion': sdkVersion,
                 'dartSdkRevision': sdkRevision,
                 'resources': manifest.resources,
+                'nativeAssets': <Map<String, Object>>[
+                  for (final MacosNativeAssetManifest asset
+                      in manifest.nativeAssets)
+                    <String, Object>{
+                      'id': asset.id,
+                      'package': asset.package,
+                      'library': asset.library,
+                      'abiVersion': asset.abiVersion,
+                      'abiVersionSymbol': asset.abiVersionSymbol,
+                    },
+                ],
                 'nativeCapabilities': <Map<String, Object>>[
                   for (final MacosNativeCapabilityManifest capability
                       in manifest.nativeCapabilities)

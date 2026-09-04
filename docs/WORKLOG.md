@@ -1703,3 +1703,77 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Source-inventory search confirms that renderer symbols and implementation do
   not occur in generic runtime, generic runner, or `dart_macos_runtime` source.
   `git diff --check` passes and the official nested SDK remains clean.
+
+## 2026-09-04 — Reusable macOS PTY capability package
+
+- Purpose: provide the process/PTY half of the Phase 2 vertical slice as a
+  reusable dependency so Dart applications own sessions and terminal semantics
+  without compiling C/C++ or depending on platform implementation paths.
+- Scope: an AppKit-independent `dart_pty_macos` package; versioned C ABI;
+  audited child exec path; one native reactor thread per live PTY; bounded
+  asynchronous read delivery and write admission; resize, signals, close and
+  reap; Dart facade; fake backend; native and Dart integration harnesses; and
+  the minimum generic code-asset staging needed by non-AppKit capabilities.
+- Out of scope: VT parsing/grid state, terminal query replies, pane policy,
+  renderer submission, shell integration protocols, and switching the Dart
+  Terminal product build; the final ordered migration owns that switch.
+- Dependencies: the accepted Phase 0 `forkpty`/immediate-`execve` and kqueue
+  batching spikes, Dart 3.13 native build hooks, and the generic runtime builder.
+- Completion requires interactive shell/cwd/env/TTY evidence, resize and
+  foreground interrupt, partial data and a bounded 10 MiB burst, write
+  backpressure, graceful/forced close, exit/reap, stale handles, zero native
+  sessions, fake-backend lifecycle tests, actual hook output, full regression,
+  clean SDK, and reviewed source/export inventories.
+- Initial design: `dpty_*` uses size/version-prefixed configuration, opaque
+  generation handles, fixed-width callback events, copied argv/env/cwd before
+  `forkpty`, a separately audited C child object, and explicit read ACK credits.
+  Native callbacks may originate on the reactor thread; the Dart facade uses a
+  listener-style native callback and never blocks the UI isolate on FD waits.
+- Added `dart_pty_macos` with no AppKit dependency. `dpty_session_create`
+  validates and copies the absolute executable/cwd, complete argv/environment,
+  initial size, callback, and bounded queue limits. A slot/generation registry
+  rejects stale handles after automatic child reaping and explicit destroy.
+- The native reactor owns fork/exec confirmation, kqueue read/write/process/user
+  filters, ordered output buffers retained to ACK, high/low read watermarks,
+  whole-write admission, resize, foreground process-group signals, SIGHUP close
+  and deadline-based SIGKILL, exact exit status, descriptors, and `waitpid`.
+  Its caller-facing operations only copy or enqueue bounded work.
+- The child branch remains a separately compiled C object. Its undefined-symbol
+  audit permits and observes only errno access, `close`, optional `chdir`,
+  `execve`, `write`, and `_exit`; no Dart, C++, allocator, Objective-C, logging,
+  or lock symbol is reachable after `forkpty` returns zero.
+- Added the public `PtyCommand`, `PtySize`, `PtyProcess`, `PtyBackend`, write
+  admission, signal, exit, and stats types. The real backend uses
+  `NativeCallable.listener`, copies each output chunk before ACK, and keeps that
+  listener alive only while native sessions exist. `FakePtyBackend` exercises
+  the same public lifecycle without native I/O.
+- The first 10 MiB test appeared to stall after read-credit recovery even
+  though native stats kept advancing. Its marker predicate rescanned the entire
+  growing output on every callback, producing quadratic test work. A bounded
+  256 KiB recent-marker window fixed the harness without relaxing byte-count or
+  high-water assertions.
+- Setting the listener permanently not-keep-alive then let an isolate awaiting
+  its first native event exit early, causing the reactor to call an invalid
+  trampoline. The final facade toggles `keepIsolateAlive` from the live-session
+  map: the first session enables it and the final exit/error disables it. Real
+  callback tests now complete and the standalone Dart process exits normally.
+- Extended manifest schema 1 compatibly with optional plain `nativeAssets`.
+  The builder runs the same official hook pipeline and stages/records those
+  dylibs without inventing an AppKit initializer. `bundleFrameworkPath`
+  validates their fixed Frameworks location. Existing manifests without the
+  optional field remain valid.
+- Focused native tests pass C11/C++20 headers, the child audit, asynchronous
+  start, interactive/login TTY, cwd/environment, resize, foreground SIGINT,
+  split UTF-8, a 10 MiB ACK-credit burst, bounded write rejection, exit 37,
+  ECHILD reaping, asynchronous ENOENT, graceful HUP exit, forced SIGKILL, stale
+  generations, and zero live sessions. Dart analysis and actual hook execution
+  pass fake lifecycle plus real callback/process/error cases; runtime manifest,
+  framework-path, and staging tests also pass.
+- The complete `make test` regression passes with the new PTY native/Dart
+  suites and plain-asset runtime tests alongside every existing bridge, host,
+  renderer capability, example, FFI, and compatibility check. The PTY dylib
+  links only libc++ and libSystem—not AppKit—and its project exports are the
+  versioned `dpty_*` session/error/debug surface.
+- Source-inventory search finds no PTY implementation file or `dpty_*` symbol
+  in the generic host/runner sources. `git diff --check` passes and the pinned
+  official SDK worktree remains clean.

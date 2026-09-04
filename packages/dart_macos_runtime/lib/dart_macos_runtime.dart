@@ -6,6 +6,7 @@ export 'src/application_manifest.dart'
         MacosApplicationManifest,
         MacosApplicationManifestException,
         MacosDiagnosticsManifest,
+        MacosNativeAssetManifest,
         MacosNativeCapabilityManifest;
 export 'src/native_capability.dart'
     show MacosNativeCapability, MacosNativeCapabilityException;

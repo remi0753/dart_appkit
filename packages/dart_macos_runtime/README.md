@@ -25,7 +25,8 @@ Both modes use the same manifest and `main(List<String>)` application entry.
 The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
-Manifest version 1 contains exactly these fields:
+Manifest version 1 contains these required fields plus the optional
+`nativeAssets` array:
 
 ```json
 {
@@ -39,6 +40,7 @@ Manifest version 1 contains exactly these fields:
   },
   "dart": {"entrypoint": "bin/main.dart"},
   "resources": ["assets/config.json"],
+  "nativeAssets": [],
   "nativeCapabilities": [],
   "diagnostics": {
     "enabled": true,
@@ -57,3 +59,9 @@ official Dart build-hook pipeline, stages only declared images in Frameworks,
 and records them in `runtime-build-manifest.json`. A dependency facade calls
 `MacosNativeCapability.load(id)` on the root UI isolate; it validates and
 initializes exactly once, then retains the image until process exit.
+
+The optional `nativeAssets` array declares a dependency package, dylib,
+independent ABI version, and version symbol without an AppKit initializer. It
+is intended for platform capabilities such as PTY/process I/O. These images are
+built and staged by the same hook pipeline, but are opened and validated by
+their owning Dart package rather than registered as AppKit extensions.

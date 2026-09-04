@@ -41,6 +41,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Versioned native extension services | Size/version C ABI, main-thread registration, invalid UTF-8, duplicate/conflict, and factory failure tests | Verified |
 | Dependency-owned native capability | Dart 3.13 build-hook asset test plus dynamic image ABI/init/create/release/shutdown/lifetime native test | Verified |
 | Terminal renderer capability | C11/C++20 ABI checks, build-hook asset, dynamic `dtr_*` initialization, Metal view invariants, window attachment, stale handle, teardown, and image lifetime | Verified |
+| macOS PTY capability | Child symbol audit, interactive/login TTY, cwd/env, resize, foreground SIGINT, split UTF-8, bounded 10 MiB burst, write backpressure, exit/reap, graceful HUP, forced kill, stale handles, fake backend, and real Dart listener callback | Verified |
 | Capability-enabled JIT/AOT GUI | Same Dart facade and manifest create the dependency view in both real generic hosts; bundles pass deep signature verification | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |

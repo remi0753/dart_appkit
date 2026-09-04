@@ -4,6 +4,32 @@ The public contract is `native/bridge/include/dart_appkit.h`. It contains plain 
 types only and compiles as both C11 and C++20. Objective-C/Swift object layouts
 never cross the boundary.
 
+Dependency-owned platform packages version their ABIs independently. The
+terminal renderer uses `dtr_*`; the AppKit-independent PTY package publishes
+`packages/dart_pty_macos/native/dart_pty_macos.h` and `dpty_*`. A change to one
+does not consume or renumber the `da_*` ABI.
+
+## PTY capability ABI
+
+`DptySessionConfigV1` is size/version prefixed and all argv, environment, and
+working-directory strings are copied before `dpty_session_create` returns.
+Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
+`resize`, `send_signal`, and `close` only enqueue bounded work; FD readiness and
+`waitpid` remain on the session reactor.
+
+An OUTPUT callback carries at most 64 KiB and borrows its byte pointer until the
+exact sequence/length pair is acknowledged in order. The high watermark
+disables the kqueue read filter and the low watermark re-enables it. Writes are
+copied only when the configured capacity admits the entire call; saturation
+returns `DPTY_STATUS_BACKPRESSURED` without waiting. EXIT reports either the
+child status or `128 + signal`, after the owning reactor has reaped the PID.
+Destroy requires a finished session with no unacknowledged output and retires
+that handle generation.
+
+The post-`forkpty` project child branch is a separate C object. It calls only
+`close`, optional `chdir`, `execve`, error-pipe `write`, errno access, and
+`_exit`; an object-symbol allowlist enforces this on every test run.
+
 ## Calls and errors
 
 UI calls and synchronous registry release are main-thread-only.

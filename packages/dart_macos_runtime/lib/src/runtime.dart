@@ -136,6 +136,29 @@ abstract final class MacosRuntime {
     return resource.absolute.path;
   }
 
+  static String bundleFrameworkPath(
+    String libraryName, {
+    String? resolvedExecutable,
+  }) {
+    if (!_libraryName.hasMatch(libraryName)) {
+      throw const MacosRuntimeException(
+        'bundle framework name must be a dylib filename',
+      );
+    }
+    final File executable = File(
+      resolvedExecutable ?? Platform.resolvedExecutable,
+    ).absolute;
+    final File library = executable.parent.parent
+        .childDirectory('Frameworks')
+        .childFile(libraryName);
+    if (!library.existsSync()) {
+      throw MacosRuntimeException(
+        'declared bundle framework does not exist: $libraryName',
+      );
+    }
+    return library.absolute.path;
+  }
+
   static void _checkStatus(int status, String operation) {
     if (status != 0) {
       throw MacosRuntimeException('could not $operation', status: status);
@@ -161,6 +184,8 @@ abstract final class MacosRuntime {
     _bindings = bindings;
   }
 }
+
+final RegExp _libraryName = RegExp(r'^lib[A-Za-z0-9._-]+\.dylib$');
 
 extension on Directory {
   Directory childDirectory(String name) =>

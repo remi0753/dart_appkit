@@ -51,6 +51,8 @@ paths. `dart_appkit:run` remains available as the compatible lightweight JIT
 developer command. `dart_terminal_renderer_macos` demonstrates the production
 package boundary for a terminal-specific `MTKView`: its build hook, native ABI,
 and implementation remain outside both the application and generic hosts.
+`dart_pty_macos` applies the same dependency-owned model to an AppKit-free,
+bounded asynchronous PTY/process reactor and a deterministic Dart fake backend.
 
 - [Roadmap and current position](ROADMAP.md)
 - [Chronological findings and decisions](docs/WORKLOG.md)
@@ -170,6 +172,7 @@ packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
 packages/dart_macos_runtime/ Manifest, host facade, and application builder
 packages/dart_appkit_example_view/ Build-hook native capability proof
 packages/dart_terminal_renderer_macos/ Terminal MTKView native capability
+packages/dart_pty_macos/ AppKit-independent PTY/process capability
 examples/hello_window/  Timer, events, close, and shutdown proof
 scripts/                SDK/Engine validation and Engine build helper
 docs/                   Architecture, ABI, verification, and work log

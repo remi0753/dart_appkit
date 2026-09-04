@@ -1,0 +1,163 @@
+library;
+
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'dart_pty_macos.dart';
+
+final class FakePtyBackend implements PtyBackend {
+  FakePtyBackend({this.firstPid = 4000, this.autoExitOnClose = true});
+
+  final int firstPid;
+  final bool autoExitOnClose;
+  final List<PtyCommand> commands = <PtyCommand>[];
+  final List<FakePtyProcess> processes = <FakePtyProcess>[];
+
+  @override
+  Future<PtyProcess> start(
+    PtyCommand command, {
+    PtySize initialSize = const PtySize(rows: 24, columns: 80),
+    int readHighWaterBytes = 1024 * 1024,
+    int readLowWaterBytes = 512 * 1024,
+    int writeCapacityBytes = 1024 * 1024,
+  }) async {
+    if (readHighWaterBytes <= 0 ||
+        readLowWaterBytes < 0 ||
+        readLowWaterBytes >= readHighWaterBytes ||
+        writeCapacityBytes <= 0) {
+      throw ArgumentError('PTY queue watermarks are invalid');
+    }
+    commands.add(command);
+    final FakePtyProcess process = FakePtyProcess(
+      pid: firstPid + processes.length,
+      initialSize: initialSize,
+      writeCapacityBytes: writeCapacityBytes,
+      autoExitOnClose: autoExitOnClose,
+    );
+    processes.add(process);
+    return process;
+  }
+}
+
+final class FakePtyProcess implements PtyProcess {
+  FakePtyProcess({
+    required this.pid,
+    required PtySize initialSize,
+    required this.writeCapacityBytes,
+    required this.autoExitOnClose,
+  }) : sizes = <PtySize>[initialSize];
+
+  @override
+  final int pid;
+  final int writeCapacityBytes;
+  final bool autoExitOnClose;
+  final List<Uint8List> writes = <Uint8List>[];
+  final List<PtySize> sizes;
+  final List<PtySignal> signals = <PtySignal>[];
+  final List<Duration> closeGracePeriods = <Duration>[];
+  final StreamController<Uint8List> _output = StreamController<Uint8List>(
+    sync: true,
+  );
+  final Completer<PtyExit> _exit = Completer<PtyExit>();
+  var _queuedWriteBytes = 0;
+  var _bytesRead = 0;
+  var _finished = false;
+  PtyStats? _finalStats;
+
+  @override
+  Stream<Uint8List> get output => _output.stream;
+
+  @override
+  Future<PtyExit> get exit => _exit.future;
+
+  @override
+  PtyStats? get finalStats => _finalStats;
+
+  @override
+  PtyWriteResult write(Uint8List bytes) {
+    _requireRunning();
+    if (bytes.isEmpty) {
+      throw ArgumentError.value(bytes, 'bytes', 'must not be empty');
+    }
+    if (bytes.length > writeCapacityBytes ||
+        _queuedWriteBytes > writeCapacityBytes - bytes.length) {
+      return PtyWriteResult.backpressured;
+    }
+    final Uint8List copied = Uint8List.fromList(bytes);
+    writes.add(copied);
+    _queuedWriteBytes += copied.length;
+    return PtyWriteResult.accepted;
+  }
+
+  void drainWrites() {
+    _queuedWriteBytes = 0;
+  }
+
+  void emitOutput(List<int> bytes) {
+    _requireRunning();
+    final Uint8List copied = Uint8List.fromList(bytes);
+    _bytesRead += copied.length;
+    _output.add(copied);
+  }
+
+  @override
+  void resize(PtySize size) {
+    _requireRunning();
+    sizes.add(size);
+  }
+
+  @override
+  void sendSignal(PtySignal signal) {
+    _requireRunning();
+    signals.add(signal);
+  }
+
+  @override
+  void close({Duration gracePeriod = const Duration(seconds: 2)}) {
+    if (_finished) {
+      return;
+    }
+    closeGracePeriods.add(gracePeriod);
+    if (autoExitOnClose) {
+      finish(exitCode: 129, signal: 1);
+    }
+  }
+
+  void finish({required int exitCode, int? signal}) {
+    _requireRunning();
+    _finished = true;
+    _finalStats = PtyStats(
+      bytesRead: _bytesRead,
+      bytesWritten: writes.fold<int>(
+        0,
+        (int sum, Uint8List value) => sum + value.length,
+      ),
+      readBatches: 0,
+      writeBackpressureRejections: 0,
+      maxReadInFlightBytes: 0,
+      maxWriteQueuedBytes: _queuedWriteBytes,
+      readPauseCount: 0,
+      childPid: pid,
+      hasExited: true,
+    );
+    _exit.complete(PtyExit(exitCode: exitCode, signal: signal));
+    unawaited(_output.close());
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (!_finished) {
+      close();
+      if (!_finished) {
+        finish(exitCode: 0);
+      }
+    }
+    await exit;
+  }
+
+  void _requireRunning() {
+    if (_finished) {
+      throw StateError('fake PTY process has finished');
+    }
+  }
+}

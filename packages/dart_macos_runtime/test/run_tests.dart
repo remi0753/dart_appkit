@@ -147,6 +147,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         '$output/bundle/lib/libexample_view.dylib',
         'fake capability image',
       );
+      _write('$output/bundle/lib/libdart_pty_macos.dylib', 'fake native asset');
     } else if (executable != '/bin/chmod' &&
         executable != '/usr/bin/codesign') {
       throw StateError('unexpected command: $executable $arguments');
@@ -264,6 +265,26 @@ Future<void> main() async {
       capabilityManifest.nativeCapabilities.single.id == 'example_view',
       'native capability declaration',
     );
+    final MacosApplicationManifest nativeAssetManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"nativeCapabilities": []',
+            '''"nativeAssets": [
+      {
+        "id": "dart_pty_macos",
+        "package": "dart_pty_macos",
+        "library": "libdart_pty_macos.dylib",
+        "abiVersion": 1,
+        "abiVersionSymbol": "dpty_abi_version"
+      }
+    ],
+    "nativeCapabilities": []''',
+          ),
+        );
+    _expect(
+      nativeAssetManifest.nativeAssets.single.id == 'dart_pty_macos',
+      'plain native asset declaration',
+    );
   });
 
   await _test('native capability declaration and image retention', () async {
@@ -339,14 +360,32 @@ Future<void> main() async {
     final Directory root = await Directory.systemTemp.createTemp('dmr.app.');
     final String executable = '${root.path}/Hello.app/Contents/MacOS/hello';
     _write('${root.path}/Hello.app/Contents/Resources/data/config.json', '{}');
+    _write(
+      '${root.path}/Hello.app/Contents/Frameworks/libexample.dylib',
+      'fake',
+    );
     final String resource = MacosRuntime.bundleResourcePath(
       'data/config.json',
       resolvedExecutable: executable,
     );
     _expect(resource.endsWith('/Contents/Resources/data/config.json'), 'path');
+    final String framework = MacosRuntime.bundleFrameworkPath(
+      'libexample.dylib',
+      resolvedExecutable: executable,
+    );
+    _expect(
+      framework.endsWith('/Contents/Frameworks/libexample.dylib'),
+      'framework path',
+    );
     _expectThrows<MacosRuntimeException>(() {
       MacosRuntime.bundleResourcePath(
         '../Info.plist',
+        resolvedExecutable: executable,
+      );
+    });
+    _expectThrows<MacosRuntimeException>(() {
+      MacosRuntime.bundleFrameworkPath(
+        '../libexample.dylib',
         resolvedExecutable: executable,
       );
     });
@@ -474,6 +513,60 @@ Future<void> main() async {
     );
     await fixture.root.delete(recursive: true);
   });
+
+  await _test(
+    'plain native assets are staged without AppKit initialization',
+    () async {
+      final _Fixture fixture = await _Fixture.create();
+      _write(
+        '${fixture.project.path}/macos_application.json',
+        _validManifest.replaceFirst(
+          '"nativeCapabilities": []',
+          '''"nativeAssets": [
+      {
+        "id": "dart_pty_macos",
+        "package": "dart_pty_macos",
+        "library": "libdart_pty_macos.dylib",
+        "abiVersion": 1,
+        "abiVersionSymbol": "dpty_abi_version"
+      }
+    ],
+    "nativeCapabilities": []''',
+        ),
+      );
+      final _FakeExecutor executor = _FakeExecutor();
+      final int result = await fixture
+          .builder(executor)
+          .run(
+            RuntimeBuilderOptions.parse(<String>[
+              '--manifest=${fixture.project.path}/macos_application.json',
+              '--build-dir=${fixture.root.path}/build-native-asset',
+            ]),
+          );
+      _expect(result == 0, 'plain native asset build succeeds');
+      final String contents =
+          '${fixture.root.path}/build-native-asset/HelloWindow.app/Contents';
+      _expect(
+        File('$contents/Frameworks/libdart_pty_macos.dylib').existsSync(),
+        'plain native asset image is staged',
+      );
+      final Map<String, Object?> buildManifest = jsonDecode(
+        File('$contents/Resources/runtime-build-manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, Object?>;
+      final List<Object?> assets =
+          buildManifest['nativeAssets']! as List<Object?>;
+      _expect(assets.length == 1, 'plain native asset is recorded');
+      _expect(
+        (assets.single! as Map<String, Object?>).containsKey(
+              'initializerSymbol',
+            ) ==
+            false,
+        'plain asset does not acquire an AppKit initializer',
+      );
+      await fixture.root.delete(recursive: true);
+    },
+  );
 
   await _test('builder option validation', () {
     _expectThrows<RuntimeBuilderException>(

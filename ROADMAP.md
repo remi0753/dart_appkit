@@ -300,6 +300,29 @@ Exit criteria:
 - The implementation does not become part of generic runtime or AppKit host
   source inventories.
 
+### [x] T12 — Reusable macOS PTY capability package
+
+Scope:
+
+- Add `dart_pty_macos` with an AppKit-independent, versioned `dpty_*` C ABI and
+  Dart facade.
+- Preserve the audited post-fork/exec boundary while adding asynchronous
+  kqueue reads, bounded read/write queues, resize, signals, close escalation,
+  exit/reap, and deterministic fake-backend coverage.
+- Extend generic runtime asset staging only as needed for a native dependency
+  that does not register AppKit objects.
+
+Exit criteria:
+
+- C11/C++20 header checks and post-fork symbol audit pass.
+- Native integration proves interactive TTY, cwd/environment, resize,
+  foreground interrupt, ordered burst delivery/backpressure, exit, forced
+  close, and reaping without blocking the caller thread.
+- Dart analysis/tests prove event decoding, write admission, fake backend,
+  lifecycle, stale handles, and actual build-hook asset generation.
+- The package has no AppKit dependency and generic host source inventories do
+  not include PTY implementation files.
+
 ## Beyond this MVP
 
 VM Service, incremental Kernel compilation, hot restart/reload, CoreText terminal

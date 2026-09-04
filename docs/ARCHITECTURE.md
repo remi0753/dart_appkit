@@ -25,7 +25,8 @@ Dart application + macos_application.json
 ├─ imports dart_appkit for reusable UI primitives
 ├─ uses dart_macos_runtime for host services and packaging
 └─ optionally imports native capability Dart facades
-   └─ dart_terminal_renderer_macos owns TerminalMetalView
+   ├─ dart_terminal_renderer_macos owns TerminalMetalView
+   └─ dart_pty_macos owns PTY/process I/O
 
 dart_macos_runtime
 ├─ generic Developer JIT and Release AOT hosts
@@ -257,6 +258,14 @@ capability initialization and view creation. The implementation is a paused,
 on-demand, framebuffer-only, top-left-coordinate `MTKView`; future terminal
 grid, CoreText, atlas, and shader behavior stays in that capability rather than
 moving into `dart_appkit` or `dart_macos_runtime`.
+
+Plain `nativeAssets` use the same hook and Frameworks staging path but do not
+receive the AppKit extension service table. `dart_pty_macos` uses this path: its
+independent `dpty_*` ABI owns copied spawn inputs, an audited C child exec
+object, one kqueue reactor per generation-checked session, ACK-credit read
+watermarks, bounded write admission, foreground signals, resize, close
+escalation, and `waitpid`. Its listener callback only enqueues immutable byte
+copies for Dart; no reactor thread waits for or enters the UI isolate.
 
 Developer JIT stages `application.dill` with the release Engine library;
 Release AOT stages a Mach-O `application.aot` snapshot with the product Engine

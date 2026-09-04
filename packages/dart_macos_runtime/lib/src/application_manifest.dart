@@ -38,6 +38,22 @@ final class MacosNativeCapabilityManifest {
   final String initializerSymbol;
 }
 
+final class MacosNativeAssetManifest {
+  const MacosNativeAssetManifest({
+    required this.id,
+    required this.package,
+    required this.library,
+    required this.abiVersion,
+    required this.abiVersionSymbol,
+  });
+
+  final String id;
+  final String package;
+  final String library;
+  final int abiVersion;
+  final String abiVersionSymbol;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -47,6 +63,7 @@ final class MacosApplicationManifest {
     required this.minimumSystemVersion,
     required this.entrypoint,
     required this.resources,
+    required this.nativeAssets,
     required this.nativeCapabilities,
     required this.diagnostics,
   });
@@ -61,14 +78,19 @@ final class MacosApplicationManifest {
       );
     }
     final Map<String, Object?> root = _object(decoded, 'manifest');
-    _exactKeys(root, const <String>{
-      'schemaVersion',
-      'application',
-      'dart',
-      'resources',
-      'nativeCapabilities',
-      'diagnostics',
-    }, 'manifest');
+    _requiredAndOptionalKeys(
+      root,
+      const <String>{
+        'schemaVersion',
+        'application',
+        'dart',
+        'resources',
+        'nativeCapabilities',
+        'diagnostics',
+      },
+      const <String>{'nativeAssets'},
+      'manifest',
+    );
     if (root['schemaVersion'] != 1) {
       throw const MacosApplicationManifestException(
         'manifest.schemaVersion must be 1',
@@ -142,6 +164,19 @@ final class MacosApplicationManifest {
           for (var index = 0; index < capabilityValues.length; ++index)
             _capability(capabilityValues[index], index),
         ];
+    final Object? nativeAssetValue = root['nativeAssets'];
+    final List<Object?> nativeAssetValues = switch (nativeAssetValue) {
+      null => const <Object?>[],
+      final List<Object?> value => value,
+      _ => throw const MacosApplicationManifestException(
+        'manifest.nativeAssets must be an array',
+      ),
+    };
+    final List<MacosNativeAssetManifest> nativeAssets =
+        <MacosNativeAssetManifest>[
+          for (var index = 0; index < nativeAssetValues.length; ++index)
+            _nativeAsset(nativeAssetValues[index], index),
+        ];
     final Object? enabledValue = diagnostics['enabled'];
     if (enabledValue is! bool) {
       throw const MacosApplicationManifestException(
@@ -180,6 +215,24 @@ final class MacosApplicationManifest {
         'manifest.nativeCapabilities contains a duplicate id',
       );
     }
+    final List<String> nativeIds = <String>[
+      ...nativeAssets.map((MacosNativeAssetManifest value) => value.id),
+      ...nativeCapabilities.map(
+        (MacosNativeCapabilityManifest value) => value.id,
+      ),
+    ];
+    final List<String> nativeLibraries = <String>[
+      ...nativeAssets.map((MacosNativeAssetManifest value) => value.library),
+      ...nativeCapabilities.map(
+        (MacosNativeCapabilityManifest value) => value.library,
+      ),
+    ];
+    if (nativeIds.toSet().length != nativeIds.length ||
+        nativeLibraries.toSet().length != nativeLibraries.length) {
+      throw const MacosApplicationManifestException(
+        'manifest native asset ids and libraries must be unique',
+      );
+    }
     return MacosApplicationManifest(
       name: name,
       executableName: executableName,
@@ -188,6 +241,7 @@ final class MacosApplicationManifest {
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
       resources: List<String>.unmodifiable(resources),
+      nativeAssets: List<MacosNativeAssetManifest>.unmodifiable(nativeAssets),
       nativeCapabilities: List<MacosNativeCapabilityManifest>.unmodifiable(
         nativeCapabilities,
       ),
@@ -215,6 +269,7 @@ final class MacosApplicationManifest {
   final String minimumSystemVersion;
   final String entrypoint;
   final List<String> resources;
+  final List<MacosNativeAssetManifest> nativeAssets;
   final List<MacosNativeCapabilityManifest> nativeCapabilities;
   final MacosDiagnosticsManifest diagnostics;
 
@@ -225,6 +280,44 @@ final class MacosApplicationManifest {
   static final RegExp _version = RegExp(r'^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$');
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
+  );
+}
+
+MacosNativeAssetManifest _nativeAsset(Object? value, int index) {
+  final String path = 'nativeAssets[$index]';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{
+    'id',
+    'package',
+    'library',
+    'abiVersion',
+    'abiVersionSymbol',
+  }, path);
+  final String id = _string(object['id'], '$path.id');
+  final String package = _string(object['package'], '$path.package');
+  final String library = _string(object['library'], '$path.library');
+  final String abiVersionSymbol = _string(
+    object['abiVersionSymbol'],
+    '$path.abiVersionSymbol',
+  );
+  final Object? abiVersionValue = object['abiVersion'];
+  if (!_capabilityId.hasMatch(id) ||
+      !_packageName.hasMatch(package) ||
+      !_libraryName.hasMatch(library) ||
+      !_symbol.hasMatch(abiVersionSymbol) ||
+      abiVersionValue is! int ||
+      abiVersionValue <= 0 ||
+      abiVersionValue > 65535) {
+    throw MacosApplicationManifestException(
+      '$path contains an invalid asset identifier, library, symbol, or ABI',
+    );
+  }
+  return MacosNativeAssetManifest(
+    id: id,
+    package: package,
+    library: library,
+    abiVersion: abiVersionValue,
+    abiVersionSymbol: abiVersionSymbol,
   );
 }
 
@@ -286,6 +379,22 @@ void _exactKeys(Map<String, Object?> value, Set<String> expected, String path) {
   if (actual.length != expected.length || !actual.containsAll(expected)) {
     throw MacosApplicationManifestException(
       '$path must contain exactly: ${expected.join(', ')}',
+    );
+  }
+}
+
+void _requiredAndOptionalKeys(
+  Map<String, Object?> value,
+  Set<String> required,
+  Set<String> optional,
+  String path,
+) {
+  final Set<String> actual = value.keys.toSet();
+  final Set<String> allowed = <String>{...required, ...optional};
+  if (!actual.containsAll(required) || actual.difference(allowed).isNotEmpty) {
+    throw MacosApplicationManifestException(
+      '$path must contain ${required.join(', ')} and only optional keys: '
+      '${optional.join(', ')}',
     );
   }
 }
