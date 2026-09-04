@@ -44,6 +44,16 @@ int main() {
            "requested result is effective");
     Expect(dart_macos_runtime::EffectiveExitCode(66) == 66,
            "delegate failure has priority");
+
+    unsetenv("DMR_RUNTIME_DIAGNOSTICS_TEST");
+    setenv("DMR_RUNTIME_TEST_HOST_STARTUP_FAILURE", "1", 1);
+    Expect(!dart_macos_runtime::HostStartupFailureRequested(),
+           "host fault requires the test gate");
+    setenv("DMR_RUNTIME_DIAGNOSTICS_TEST", "1", 1);
+    Expect(dart_macos_runtime::HostStartupFailureRequested(),
+           "gated host fault is enabled");
+    unsetenv("DMR_RUNTIME_TEST_HOST_STARTUP_FAILURE");
+    unsetenv("DMR_RUNTIME_DIAGNOSTICS_TEST");
   }
   if (failures != 0) {
     return 1;

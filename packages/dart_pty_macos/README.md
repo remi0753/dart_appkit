@@ -20,5 +20,10 @@ The Dart facade uses a listener-style native callback so reactor threads enqueue
 events without entering the UI isolate synchronously. `FakePtyBackend` provides
 the same public process surface for deterministic product tests.
 
+`MacosPtyBackend.shared` uses the official native-assets mapping in ordinary
+Dart tools. A custom application host can instead call
+`MacosPtyBackend.open(absoluteBundleLibraryPath)` using the path supplied by its
+bundle runtime; the same facade then retains and resolves that staged image.
+
 The package contains no AppKit dependency, Objective-C source, VT parser,
 renderer, pane model, or application policy.

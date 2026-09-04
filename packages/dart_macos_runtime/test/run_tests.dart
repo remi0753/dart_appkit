@@ -143,11 +143,21 @@ final class _FakeExecutor implements BuilderProcessExecutor {
       final String output = arguments
           .firstWhere((String value) => value.startsWith('--output='))
           .substring('--output='.length);
-      _write(
-        '$output/bundle/lib/libexample_view.dylib',
-        'fake capability image',
-      );
-      _write('$output/bundle/lib/libdart_pty_macos.dylib', 'fake native asset');
+      final String target = arguments
+          .firstWhere((String value) => value.startsWith('--target='))
+          .substring('--target='.length);
+      if (target.endsWith('/helper.dart')) {
+        _write('$output/bundle/bin/helper', 'fake Dart helper');
+      } else {
+        _write(
+          '$output/bundle/lib/libexample_view.dylib',
+          'fake capability image',
+        );
+        _write(
+          '$output/bundle/lib/libdart_pty_macos.dylib',
+          'fake native asset',
+        );
+      }
     } else if (executable != '/bin/chmod' &&
         executable != '/usr/bin/codesign') {
       throw StateError('unexpected command: $executable $arguments');
@@ -170,6 +180,7 @@ final class _Fixture {
     _write('${repository.path}/Makefile', 'all:\n\t@true\n');
     _write('${project.path}/macos_application.json', _validManifest);
     _write('${project.path}/bin/main.dart', 'void main() {}\n');
+    _write('${project.path}/bin/helper.dart', 'void main() {}\n');
     _write('${project.path}/assets/message.txt', 'hello\n');
     _write(
       '${project.path}/.dart_tool/package_config.json',
@@ -230,6 +241,7 @@ Future<void> main() async {
     );
     _expect(manifest.executableName == 'hello_window', 'executable name');
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
+    _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
 
     _expectThrows<MacosApplicationManifestException>(() {
@@ -285,6 +297,34 @@ Future<void> main() async {
       nativeAssetManifest.nativeAssets.single.id == 'dart_pty_macos',
       'plain native asset declaration',
     );
+    final MacosApplicationManifest helperManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst('"resources":', '''"dartHelpers": [
+      {"name": "runtime_worker", "entrypoint": "bin/helper.dart"}
+    ],
+    "resources":'''),
+        );
+    _expect(
+      helperManifest.dartHelpers.single.name == 'runtime_worker',
+      'Dart helper declaration',
+    );
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst('"resources":', '''"dartHelpers": [
+      {"name": "..", "entrypoint": "bin/helper.dart"}
+    ],
+    "resources":'''),
+      );
+    });
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst('"resources":', '''"dartHelpers": [
+      {"name": "worker", "entrypoint": "bin/helper.dart"},
+      {"name": "worker", "entrypoint": "bin/helper.dart"}
+    ],
+    "resources":'''),
+      );
+    });
   });
 
   await _test('native capability declaration and image retention', () async {
@@ -364,6 +404,7 @@ Future<void> main() async {
       '${root.path}/Hello.app/Contents/Frameworks/libexample.dylib',
       'fake',
     );
+    _write('${root.path}/Hello.app/Contents/Helpers/runtime_worker', 'fake');
     final String resource = MacosRuntime.bundleResourcePath(
       'data/config.json',
       resolvedExecutable: executable,
@@ -377,6 +418,11 @@ Future<void> main() async {
       framework.endsWith('/Contents/Frameworks/libexample.dylib'),
       'framework path',
     );
+    final String helper = MacosRuntime.bundleHelperPath(
+      'runtime_worker',
+      resolvedExecutable: executable,
+    );
+    _expect(helper.endsWith('/Contents/Helpers/runtime_worker'), 'helper path');
     _expectThrows<MacosRuntimeException>(() {
       MacosRuntime.bundleResourcePath(
         '../Info.plist',
@@ -390,6 +436,53 @@ Future<void> main() async {
       );
     });
     await root.delete(recursive: true);
+  });
+
+  await _test('declared Dart helpers are compiled and staged', () async {
+    final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _validManifest.replaceFirst('"resources":', '''"dartHelpers": [
+      {"name": "runtime_worker", "entrypoint": "bin/helper.dart"}
+    ],
+    "resources":'''),
+    );
+    final _FakeExecutor executor = _FakeExecutor();
+    final int result = await fixture
+        .builder(executor)
+        .run(
+          RuntimeBuilderOptions.parse(<String>[
+            '--manifest=${fixture.project.path}/macos_application.json',
+            '--build-dir=${fixture.root.path}/build-helper',
+          ]),
+        );
+    _expect(result == 0, 'helper build succeeds');
+    final String contents =
+        '${fixture.root.path}/build-helper/HelloWindow.app/Contents';
+    _expect(
+      File('$contents/Helpers/runtime_worker').existsSync(),
+      'helper is staged',
+    );
+    final Map<String, Object?> buildManifest = jsonDecode(
+      File('$contents/Resources/runtime-build-manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    _expect(
+      (buildManifest['dartHelpers']! as List<Object?>).length == 1,
+      'helper declaration is recorded',
+    );
+    _expect(
+      executor.commands.any(
+        (_RecordedCommand command) =>
+            command.executable.endsWith('/bin/dart') &&
+            command.arguments.take(2).join(' ') == 'build cli' &&
+            command.arguments.any(
+              (String value) => value.endsWith('/bin/helper.dart'),
+            ),
+      ),
+      'Dart helper compiler runs',
+    );
+    await fixture.root.delete(recursive: true);
   });
 
   await _test('Developer JIT manifest-driven assembly', () async {

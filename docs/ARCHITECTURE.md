@@ -267,12 +267,21 @@ watermarks, bounded write admission, foreground signals, resize, close
 escalation, and `waitpid`. Its listener callback only enqueues immutable byte
 copies for Dart; no reactor thread waits for or enters the UI isolate.
 
+Optional `dartHelpers` keep application-specific worker code out of the native
+host. Each declaration supplies a safe bundle name and project-relative Dart
+entrypoint. The builder uses the official hook-aware CLI build, stages only the
+self-contained executable under `Contents/Helpers`, and records its source
+identity in the runtime build manifest. The application resolves that fixed
+location through `MacosRuntime.bundleHelperPath`; framing, arguments, restart,
+and shutdown policy remain application-owned.
+
 Developer JIT stages `application.dill` with the release Engine library;
 Release AOT stages a Mach-O `application.aot` snapshot with the product Engine
 library. Both bundles place the generic executable in `Contents/MacOS`, the
 Engine in `Contents/Frameworks`, and only declared/runtime-owned data in
 `Contents/Resources`. A generated build manifest records mode, architecture,
-bundle identity, payload, Engine, SDK version/revision, and resource list.
+bundle identity, payload, Engine, SDK version/revision, helper declarations,
+native assets, capabilities, and resource list.
 
 The exported `dmr_*` lifecycle ABI is independent from the `da_*` AppKit ABI.
 The first nonzero 1–255 process result wins on the AppKit main thread;

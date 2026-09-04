@@ -10,6 +10,7 @@ inline constexpr int kInputExitCode = 66;
 inline constexpr int kSoftwareExitCode = 70;
 
 int EffectiveExitCode(int delegate_exit_code);
+bool HostStartupFailureRequested();
 void CompleteApplicationTermination(int delegate_exit_code);
 void ResetLifecycleForTesting();
 

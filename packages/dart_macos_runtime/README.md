@@ -26,7 +26,7 @@ The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
 Manifest version 1 contains these required fields plus the optional
-`nativeAssets` array:
+`dartHelpers` and `nativeAssets` arrays:
 
 ```json
 {
@@ -39,6 +39,9 @@ Manifest version 1 contains these required fields plus the optional
     "minimumSystemVersion": "14.0"
   },
   "dart": {"entrypoint": "bin/main.dart"},
+  "dartHelpers": [
+    {"name": "example_worker", "entrypoint": "bin/worker.dart"}
+  ],
   "resources": ["assets/config.json"],
   "nativeAssets": [],
   "nativeCapabilities": [],
@@ -52,6 +55,13 @@ Manifest version 1 contains these required fields plus the optional
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized
 bundle-relative names and rejects traversal.
+
+Each `dartHelpers` entry names a project-relative Dart entrypoint and a safe
+bundle filename. The builder uses the official hook-aware CLI build to compile
+it as a self-contained executable,
+stages it in `Contents/Helpers`, records it in the build manifest, and makes it
+available through `MacosRuntime.bundleHelperPath`. Helper protocol and launch
+policy remain application responsibilities.
 
 `nativeCapabilities` entries declare the dependency package, dylib filename,
 ABI version symbol, initializer symbol, and ABI version. The builder runs the

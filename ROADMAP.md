@@ -23,7 +23,7 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 ## Current position
 
 - Active task: **none; the native capability loading proof is complete**
-- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10**
+- Completed: **T0 through T13**
 - Engine acceptance gate: **official source only**. Dart Engine source changes,
   candidate commits, and downstream patches are prohibited. The stock Dart
   3.13.2 Engine is pinned at revision
@@ -322,6 +322,23 @@ Exit criteria:
   lifecycle, stale handles, and actual build-hook asset generation.
 - The package has no AppKit dependency and generic host source inventories do
   not include PTY implementation files.
+
+### [x] T13 — Declarative Dart helper packaging
+
+Scope:
+
+- Let a manifest declare application-owned Dart helper entrypoints that the
+  generic builder compiles as self-contained executables and stages under
+  `Contents/Helpers`.
+- Expose validated helper lookup through `MacosRuntime` without adding product
+  worker protocol or policy to the generic runtime.
+
+Exit criteria:
+
+- Strict manifest and builder tests cover declaration, duplicate/invalid names,
+  compilation, executable staging, metadata, and bundle lookup.
+- Existing runtime manifests, JIT/AOT applications, native capability staging,
+  and the full repository regression remain compatible.
 
 ## Beyond this MVP
 

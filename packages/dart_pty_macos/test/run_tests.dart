@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:dart_pty_macos/dart_pty_macos.dart';
@@ -157,6 +158,36 @@ Future<void> main() async {
     _expect(_liveSessionCount() == 0, 'real native session is released');
   });
 
+  await _test('explicit bundled-library loading', () async {
+    final Uri packageLibrary = (await Isolate.resolvePackageUri(
+      Uri.parse('package:dart_pty_macos/dart_pty_macos.dart'),
+    ))!;
+    final String libraryPath = File.fromUri(packageLibrary).parent.parent
+        .childDirectory('.dart_tool')
+        .childDirectory('lib')
+        .childFile('libdart_pty_macos.dylib')
+        .path;
+    final MacosPtyBackend backend = MacosPtyBackend.open(libraryPath);
+    final PtyProcess process = await backend.start(
+      PtyCommand(
+        executable: '/bin/sh',
+        arguments: const <String>['-c', 'printf __DPTY_DYNAMIC__; exit 4'],
+        includeParentEnvironment: false,
+      ),
+    );
+    final Future<List<int>> outputFuture = process.output
+        .expand<int>((Uint8List bytes) => bytes)
+        .toList();
+    final PtyExit exit = await process.exit.timeout(const Duration(seconds: 4));
+    _expect(exit.exitCode == 4, 'dynamic backend exit code');
+    _expect(
+      utf8.decode(await outputFuture).contains('__DPTY_DYNAMIC__'),
+      'dynamic backend output',
+    );
+    await process.dispose();
+    _expect(_liveSessionCount() == 0, 'dynamic native session is released');
+  });
+
   await _test('real asynchronous exec failure', () async {
     await _expectThrowsAsync<PtyException>(() {
       return startPty(
@@ -172,6 +203,13 @@ Future<void> main() async {
   if (_failures != 0) {
     exitCode = 1;
   }
+}
+
+extension on Directory {
+  Directory childDirectory(String name) =>
+      Directory(uri.resolve('$name/').toFilePath());
+
+  File childFile(String name) => File(uri.resolve(name).toFilePath());
 }
 
 Future<T> _expectThrowsAsync<T extends Object>(

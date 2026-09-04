@@ -465,6 +465,50 @@ final class RuntimeApplicationBuilder {
       await _existingFile(payload.path, 'Dart AOT snapshot');
     }
 
+    final Map<String, File> dartHelpers = <String, File>{};
+    if (manifest.dartHelpers.isNotEmpty) {
+      final Directory helperOutput = Directory(
+        _join(buildRoot.path, 'helpers'),
+      );
+      await helperOutput.create(recursive: true);
+      for (final MacosDartHelperManifest helper in manifest.dartHelpers) {
+        final File helperEntrypoint = await _existingFile(
+          _join(projectRoot.path, helper.entrypoint),
+          'Dart helper entrypoint ${helper.name}',
+        );
+        final Directory helperBuild = Directory(
+          _join(helperOutput.path, '${helper.name}.build'),
+        );
+        if (await helperBuild.exists()) {
+          await helperBuild.delete(recursive: true);
+        }
+        await _runChecked(
+          'Dart helper compilation (${helper.name})',
+          dartExecutable.path,
+          <String>[
+            'build',
+            'cli',
+            '--output=${helperBuild.path}',
+            '--target=${helperEntrypoint.path}',
+            '--packages=${packageConfig.path}',
+            '--target-os=macos',
+            '--target-arch=${architecture == 'arm64' ? 'arm64' : 'x64'}',
+            '--verbosity=warning',
+          ],
+          projectRoot.path,
+        );
+        final String sourceName = _basename(helper.entrypoint)
+            .replaceFirst(RegExp(r'\.dart$'), '');
+        final File compiledHelper = await _existingFile(
+          _join(helperBuild.path, 'bundle/bin/$sourceName'),
+          'compiled Dart helper ${helper.name}',
+        );
+        dartHelpers[helper.name] = await compiledHelper.copy(
+          _join(helperOutput.path, helper.name),
+        );
+      }
+    }
+
     final Map<String, File> nativeImages = <String, File>{};
     if (manifest.nativeAssets.isNotEmpty ||
         manifest.nativeCapabilities.isNotEmpty) {
@@ -517,6 +561,7 @@ final class RuntimeApplicationBuilder {
       sdkLicense: sdkLicense,
       sdkVersion: sdkVersion,
       sdkRevision: sdkRevision,
+      dartHelpers: dartHelpers,
       nativeImages: nativeImages,
     );
     output('${bundle.root.path}\n');
@@ -554,6 +599,7 @@ final class RuntimeApplicationBuilder {
     required File sdkLicense,
     required String sdkVersion,
     required String sdkRevision,
+    required Map<String, File> dartHelpers,
     required Map<String, File> nativeImages,
   }) async {
     final Directory root = Directory(
@@ -564,10 +610,12 @@ final class RuntimeApplicationBuilder {
     }
     final Directory contents = Directory(_join(root.path, 'Contents'));
     final Directory macos = Directory(_join(contents.path, 'MacOS'));
+    final Directory helpers = Directory(_join(contents.path, 'Helpers'));
     final Directory frameworks = Directory(_join(contents.path, 'Frameworks'));
     final Directory resources = Directory(_join(contents.path, 'Resources'));
     await Future.wait(<Future<Directory>>[
       macos.create(recursive: true),
+      helpers.create(recursive: true),
       frameworks.create(recursive: true),
       resources.create(recursive: true),
     ]);
@@ -607,6 +655,24 @@ final class RuntimeApplicationBuilder {
       ),
     );
     await sdkLicense.copy(_join(resources.path, 'DART_SDK_LICENSE.txt'));
+    for (final MacosDartHelperManifest helper in manifest.dartHelpers) {
+      final File? source = dartHelpers[helper.name];
+      if (source == null) {
+        throw RuntimeBuilderException(
+          'compiled Dart helper is missing: ${helper.name}',
+          exitCode: builderSoftwareExitCode,
+        );
+      }
+      final File destination = await source.copy(
+        _join(helpers.path, helper.name),
+      );
+      await _runChecked(
+        'Dart helper permission update (${helper.name})',
+        '/bin/chmod',
+        <String>['755', destination.path],
+        projectRoot.path,
+      );
+    }
     for (final String relativePath in manifest.resources) {
       if (_reservedResources.contains(relativePath)) {
         throw RuntimeBuilderException(
@@ -624,46 +690,54 @@ final class RuntimeApplicationBuilder {
     }
     await File(_join(contents.path, 'Info.plist'))
         .writeAsString(_infoPlist(manifest, sdkRevision), flush: true);
-    await File(_join(resources.path, 'runtime-build-manifest.json'))
-        .writeAsString(
-          const JsonEncoder.withIndent('  ').convert(<String, Object>{
-                'schemaVersion': 1,
-                'runtimeMode': mode.name,
-                'architecture': architecture,
-                'bundleIdentifier': manifest.bundleIdentifier,
-                'executable': manifest.executableName,
-                'payload': _basename(bundledPayload.path),
-                'engine': _basename(engineLibrary.path),
-                'dartSdkVersion': sdkVersion,
-                'dartSdkRevision': sdkRevision,
-                'resources': manifest.resources,
-                'nativeAssets': <Map<String, Object>>[
-                  for (final MacosNativeAssetManifest asset
-                      in manifest.nativeAssets)
-                    <String, Object>{
-                      'id': asset.id,
-                      'package': asset.package,
-                      'library': asset.library,
-                      'abiVersion': asset.abiVersion,
-                      'abiVersionSymbol': asset.abiVersionSymbol,
-                    },
-                ],
-                'nativeCapabilities': <Map<String, Object>>[
-                  for (final MacosNativeCapabilityManifest capability
-                      in manifest.nativeCapabilities)
-                    <String, Object>{
-                      'id': capability.id,
-                      'package': capability.package,
-                      'library': capability.library,
-                      'abiVersion': capability.abiVersion,
-                      'abiVersionSymbol': capability.abiVersionSymbol,
-                      'initializerSymbol': capability.initializerSymbol,
-                    },
-                ],
-              }) +
-              '\n',
-          flush: true,
-        );
+    await File(
+      _join(resources.path, 'runtime-build-manifest.json'),
+    ).writeAsString(
+      const JsonEncoder.withIndent('  ').convert(<String, Object>{
+            'schemaVersion': 1,
+            'runtimeMode': mode.name,
+            'architecture': architecture,
+            'bundleIdentifier': manifest.bundleIdentifier,
+            'executable': manifest.executableName,
+            'payload': _basename(bundledPayload.path),
+            'engine': _basename(engineLibrary.path),
+            'dartSdkVersion': sdkVersion,
+            'dartSdkRevision': sdkRevision,
+            'dartHelpers': <Map<String, Object>>[
+              for (final MacosDartHelperManifest helper in manifest.dartHelpers)
+                <String, Object>{
+                  'name': helper.name,
+                  'entrypoint': helper.entrypoint,
+                },
+            ],
+            'resources': manifest.resources,
+            'nativeAssets': <Map<String, Object>>[
+              for (final MacosNativeAssetManifest asset
+                  in manifest.nativeAssets)
+                <String, Object>{
+                  'id': asset.id,
+                  'package': asset.package,
+                  'library': asset.library,
+                  'abiVersion': asset.abiVersion,
+                  'abiVersionSymbol': asset.abiVersionSymbol,
+                },
+            ],
+            'nativeCapabilities': <Map<String, Object>>[
+              for (final MacosNativeCapabilityManifest capability
+                  in manifest.nativeCapabilities)
+                <String, Object>{
+                  'id': capability.id,
+                  'package': capability.package,
+                  'library': capability.library,
+                  'abiVersion': capability.abiVersion,
+                  'abiVersionSymbol': capability.abiVersionSymbol,
+                  'initializerSymbol': capability.initializerSymbol,
+                },
+            ],
+          }) +
+          '\n',
+      flush: true,
+    );
     await _runChecked(
       'runtime executable permission update',
       '/bin/chmod',
@@ -864,7 +938,15 @@ import 'dart:async';
 import ${jsonEncode(entrypoint.absolute.uri.toString())} as application;
 
 @pragma('vm:entry-point')
-FutureOr<void> main(List<String> arguments) => application.main(arguments);
+Future<void> main(List<String> arguments) async {
+  final dynamic result = Function.apply(
+    application.main,
+    <Object?>[arguments],
+  );
+  if (result is Future) {
+    await result;
+  }
+}
 ''';
 
 Future<int> runBuilderCommand(

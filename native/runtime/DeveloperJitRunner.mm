@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -40,6 +41,14 @@ int main(int argc, const char* argv[]) {
         std::cerr << "Runtime diagnostics startup failed: " << error << '\n';
         return dart_macos_runtime::kSoftwareExitCode;
       }
+    }
+    if (dart_macos_runtime::HostStartupFailureRequested()) {
+      std::fprintf(stderr,
+                   "RUNTIME_LIFECYCLE_FATAL class=host-startup status=70\n");
+      if (diagnostics != nullptr) {
+        diagnostics->Finish(dart_macos_runtime::kSoftwareExitCode);
+      }
+      return dart_macos_runtime::kSoftwareExitCode;
     }
 
     dart_appkit::RunnerConfiguration configuration;

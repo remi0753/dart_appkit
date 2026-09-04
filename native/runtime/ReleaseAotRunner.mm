@@ -134,6 +134,7 @@
   if (dart_host_ != nullptr) {
     dart_host_->Shutdown();
   }
+  dart_macos_runtime::CompleteApplicationTermination(exit_code_);
 }
 
 @end
@@ -157,6 +158,14 @@ int main(int argc, const char* argv[]) {
                      error.c_str());
         return dart_macos_runtime::kSoftwareExitCode;
       }
+    }
+    if (dart_macos_runtime::HostStartupFailureRequested()) {
+      std::fprintf(stderr,
+                   "RUNTIME_LIFECYCLE_FATAL class=host-startup status=70\n");
+      if (diagnostics != nullptr) {
+        diagnostics->Finish(dart_macos_runtime::kSoftwareExitCode);
+      }
+      return dart_macos_runtime::kSoftwareExitCode;
     }
 
     NSString* snapshot = [[NSBundle mainBundle] pathForResource:@"application"

@@ -53,6 +53,9 @@ package boundary for a terminal-specific `MTKView`: its build hook, native ABI,
 and implementation remain outside both the application and generic hosts.
 `dart_pty_macos` applies the same dependency-owned model to an AppKit-free,
 bounded asynchronous PTY/process reactor and a deterministic Dart fake backend.
+Application-owned Dart worker entrypoints can be declared as `dartHelpers`;
+the generic builder produces self-contained executables under
+`Contents/Helpers`, while protocol and supervision policy remain in Dart.
 
 - [Roadmap and current position](ROADMAP.md)
 - [Chronological findings and decisions](docs/WORKLOG.md)

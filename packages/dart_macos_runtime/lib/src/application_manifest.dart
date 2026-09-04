@@ -54,6 +54,13 @@ final class MacosNativeAssetManifest {
   final String abiVersionSymbol;
 }
 
+final class MacosDartHelperManifest {
+  const MacosDartHelperManifest({required this.name, required this.entrypoint});
+
+  final String name;
+  final String entrypoint;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -62,6 +69,7 @@ final class MacosApplicationManifest {
     required this.version,
     required this.minimumSystemVersion,
     required this.entrypoint,
+    required this.dartHelpers,
     required this.resources,
     required this.nativeAssets,
     required this.nativeCapabilities,
@@ -88,7 +96,7 @@ final class MacosApplicationManifest {
         'nativeCapabilities',
         'diagnostics',
       },
-      const <String>{'nativeAssets'},
+      const <String>{'dartHelpers', 'nativeAssets'},
       'manifest',
     );
     if (root['schemaVersion'] != 1) {
@@ -140,6 +148,18 @@ final class MacosApplicationManifest {
       _string(dart['entrypoint'], 'dart.entrypoint'),
       'dart.entrypoint',
     );
+    final Object? helperValue = root['dartHelpers'];
+    final List<Object?> helperValues = switch (helperValue) {
+      null => const <Object?>[],
+      final List<Object?> value => value,
+      _ => throw const MacosApplicationManifestException(
+        'manifest.dartHelpers must be an array',
+      ),
+    };
+    final List<MacosDartHelperManifest> dartHelpers = <MacosDartHelperManifest>[
+      for (var index = 0; index < helperValues.length; ++index)
+        _dartHelper(helperValues[index], index),
+    ];
     final List<Object?> resourceValues = switch (root['resources']) {
       final List<Object?> value => value,
       _ => throw const MacosApplicationManifestException(
@@ -193,7 +213,7 @@ final class MacosApplicationManifest {
         'application.bundleIdentifier is invalid',
       );
     }
-    if (!_fileName.hasMatch(executableName)) {
+    if (!_safeFileName(executableName)) {
       throw const MacosApplicationManifestException(
         'application.executableName must contain only letters, digits, ._-',
       );
@@ -207,6 +227,12 @@ final class MacosApplicationManifest {
     if (resources.toSet().length != resources.length) {
       throw const MacosApplicationManifestException(
         'manifest.resources contains a duplicate path',
+      );
+    }
+    if (dartHelpers.map((value) => value.name).toSet().length !=
+        dartHelpers.length) {
+      throw const MacosApplicationManifestException(
+        'manifest.dartHelpers contains a duplicate name',
       );
     }
     if (nativeCapabilities.map((value) => value.id).toSet().length !=
@@ -240,6 +266,7 @@ final class MacosApplicationManifest {
       version: version,
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
+      dartHelpers: List<MacosDartHelperManifest>.unmodifiable(dartHelpers),
       resources: List<String>.unmodifiable(resources),
       nativeAssets: List<MacosNativeAssetManifest>.unmodifiable(nativeAssets),
       nativeCapabilities: List<MacosNativeCapabilityManifest>.unmodifiable(
@@ -268,6 +295,7 @@ final class MacosApplicationManifest {
   final String version;
   final String minimumSystemVersion;
   final String entrypoint;
+  final List<MacosDartHelperManifest> dartHelpers;
   final List<String> resources;
   final List<MacosNativeAssetManifest> nativeAssets;
   final List<MacosNativeCapabilityManifest> nativeCapabilities;
@@ -277,9 +305,30 @@ final class MacosApplicationManifest {
     r'^[A-Za-z0-9][A-Za-z0-9.-]{2,127}$',
   );
   static final RegExp _fileName = RegExp(r'^[A-Za-z0-9._-]+$');
+  static bool _safeFileName(String value) =>
+      value != '.' && value != '..' && _fileName.hasMatch(value);
   static final RegExp _version = RegExp(r'^[A-Za-z0-9][A-Za-z0-9.+-]{0,63}$');
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
+  );
+}
+
+MacosDartHelperManifest _dartHelper(Object? value, int index) {
+  final String path = 'dartHelpers[$index]';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{'name', 'entrypoint'}, path);
+  final String name = _string(object['name'], '$path.name');
+  if (!MacosApplicationManifest._safeFileName(name)) {
+    throw MacosApplicationManifestException(
+      '$path.name must contain only letters, digits, ._-',
+    );
+  }
+  return MacosDartHelperManifest(
+    name: name,
+    entrypoint: _relativePath(
+      _string(object['entrypoint'], '$path.entrypoint'),
+      '$path.entrypoint',
+    ),
   );
 }
 

@@ -1777,3 +1777,47 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Source-inventory search finds no PTY implementation file or `dpty_*` symbol
   in the generic host/runner sources. `git diff --check` passes and the pinned
   official SDK worktree remains clean.
+
+## 2026-09-04 — Declarative Dart helper packaging
+
+- Purpose: remove the last product-specific worker executable assembly from
+  Dart-only macOS applications while keeping worker protocol and lifecycle
+  policy outside the generic runtime.
+- Scope: an optional manifest list of helper name/entrypoint pairs, generic
+  self-contained Dart executable compilation, `Contents/Helpers` staging,
+  build-manifest provenance, validated Dart lookup, and regression coverage.
+- Out of scope: product worker arguments, process supervision, IPC framing,
+  restart policy, and embedding another root isolate in the AppKit host.
+- The helper is deliberately an ordinary executable. This preserves process
+  isolation and lets both root runtime modes use one declarative contract
+  without copying a developer SDK into the application bundle.
+- The PTY facade now also accepts an explicit absolute dylib path. Ordinary
+  `dart run` and `dart test` keep the native-assets mapping path, while custom
+  embedded roots can open the manifest-staged Frameworks image without relying
+  on an SDK tool's launch-time mapping.
+- The first Dart Terminal bundle exposed that the generated root wrapper's
+  expression body could return a `Future`, but could not type-check an ordinary
+  `void main(List<String>)`. The wrapper now invokes the application entrypoint
+  through its function value and awaits the result only when it is a Future,
+  preserving both supported Dart main shapes without an application pragma.
+- Direct `dart compile exe` correctly refused the helper because the product's
+  dependency graph contains build hooks. Helper compilation now uses the same
+  official hook-aware `dart build cli` pipeline as native capability discovery;
+  only the declared helper executable is staged into the application bundle.
+- The first Release AOT product smoke exited cleanly but left diagnostics with
+  `outcome=running`. Unlike the Developer delegate, the generic Release
+  delegate did not complete the shared lifecycle from
+  `applicationWillTerminate`, and AppKit can end the process before `run`
+  returns. Release now calls the same completion hook after bridge/VM shutdown,
+  so final outcome and nonzero requested status are persisted deterministically.
+- The product lifecycle regression also retained a host-start failure case.
+  The generic host now exposes the equivalent product-neutral
+  `DMR_RUNTIME_TEST_HOST_STARTUP_FAILURE` only when the diagnostics test gate is
+  present, in both modes. Native tests cover the gate and real product
+  integration covers the emitted failure, status, and finalized metadata.
+- Final verification: runtime and PTY packages format and analyze cleanly;
+  manifest/builder/facade unit tests pass; native lifecycle tests and both
+  warning-as-error hosts build; the complete repository `make test` passes.
+  The hello-window dependency capability passes real GUI smokes in Developer
+  JIT and Release AOT after these changes. Dart Terminal separately passes both
+  bundle audits and its complete lifecycle/traffic/resource/shutdown matrix.

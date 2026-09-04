@@ -39,6 +39,13 @@ int EffectiveExitCode(int delegate_exit_code) {
              : requested_exit_code.load(std::memory_order_acquire);
 }
 
+bool HostStartupFailureRequested() {
+  const char* gate = std::getenv("DMR_RUNTIME_DIAGNOSTICS_TEST");
+  const char* requested = std::getenv("DMR_RUNTIME_TEST_HOST_STARTUP_FAILURE");
+  return gate != nullptr && requested != nullptr && gate[0] == '1' &&
+         gate[1] == '\0' && requested[0] == '1' && requested[1] == '\0';
+}
+
 void CompleteApplicationTermination(int delegate_exit_code) {
   const int exit_code = EffectiveExitCode(delegate_exit_code);
   RuntimeDiagnosticsFinishActiveSession(exit_code);

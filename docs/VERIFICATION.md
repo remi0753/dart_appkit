@@ -107,6 +107,12 @@ Window close event reached Dart.
 Clean shutdown requested; native handles released.
 ```
 
+The 2026-09-05 regression additionally verifies manifest-declared Dart helper
+compilation/staging/lookup, both `void` and Future-returning application mains,
+explicit bundle-path PTY loading, gated generic host-start failure, and final
+Release diagnostics. Full `make test` and native-capability hello-window GUI
+smokes pass in Developer JIT and Release AOT.
+
 `make run-example` keeps the window open for interactive resize, mouse, and key
 testing. Both this project and the nested Dart checkout are Git working trees.
 The final audit checks the project diff explicitly; the Engine validation

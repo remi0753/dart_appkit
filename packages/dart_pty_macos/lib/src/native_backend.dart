@@ -159,6 +159,95 @@ external int _sessionGetStats(int session, Pointer<_NativeStats> stats);
 )
 external int _sessionDestroy(int session);
 
+typedef _AbiVersionNative = Uint32 Function();
+typedef _AbiVersionDart = int Function();
+typedef _SessionCreateNative = Int32 Function(
+  Pointer<_SessionConfig>,
+  Pointer<Uint64>,
+);
+typedef _SessionCreateDart = int Function(
+  Pointer<_SessionConfig>,
+  Pointer<Uint64>,
+);
+typedef _SessionHandleNative = Int32 Function(Uint64);
+typedef _SessionHandleDart = int Function(int);
+typedef _SessionWriteNative = Int32 Function(Uint64, Pointer<Uint8>, Size);
+typedef _SessionWriteDart = int Function(int, Pointer<Uint8>, int);
+typedef _SessionAckNative = Int32 Function(Uint64, Uint64, Size);
+typedef _SessionAckDart = int Function(int, int, int);
+typedef _SessionResizeNative = Int32 Function(Uint64, Uint16, Uint16);
+typedef _SessionResizeDart = int Function(int, int, int);
+typedef _SessionUint32Native = Int32 Function(Uint64, Uint32);
+typedef _SessionUint32Dart = int Function(int, int);
+typedef _SessionStatsNative = Int32 Function(Uint64, Pointer<_NativeStats>);
+typedef _SessionStatsDart = int Function(int, Pointer<_NativeStats>);
+
+final class _PtyFunctions {
+  _PtyFunctions.nativeAssets()
+    : abiVersion = _nativeAbiVersion,
+      sessionCreate = _sessionCreate,
+      sessionStart = _sessionStart,
+      sessionWrite = _sessionWrite,
+      sessionAckOutput = _sessionAckOutput,
+      sessionResize = _sessionResize,
+      sessionSendSignal = _sessionSendSignal,
+      sessionClose = _sessionClose,
+      sessionGetStats = _sessionGetStats,
+      sessionDestroy = _sessionDestroy;
+
+  _PtyFunctions.dynamic(DynamicLibrary library)
+    : abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
+        'dpty_abi_version',
+      ),
+      sessionCreate = library
+          .lookupFunction<_SessionCreateNative, _SessionCreateDart>(
+            'dpty_session_create',
+          ),
+      sessionStart = library
+          .lookupFunction<_SessionHandleNative, _SessionHandleDart>(
+            'dpty_session_start',
+          ),
+      sessionWrite = library
+          .lookupFunction<_SessionWriteNative, _SessionWriteDart>(
+            'dpty_session_write',
+          ),
+      sessionAckOutput = library
+          .lookupFunction<_SessionAckNative, _SessionAckDart>(
+            'dpty_session_ack_output',
+          ),
+      sessionResize = library
+          .lookupFunction<_SessionResizeNative, _SessionResizeDart>(
+            'dpty_session_resize',
+          ),
+      sessionSendSignal = library
+          .lookupFunction<_SessionUint32Native, _SessionUint32Dart>(
+            'dpty_session_send_signal',
+          ),
+      sessionClose = library
+          .lookupFunction<_SessionUint32Native, _SessionUint32Dart>(
+            'dpty_session_close',
+          ),
+      sessionGetStats = library
+          .lookupFunction<_SessionStatsNative, _SessionStatsDart>(
+            'dpty_session_get_stats',
+          ),
+      sessionDestroy = library
+          .lookupFunction<_SessionHandleNative, _SessionHandleDart>(
+            'dpty_session_destroy',
+          );
+
+  final _AbiVersionDart abiVersion;
+  final _SessionCreateDart sessionCreate;
+  final _SessionHandleDart sessionStart;
+  final _SessionWriteDart sessionWrite;
+  final _SessionAckDart sessionAckOutput;
+  final _SessionResizeDart sessionResize;
+  final _SessionUint32Dart sessionSendSignal;
+  final _SessionUint32Dart sessionClose;
+  final _SessionStatsDart sessionGetStats;
+  final _SessionHandleDart sessionDestroy;
+}
+
 final Map<int, _MacosPtyProcess> _sessions = <int, _MacosPtyProcess>{};
 final NativeCallable<_EventNative> _eventCallback =
     NativeCallable<_EventNative>.listener(_dispatchEvent)
@@ -195,17 +284,7 @@ void _dispatchEvent(
         return;
       }
       final Uint8List bytes = Uint8List.fromList(data.asTypedList(length));
-      final int status = _sessionAckOutput(session, sequence, length);
-      if (status != _statusOk) {
-        process._didFail(
-          PtyException(
-            'native PTY output acknowledgement failed',
-            status: status,
-          ),
-        );
-        return;
-      }
-      process._didOutput(bytes);
+      process._didOutput(sequence, bytes);
       return;
     case _eventExit:
       process._didExit(value1, value2);
@@ -246,9 +325,27 @@ Future<PtyProcess> startPty(
 }
 
 final class MacosPtyBackend implements PtyBackend {
-  MacosPtyBackend._();
+  MacosPtyBackend._(this._functions);
 
-  static final MacosPtyBackend shared = MacosPtyBackend._();
+  static final MacosPtyBackend shared = MacosPtyBackend._(
+    _PtyFunctions.nativeAssets(),
+  );
+
+  factory MacosPtyBackend.open(String libraryPath) {
+    final File library = File(libraryPath);
+    if (!library.isAbsolute || !library.existsSync()) {
+      throw ArgumentError.value(
+        libraryPath,
+        'libraryPath',
+        'must name an existing absolute dylib path',
+      );
+    }
+    return MacosPtyBackend._(
+      _PtyFunctions.dynamic(DynamicLibrary.open(library.path)),
+    );
+  }
+
+  final _PtyFunctions _functions;
 
   @override
   Future<PtyProcess> start(
@@ -261,7 +358,7 @@ final class MacosPtyBackend implements PtyBackend {
     if (!Platform.isMacOS) {
       throw UnsupportedError('dart_pty_macos requires macOS');
     }
-    if (_nativeAbiVersion() != _abiVersion) {
+    if (_functions.abiVersion() != _abiVersion) {
       throw const PtyException('native PTY ABI version mismatch');
     }
     if (readHighWaterBytes <= 0 ||
@@ -327,21 +424,24 @@ final class MacosPtyBackend implements PtyBackend {
         ..callback = _eventCallback.nativeFunction
         ..callbackContext = nullptr;
       final Pointer<Uint64> output = arena<Uint64>();
-      final int createStatus = _sessionCreate(config, output);
+      final int createStatus = _functions.sessionCreate(config, output);
       if (createStatus != _statusOk || output.value == 0) {
         throw PtyException(
           'native PTY session creation failed',
           status: createStatus,
         );
       }
-      final _MacosPtyProcess process = _MacosPtyProcess(output.value);
+      final _MacosPtyProcess process = _MacosPtyProcess(
+        output.value,
+        _functions,
+      );
       _sessions[output.value] = process;
       _refreshCallbackKeepAlive();
-      final int startStatus = _sessionStart(output.value);
+      final int startStatus = _functions.sessionStart(output.value);
       if (startStatus != _statusOk) {
         _sessions.remove(output.value);
         _refreshCallbackKeepAlive();
-        _sessionDestroy(output.value);
+        _functions.sessionDestroy(output.value);
         throw PtyException(
           'native PTY session start failed',
           status: startStatus,
@@ -356,9 +456,10 @@ final class MacosPtyBackend implements PtyBackend {
 }
 
 final class _MacosPtyProcess implements PtyProcess {
-  _MacosPtyProcess(this._handle);
+  _MacosPtyProcess(this._handle, this._functions);
 
   final int _handle;
+  final _PtyFunctions _functions;
   final Completer<void> _started = Completer<void>();
   final Completer<PtyExit> _exit = Completer<PtyExit>();
   final StreamController<Uint8List> _output = StreamController<Uint8List>(
@@ -390,7 +491,11 @@ final class _MacosPtyProcess implements PtyProcess {
     final Pointer<Uint8> nativeBytes = malloc<Uint8>(bytes.length);
     try {
       nativeBytes.asTypedList(bytes.length).setAll(0, bytes);
-      final int status = _sessionWrite(_handle, nativeBytes, bytes.length);
+      final int status = _functions.sessionWrite(
+        _handle,
+        nativeBytes,
+        bytes.length,
+      );
       if (status == _statusBackpressured) {
         return PtyWriteResult.backpressured;
       }
@@ -405,7 +510,7 @@ final class _MacosPtyProcess implements PtyProcess {
   void resize(PtySize size) {
     _requireRunning();
     _checkStatus(
-      _sessionResize(_handle, size.rows, size.columns),
+      _functions.sessionResize(_handle, size.rows, size.columns),
       'PTY resize',
     );
   }
@@ -413,7 +518,10 @@ final class _MacosPtyProcess implements PtyProcess {
   @override
   void sendSignal(PtySignal signal) {
     _requireRunning();
-    _checkStatus(_sessionSendSignal(_handle, signal.index + 1), 'PTY signal');
+    _checkStatus(
+      _functions.sessionSendSignal(_handle, signal.index + 1),
+      'PTY signal',
+    );
   }
 
   @override
@@ -429,7 +537,7 @@ final class _MacosPtyProcess implements PtyProcess {
         'must be between zero and 60 seconds',
       );
     }
-    _checkStatus(_sessionClose(_handle, milliseconds), 'PTY close');
+    _checkStatus(_functions.sessionClose(_handle, milliseconds), 'PTY close');
   }
 
   @override
@@ -457,7 +565,21 @@ final class _MacosPtyProcess implements PtyProcess {
     _started.complete();
   }
 
-  void _didOutput(Uint8List bytes) {
+  void _didOutput(int sequence, Uint8List bytes) {
+    final int status = _functions.sessionAckOutput(
+      _handle,
+      sequence,
+      bytes.length,
+    );
+    if (status != _statusOk) {
+      _didFail(
+        PtyException(
+          'native PTY output acknowledgement failed',
+          status: status,
+        ),
+      );
+      return;
+    }
     if (!_finished) {
       _output.add(bytes);
     }
@@ -469,7 +591,7 @@ final class _MacosPtyProcess implements PtyProcess {
     }
     _finished = true;
     _finalStats = _readStats();
-    final int destroyStatus = _sessionDestroy(_handle);
+    final int destroyStatus = _functions.sessionDestroy(_handle);
     _sessions.remove(_handle);
     _refreshCallbackKeepAlive();
     if (destroyStatus != _statusOk) {
@@ -497,7 +619,7 @@ final class _MacosPtyProcess implements PtyProcess {
     _finalStats = _readStats();
     _sessions.remove(_handle);
     _refreshCallbackKeepAlive();
-    _sessionDestroy(_handle);
+    _functions.sessionDestroy(_handle);
     final bool failedBeforeStart = !_started.isCompleted;
     if (failedBeforeStart) {
       _started.completeError(error);
@@ -515,7 +637,7 @@ final class _MacosPtyProcess implements PtyProcess {
       stats.ref
         ..structSize = sizeOf<_NativeStats>()
         ..abiVersion = _abiVersion;
-      if (_sessionGetStats(_handle, stats) != _statusOk) {
+      if (_functions.sessionGetStats(_handle, stats) != _statusOk) {
         return null;
       }
       return PtyStats(

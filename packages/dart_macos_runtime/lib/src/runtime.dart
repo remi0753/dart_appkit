@@ -159,6 +159,29 @@ abstract final class MacosRuntime {
     return library.absolute.path;
   }
 
+  static String bundleHelperPath(
+    String helperName, {
+    String? resolvedExecutable,
+  }) {
+    if (!_helperName.hasMatch(helperName)) {
+      throw const MacosRuntimeException(
+        'bundle helper name contains invalid characters',
+      );
+    }
+    final File executable = File(
+      resolvedExecutable ?? Platform.resolvedExecutable,
+    ).absolute;
+    final File helper = executable.parent.parent
+        .childDirectory('Helpers')
+        .childFile(helperName);
+    if (!helper.existsSync()) {
+      throw MacosRuntimeException(
+        'declared bundle helper does not exist: $helperName',
+      );
+    }
+    return helper.absolute.path;
+  }
+
   static void _checkStatus(int status, String operation) {
     if (status != 0) {
       throw MacosRuntimeException('could not $operation', status: status);
@@ -186,6 +209,7 @@ abstract final class MacosRuntime {
 }
 
 final RegExp _libraryName = RegExp(r'^lib[A-Za-z0-9._-]+\.dylib$');
+final RegExp _helperName = RegExp(r'^[A-Za-z0-9._-]+$');
 
 extension on Directory {
   Directory childDirectory(String name) =>

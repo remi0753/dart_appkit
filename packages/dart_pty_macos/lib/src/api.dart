@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+const String dartPtyMacosLibraryName = 'libdart_pty_macos.dylib';
+
 final class PtyException implements Exception {
   const PtyException(this.message, {this.status, this.systemError});
 
