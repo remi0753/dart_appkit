@@ -110,6 +110,10 @@ EXAMPLE_VIEW_PLUGIN_LIBRARY := \
 	$(NATIVE_BUILD_DIR)/libdart_appkit_example_view.dylib
 NATIVE_CAPABILITY_LOADER_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/native_capability_loader_tests
+TERMINAL_RENDERER_PLUGIN_LIBRARY := \
+	$(NATIVE_BUILD_DIR)/libdart_terminal_renderer_macos.dylib
+TERMINAL_RENDERER_TEST_BINARY := \
+	$(NATIVE_BUILD_DIR)/terminal_renderer_capability_tests
 
 PUBLIC_HOST_PROBE_BUILD_DIR := $(BUILD_DIR)/public-dart-api-host
 PUBLIC_HOST_PROBE_SOURCE := \
@@ -145,7 +149,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-contract-check terminal-renderer-native-test terminal-renderer-dart-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -164,6 +168,8 @@ help:
 	@echo "  make runtime-aot-runner  Build the generic Release AOT host"
 	@echo "  make runtime-dart-test   Analyze and test dart_macos_runtime"
 	@echo "  make native-capability-loader-test  Test dynamic view capability"
+	@echo "  make terminal-renderer-native-test  Test terminal renderer capability"
+	@echo "  make terminal-renderer-dart-test  Test renderer build hook asset"
 	@echo "  make example-view-dart-test  Test the dependency build hook asset"
 	@echo "  make dart-test      Analyze and test the Dart package"
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"
@@ -375,6 +381,47 @@ native-capability-loader-test: $(EXAMPLE_VIEW_PLUGIN_LIBRARY) \
 		$(NATIVE_CAPABILITY_LOADER_TEST_BINARY)
 	@$(NATIVE_CAPABILITY_LOADER_TEST_BINARY) $(EXAMPLE_VIEW_PLUGIN_LIBRARY)
 
+terminal-renderer-contract-check:
+	@$(CLANG) $(COMMON_FLAGS) -std=c11 \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
+		-fsyntax-only \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/test/header_compile.c
+	@$(CLANGXX) $(COMMON_FLAGS) -std=c++20 \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
+		-fsyntax-only \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/test/header_compile.cc
+
+$(TERMINAL_RENDERER_PLUGIN_LIBRARY): \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.h \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.m \
+		$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
+		$(PROJECT_ROOT)/native/bridge/include/dart_appkit_native_extension.h
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -dynamiclib \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.m \
+		-framework AppKit -framework Metal -framework MetalKit \
+		-Wl,-install_name,@rpath/libdart_terminal_renderer_macos.dylib -o $@
+
+$(TERMINAL_RENDERER_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.h \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/test/TerminalRendererCapabilityTests.mm
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/native/bridge/src \
+		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
+		$(BRIDGE_SOURCES) \
+		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/test/TerminalRendererCapabilityTests.mm \
+		$(APPKIT_LIBS) -framework Metal -framework MetalKit -o $@
+
+terminal-renderer-native-test: terminal-renderer-contract-check \
+		$(TERMINAL_RENDERER_PLUGIN_LIBRARY) $(TERMINAL_RENDERER_TEST_BINARY)
+	@$(TERMINAL_RENDERER_TEST_BINARY) $(TERMINAL_RENDERER_PLUGIN_LIBRARY)
+
 $(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
 		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
@@ -426,6 +473,12 @@ example-view-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart pub get
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart analyze
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && \
+		dart run test/native_asset_test.dart
+
+terminal-renderer-dart-test:
+	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && dart pub get
+	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && dart analyze
+	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && \
 		dart run test/native_asset_test.dart
 
 dart-test:
@@ -535,7 +588,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-dart-test example-view-dart-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-native-test runtime-dart-test example-view-dart-test terminal-renderer-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \

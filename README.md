@@ -48,7 +48,9 @@ turns a strict JSON application manifest plus a Dart `main(List<String>)` into
 the same generic AppKit-main application in Developer JIT or Release AOT form.
 The application does not compile a runner or depend on native implementation
 paths. `dart_appkit:run` remains available as the compatible lightweight JIT
-developer command.
+developer command. `dart_terminal_renderer_macos` demonstrates the production
+package boundary for a terminal-specific `MTKView`: its build hook, native ABI,
+and implementation remain outside both the application and generic hosts.
 
 - [Roadmap and current position](ROADMAP.md)
 - [Chronological findings and decisions](docs/WORKLOG.md)
@@ -167,6 +169,7 @@ native/bridge/          Stable C ABI and AppKit object implementation
 packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
 packages/dart_macos_runtime/ Manifest, host facade, and application builder
 packages/dart_appkit_example_view/ Build-hook native capability proof
+packages/dart_terminal_renderer_macos/ Terminal MTKView native capability
 examples/hello_window/  Timer, events, close, and shutdown proof
 scripts/                SDK/Engine validation and Engine build helper
 docs/                   Architecture, ABI, verification, and work log

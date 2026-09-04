@@ -23,7 +23,9 @@ The repository now exposes two logical packages with a one-way dependency:
 ```text
 Dart application + macos_application.json
 ├─ imports dart_appkit for reusable UI primitives
-└─ uses dart_macos_runtime for host services and packaging
+├─ uses dart_macos_runtime for host services and packaging
+└─ optionally imports native capability Dart facades
+   └─ dart_terminal_renderer_macos owns TerminalMetalView
 
 dart_macos_runtime
 ├─ generic Developer JIT and Release AOT hosts
@@ -35,8 +37,8 @@ dart_appkit
 ```
 
 Terminal workers, PTY behavior, rendering, and product recovery policy do not
-enter either generic host. Native capability loading is the next additive
-runtime boundary.
+enter either generic host. The terminal renderer shell is a separate native
+capability; PTY and application policy retain their independent owners.
 
 ## Startup sequence
 
@@ -247,6 +249,14 @@ the builder invokes Dart 3.13's official `dart build cli` hook pipeline for the
 same package graph and target, selects only those declared output images, stages
 them in Frameworks, and records the exact declarations in the runtime build
 manifest. Capability source never enters the generic host compile source list.
+
+`dart_terminal_renderer_macos` applies this boundary to the accepted terminal
+view shell. Its `dtr_*` ABI registers the existing
+`dart_terminal.TerminalMetalView` provider name, while its Dart facade owns
+capability initialization and view creation. The implementation is a paused,
+on-demand, framebuffer-only, top-left-coordinate `MTKView`; future terminal
+grid, CoreText, atlas, and shader behavior stays in that capability rather than
+moving into `dart_appkit` or `dart_macos_runtime`.
 
 Developer JIT stages `application.dill` with the release Engine library;
 Release AOT stages a Mach-O `application.aot` snapshot with the product Engine

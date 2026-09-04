@@ -283,6 +283,23 @@ Exit criteria:
 - Developer JIT and Release AOT hello-window integrations pass with the same
   plugin and public Dart facade.
 
+### [x] T11 — Terminal renderer native capability package
+
+Scope:
+
+- Add `dart_terminal_renderer_macos` as a dependency-owned native capability.
+- Move the accepted `TerminalMetalView` shell and its native contract tests
+  behind the versioned AppKit extension service table.
+- Expose initialization and view creation only through a public Dart facade.
+
+Exit criteria:
+
+- The package build hook produces a loadable macOS dylib with a versioned ABI.
+- Native and Dart tests cover initialization, provider creation, AppKit view
+  invariants, attachment, ownership, teardown, and image lifetime.
+- The implementation does not become part of generic runtime or AppKit host
+  source inventories.
+
 ## Beyond this MVP
 
 VM Service, incremental Kernel compilation, hot restart/reload, CoreText terminal

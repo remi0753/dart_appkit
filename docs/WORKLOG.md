@@ -1650,3 +1650,56 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   window close, handle release, and exit 0 through the same Dart facade. Both
   stage only the declared hook dylib; deep code-signature verification passes.
   The official Engine checkout remains clean at the pinned revision.
+
+## 2026-09-04 — Terminal renderer native capability package
+
+- Purpose: move the accepted terminal-specific `MTKView` shell out of the Dart
+  Terminal application repository and into a dependency-owned native capability
+  that can later own CoreText/Metal rendering resources without enlarging the
+  generic AppKit or runtime layers.
+- Scope: one `dart_terminal_renderer_macos` Dart package, versioned plugin ABI,
+  Objective-C view implementation, build hook, Dart initialization/view
+  facade, native contract tests, native-asset test, and documentation.
+- Out of scope: terminal grid semantics, glyph shaping, atlas management,
+  render submission, shaders, input/IME, and switching Dart Terminal's product
+  build to the new package; that compatibility migration remains the final
+  ordered packaging task.
+- Dependencies: completed native capability contract `10f5425`, public
+  `dart_appkit` view handles, and `dart_macos_runtime` process-lifetime image
+  retention.
+- Completion requires package-local formatting/analysis/build-hook checks,
+  warning-clean native tests for view creation/attachment/release, complete
+  `dart_appkit` regression, clean source inventories, and reviewed repository
+  state.
+- Initial fact: the existing `TerminalMetalView` is a paused, on-demand,
+  framebuffer-only, flipped `MTKView` with autoresizing enabled and no delegate.
+  It currently registers its class directly against an AppKit C++ helper and
+  contains no terminal grid or GPU submission semantics.
+- Migration decision: preserve provider identifier
+  `dart_terminal.TerminalMetalView` for compatibility, but give the package its
+  own `dtr_*` ABI and register a retained-view factory through
+  `da_native_extension_services_v1`. The Dart facade is the only consumer entry
+  point; application code does not receive Objective-C pointers.
+- Added the package-owned Objective-C view, C-compatible ABI header, Dart 3.13
+  build hook, `TerminalRendererMacos` facade, native-asset probe, and dynamic
+  loading contract test. Generic host and AppKit bridge source inventories did
+  not gain renderer implementation files.
+- The first native ownership run expected the `MTKView` live count to reach
+  zero synchronously when its hidden test window was released. AppKit defers
+  part of `MTKView` teardown through its main run loop. The final contract now
+  verifies handle invalidation and window retention synchronously, replaces the
+  content view through the public API, drains one bounded main-loop turn, then
+  requires zero renderer instances. This preserves the leak gate without
+  encoding an invalid immediate-deallocation assumption.
+- Focused C11/C++20 header compilation, warning-as-error Objective-C/native
+  tests, Dart analysis, actual build-hook dylib generation, and native asset
+  symbol calls pass.
+- The complete `make test` regression passes, including bridge, Runner shell,
+  message pump, event encoder, lifecycle, diagnostics, both native capability
+  suites, runtime builder, all Dart APIs, example Kernel, real FFI, and legacy
+  compatibility. The renderer dylib exports only `dtr_abi_version`,
+  `dtr_initialize`, and the test diagnostic `dtr_debug_live_view_count` from
+  project code.
+- Source-inventory search confirms that renderer symbols and implementation do
+  not occur in generic runtime, generic runner, or `dart_macos_runtime` source.
+  `git diff --check` passes and the official nested SDK remains clean.
