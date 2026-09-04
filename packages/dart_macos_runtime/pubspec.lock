@@ -4,14 +4,7 @@ packages:
   dart_appkit:
     dependency: "direct main"
     description:
-      path: "../../packages/dart_appkit"
-      relative: true
-    source: path
-    version: "0.1.0-dev.1"
-  dart_macos_runtime:
-    dependency: "direct main"
-    description:
-      path: "../../packages/dart_macos_runtime"
+      path: "../dart_appkit"
       relative: true
     source: path
     version: "0.1.0-dev.1"

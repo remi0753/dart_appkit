@@ -1,0 +1,14 @@
+name: dart_macos_runtime
+description: A reusable stock-Dart host and macOS application bundle builder.
+version: 0.1.0-dev.1
+publish_to: none
+
+environment:
+  sdk: '>=3.13.2 <3.14.0'
+
+executables:
+  build:
+
+dependencies:
+  dart_appkit:
+    path: ../dart_appkit

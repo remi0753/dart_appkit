@@ -1522,3 +1522,70 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   official SDK remains clean at
   `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`. Consuming-product verification
   remains in the ordered Dart Terminal subtasks.
+
+## 2026-09-04 — Reusable macOS JIT/AOT application runtime
+
+- Purpose: turn the accepted stock AppKit/Dart host into a reusable
+  `dart_macos_runtime` package so consuming application repositories do not
+  compile native runner code or dependency internals.
+- Scope: a separate Dart package; a declarative application manifest; common
+  lifecycle, bundle-resource, and configurable diagnostics contracts; generic
+  Developer JIT and Release AOT host sources; bundle assembly and focused
+  tests. Existing `dart_appkit:run` behavior remains compatible during the
+  additive migration.
+- Out of scope: terminal worker protocol and recovery, PTY, terminal renderer,
+  native-plugin registration, signing/notarization completion, and later
+  platform features.
+- Dependencies: the pinned unmodified Dart 3.13.2 Engine, the existing AppKit
+  bridge/event encoder/message pump, and the Phase 1 product evidence in the
+  adjacent Dart Terminal repository.
+- Completion requires format/analysis/unit/native contract checks, generic JIT
+  and AOT host compilation against official inputs, manifest-driven
+  hello-window smoke in both modes, existing suite compatibility, clean SDK,
+  and reviewed repository state.
+- Initial risk: the current Release AOT host interleaves generic host behavior
+  with terminal diagnostics, worker-resource injection, custom-view
+  registration, and product failure gates. The reusable host must reconstruct
+  the accepted teardown order without copying those policies.
+- Initial repository state is clean at `52ddd2c`; local `main` is one commit
+  ahead of `origin/main`. The adjacent Dart Terminal plan and ownership ADR are
+  committed at `2602891` and `ec85382` respectively.
+- Added a separate `packages/dart_macos_runtime` package. Its exact-key JSON
+  manifest owns product name, executable, identifier, version, minimum macOS,
+  Dart entrypoint, declared resources, and diagnostics enablement/storage name.
+  Absolute, empty, duplicate, dot-segment, backslash, and runtime-reserved
+  resource paths are rejected before bundle mutation.
+- The builder validates the exact Dart 3.13.2 SDK/revision, selects the matching
+  official Release or Product Engine output for the host architecture, builds
+  only a generic host target, compiles linked Kernel, creates the AOT Mach-O
+  snapshot when selected, stages a fixed bundle layout and SDK license, emits a
+  bounded build manifest, applies an ad-hoc signature, and optionally launches
+  with inherited stdio and direct arguments.
+- The first Release AOT smoke reached the native host but `Dart_Invoke` could
+  not find `main`: the AOT compiler had correctly tree-shaken an entrypoint
+  retained only by native name lookup. Requiring product code to add a VM pragma
+  would leak embedder policy into every application. The builder now generates
+  a private `@pragma('vm:entry-point')` wrapper importing the ordinary
+  `main(List<String>)`; both build modes compile that wrapper.
+- Added independent `dmr_*` lifecycle and diagnostics ABIs. Lifecycle accepts
+  any nonzero process result representable by the portable 1–255 exit range,
+  is AppKit-main-only, preserves the first result, and queues termination.
+  Diagnostics are manifest-disabled by default, use generic metadata identity,
+  validate all persisted fields, write 0700/0600 atomically, enforce monotonic
+  phases, and retain at most current plus one prior unclean record.
+- `MacosRuntime` validates host ABI, exposes lifecycle and phase calls, and
+  resolves declared bundle resources using normalized relative names. The
+  application receives no Objective-C pointer, native source path, or mutable
+  runner configuration.
+- Native C11/C++20 header checks, lifecycle tests, and diagnostics tests pass.
+  Both generic hosts compile warning-clean against the unmodified official
+  Engine. Package format, analysis, strict manifest tests, runtime facade tests,
+  and fake-process JIT/AOT bundle tests pass.
+- `make test` passes the complete pre-existing bridge, Runner, message-pump,
+  event, Dart API, legacy launcher, example Kernel, real FFI, and compatibility
+  fixture suites together with the new runtime tests.
+- Real manifest-driven hello-window GUI smokes pass in Developer JIT and Release
+  AOT. Each reports root attachment, two Timer ticks, the Dart menu action,
+  deferred close request/reply, window close, handle release, and exit 0. The
+  official nested SDK remains clean at
+  `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.

@@ -43,6 +43,13 @@ host was tested in ARM64 JIT and AOT and rejected because Dart's platform,
 microtask, and worker bootstrap is not exposed by the stock shared library; no
 private Dart implementation is copied or called to fill that gap.
 
+The repository also contains the separate `dart_macos_runtime` package. It
+turns a strict JSON application manifest plus a Dart `main(List<String>)` into
+the same generic AppKit-main application in Developer JIT or Release AOT form.
+The application does not compile a runner or depend on native implementation
+paths. `dart_appkit:run` remains available as the compatible lightweight JIT
+developer command.
+
 - [Roadmap and current position](ROADMAP.md)
 - [Chronological findings and decisions](docs/WORKLOG.md)
 - [Final verification matrix](docs/VERIFICATION.md)
@@ -69,6 +76,18 @@ Then launch an unattended three-second smoke test or an interactive window:
 ```shell
 make example-smoke
 make run-example
+```
+
+Build the same example through the reusable manifest-driven runtime:
+
+```shell
+cd examples/hello_window
+dart run dart_macos_runtime:build \
+  --manifest macos_application.json --mode developer-jit --run \
+  -- --auto-close-after=3
+dart run dart_macos_runtime:build \
+  --manifest macos_application.json --mode release-aot --run \
+  -- --auto-close-after=3
 ```
 
 No Engine exports are required for the default project-local checkout. The
@@ -140,16 +159,18 @@ is an architectural conformance target, not a production host.
 ## Layout
 
 ```text
-native/runner/          NSApplication, Dart host, bounded message pump
+native/runner/          Original compatible JIT host and bounded message pump
+native/runtime/         Generic lifecycle, diagnostics, and JIT/AOT hosts
 native/bridge/          Stable C ABI and AppKit object implementation
 packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
+packages/dart_macos_runtime/ Manifest, host facade, and application builder
 examples/hello_window/  Timer, events, close, and shutdown proof
 scripts/                SDK/Engine validation and Engine build helper
 docs/                   Architecture, ABI, verification, and work log
 ```
 
-Signing, sandboxing, AOT distribution, VM Service, hot reload, widgets, and a
-terminal renderer are intentionally outside this MVP.
+Production identity signing/notarization, sandboxing, VM Service, hot reload,
+widgets, and terminal capabilities remain outside this repository layer.
 
 ## License
 

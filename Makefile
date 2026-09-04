@@ -16,6 +16,7 @@ else
 DART_ENGINE_RELEASE_ARCH := UNSUPPORTED
 endif
 DART_ENGINE_LIBRARY ?= $(DART_ENGINE_ROOT)/xcodebuild/Release$(DART_ENGINE_RELEASE_ARCH)/libdart_engine_jit_shared.dylib
+DART_ENGINE_AOT_LIBRARY ?= $(DART_ENGINE_ROOT)/xcodebuild/Product$(DART_ENGINE_RELEASE_ARCH)/libdart_engine_aot_shared.dylib
 
 CLANG := $(shell xcrun --find clang)
 CLANGXX := $(shell xcrun --find clang++)
@@ -76,6 +77,35 @@ RUNNER_ARGUMENT_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_argument_tests
 RUNNER_SHELL_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_shell_test
 RUNNER_BINARY := $(NATIVE_BUILD_DIR)/dart_appkit_runner
 
+RUNTIME_HEADERS := \
+	$(PROJECT_ROOT)/native/runtime/include/dart_macos_runtime.h \
+	$(PROJECT_ROOT)/native/runtime/ReleaseAotHost.h \
+	$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.h \
+	$(PROJECT_ROOT)/native/runtime/RuntimeLifecycle.h
+RUNTIME_COMMON_SOURCES := \
+	$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.mm \
+	$(PROJECT_ROOT)/native/runtime/RuntimeLifecycle.mm
+RUNTIME_JIT_SOURCES := \
+	$(PROJECT_ROOT)/native/runtime/DeveloperJitRunner.mm \
+	$(PROJECT_ROOT)/native/runner/AppDelegate.mm \
+	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
+	$(PROJECT_ROOT)/native/runner/DartHost.mm \
+	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
+	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc \
+	$(RUNTIME_COMMON_SOURCES)
+RUNTIME_AOT_SOURCES := \
+	$(PROJECT_ROOT)/native/runtime/ReleaseAotRunner.mm \
+	$(PROJECT_ROOT)/native/runtime/ReleaseAotHost.mm \
+	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
+	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
+	$(RUNTIME_COMMON_SOURCES)
+RUNTIME_JIT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_developer
+RUNTIME_AOT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_release
+RUNTIME_LIFECYCLE_TEST_BINARY := \
+	$(NATIVE_BUILD_DIR)/runtime_lifecycle_tests
+RUNTIME_DIAGNOSTICS_TEST_BINARY := \
+	$(NATIVE_BUILD_DIR)/runtime_diagnostics_tests
+
 PUBLIC_HOST_PROBE_BUILD_DIR := $(BUILD_DIR)/public-dart-api-host
 PUBLIC_HOST_PROBE_SOURCE := \
 	$(PROJECT_ROOT)/native/runner/PublicDartApiHostProbe.cc
@@ -110,7 +140,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test runtime-jit-runner runtime-aot-runner runtime-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -125,6 +155,9 @@ help:
 	@echo "  make message-pump-test  Test bounded main-run-loop Dart scheduling"
 	@echo "  make event-encoder-test  Test versioned native event serialization"
 	@echo "  make runner         Build the embedded Dart/AppKit Runner"
+	@echo "  make runtime-jit-runner  Build the generic Developer JIT host"
+	@echo "  make runtime-aot-runner  Build the generic Release AOT host"
+	@echo "  make runtime-dart-test   Analyze and test dart_macos_runtime"
 	@echo "  make dart-test      Analyze and test the Dart package"
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"
 	@echo "  make example-smoke  Launch hello-window and close it automatically"
@@ -141,6 +174,16 @@ contract-check:
 		-fsyntax-only $(PROJECT_ROOT)/native/bridge/test/header_compile.c
 	@$(CLANGXX) $(COMMON_FLAGS) -std=c++20 -I$(PROJECT_ROOT)/native/bridge/include \
 		-fsyntax-only $(PROJECT_ROOT)/native/bridge/test/header_compile.cc
+	@$(MAKE) runtime-contract-check
+
+runtime-contract-check:
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	@$(CLANG) $(COMMON_FLAGS) -std=c11 \
+		-I$(PROJECT_ROOT)/native/runtime/include -fsyntax-only \
+		$(PROJECT_ROOT)/native/runtime/test/header_compile.c
+	@$(CLANGXX) $(COMMON_FLAGS) -std=c++20 \
+		-I$(PROJECT_ROOT)/native/runtime/include -fsyntax-only \
+		$(PROJECT_ROOT)/native/runtime/test/header_compile.cc
 
 engine:
 	@$(PROJECT_ROOT)/scripts/bootstrap_dart_engine.sh
@@ -266,6 +309,83 @@ $(RUNNER_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
 
 runner: engine-check $(RUNNER_BINARY)
 
+$(RUNTIME_LIFECYCLE_TEST_BINARY): $(RUNTIME_HEADERS) \
+		$(PROJECT_ROOT)/native/runtime/RuntimeLifecycle.mm \
+		$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.mm \
+		$(PROJECT_ROOT)/native/runtime/test/RuntimeLifecycleTests.mm
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-I$(PROJECT_ROOT)/native/runtime/include \
+		-I$(PROJECT_ROOT)/native/runtime \
+		$(PROJECT_ROOT)/native/runtime/RuntimeLifecycle.mm \
+		$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.mm \
+		$(PROJECT_ROOT)/native/runtime/test/RuntimeLifecycleTests.mm \
+		$(APPKIT_LIBS) -o $@
+
+runtime-lifecycle-test: $(RUNTIME_LIFECYCLE_TEST_BINARY)
+	@$(RUNTIME_LIFECYCLE_TEST_BINARY)
+
+$(RUNTIME_DIAGNOSTICS_TEST_BINARY): $(RUNTIME_HEADERS) \
+		$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.mm \
+		$(PROJECT_ROOT)/native/runtime/test/RuntimeDiagnosticsTests.mm
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-I$(PROJECT_ROOT)/native/runtime/include \
+		-I$(PROJECT_ROOT)/native/runtime \
+		$(PROJECT_ROOT)/native/runtime/RuntimeDiagnostics.mm \
+		$(PROJECT_ROOT)/native/runtime/test/RuntimeDiagnosticsTests.mm \
+		-framework Foundation -o $@
+
+runtime-diagnostics-test: $(RUNTIME_DIAGNOSTICS_TEST_BINARY)
+	@$(RUNTIME_DIAGNOSTICS_TEST_BINARY)
+
+$(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
+		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY)
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
+		-DDA_DART_ENGINE_REVISION=\"$(shell git -C $(DART_ENGINE_ROOT) rev-parse HEAD)\" \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/native/bridge/src \
+		-I$(PROJECT_ROOT)/native/runner \
+		-I$(PROJECT_ROOT)/native/runtime/include \
+		-I$(PROJECT_ROOT)/native/runtime \
+		-I$(DART_ENGINE_ROOT)/runtime \
+		-I$(DART_ENGINE_ROOT)/runtime/engine \
+		$(BRIDGE_SOURCES) $(RUNTIME_JIT_SOURCES) \
+		$(DART_ENGINE_LIBRARY) $(APPKIT_LIBS) \
+		-Wl,-rpath,@executable_path/../Frameworks \
+		-Wl,-export_dynamic -o $@
+
+runtime-jit-runner: engine-check $(RUNTIME_JIT_BINARY)
+
+$(RUNTIME_AOT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
+		$(RUNNER_HEADERS) $(RUNTIME_HEADERS) $(RUNTIME_AOT_SOURCES) \
+		$(DART_ENGINE_AOT_LIBRARY)
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
+		-DDMR_DART_SDK_VERSION=\"$(shell cat $(DART_SDK)/version)\" \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/native/bridge/src \
+		-I$(PROJECT_ROOT)/native/runner \
+		-I$(PROJECT_ROOT)/native/runtime/include \
+		-I$(PROJECT_ROOT)/native/runtime \
+		-I$(DART_ENGINE_ROOT)/runtime \
+		-I$(DART_ENGINE_ROOT)/runtime/engine \
+		$(BRIDGE_SOURCES) $(RUNTIME_AOT_SOURCES) \
+		$(DART_ENGINE_AOT_LIBRARY) $(APPKIT_LIBS) \
+		-Wl,-rpath,@executable_path/../Frameworks \
+		-Wl,-export_dynamic -o $@
+
+runtime-aot-runner: engine-check $(RUNTIME_AOT_BINARY)
+
+runtime-dart-test:
+	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart pub get
+	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart analyze
+	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && \
+		dart run test/run_tests.dart
+
 dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_appkit && dart pub get
 	@cd $(PROJECT_ROOT)/packages/dart_appkit && dart analyze
@@ -373,7 +493,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test runtime-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \

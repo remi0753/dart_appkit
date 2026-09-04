@@ -22,8 +22,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 
 ## Current position
 
-- Active task: **none; the stock-runtime host decision is complete**
-- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8**
+- Active task: **T10 — versioned native capability loading**
+- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8, T9**
 - Engine acceptance gate: **official source only**. Dart Engine source changes,
   candidate commits, and downstream patches are prohibited. The stock Dart
   3.13.2 Engine is pinned at revision
@@ -33,9 +33,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 - Selected topology: one stock Engine root for the AppKit process lifetime.
   The full public `dart_api.h` host was rejected by M1/arm64 JIT and AOT
   evidence because required platform/microtask bootstrap is private.
-- Next concrete milestone: Dart Terminal implements its already validated
-  official Dart JIT/AOT process workers; this repository does not own that
-  product-specific protocol, recovery, or packaging.
+- Next concrete milestone: prove dependency-owned native view plugins without
+  compiling their Objective-C++ implementation into the generic host.
 
 ## Detailed tasks
 
@@ -244,6 +243,45 @@ Exit criteria:
   earlier alternative was accepted or rejected.
 - The configured official Engine and worker inputs are reproducible from their
   published sources without a private fork or unpublished commit.
+
+### [x] T9 — Reusable macOS JIT/AOT application runtime
+
+Scope:
+
+- Add a separate `dart_macos_runtime` Dart package and generic native runtime
+  sources while keeping `dart_appkit` focused on reusable AppKit primitives.
+- Provide one declarative application manifest, common lifecycle/resource API,
+  configurable diagnostics, and Developer JIT / Release AOT bundle assembly.
+- Preserve the stock Dart Engine, AppKit-main-thread root, bounded message pump,
+  public bridge, and process-lifetime shutdown contracts.
+- Keep terminal worker protocol, PTY behavior, and terminal rendering outside
+  this repository.
+
+Exit criteria:
+
+- The runtime package's format, analysis, unit, native-header, lifecycle,
+  diagnostics, and manifest tests pass.
+- Generic host sources build against the pinned official JIT and AOT Engine
+  inputs without product-specific native subclasses or terminal symbols.
+- A manifest-driven hello-window bundle passes in both Developer JIT and
+  Release AOT modes.
+- Existing `dart_appkit` tests and legacy developer command remain compatible.
+
+### [ ] T10 — Versioned native capability loading
+
+Scope:
+
+- Add a versioned AppKit native-extension service table and a generic runtime
+  contract for staging and retaining dependency-owned native code assets.
+- Register and instantiate a dependency-owned custom `NSView` in hello-window
+  without compiling application-specific Objective-C++ into the runner.
+
+Exit criteria:
+
+- ABI mismatch, missing plugin, duplicate initialization, wrong-thread use,
+  failed creation, release, shutdown, and image lifetime are tested.
+- Developer JIT and Release AOT hello-window integrations pass with the same
+  plugin and public Dart facade.
 
 ## Beyond this MVP
 

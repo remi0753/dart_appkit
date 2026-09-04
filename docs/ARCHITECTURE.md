@@ -18,6 +18,26 @@ and never owns the GUI. A consuming product may run compute workers in separate
 official Dart JIT or AOT processes, but that process protocol is outside
 `dart_appkit` and no worker process may call AppKit.
 
+The repository now exposes two logical packages with a one-way dependency:
+
+```text
+Dart application + macos_application.json
+├─ imports dart_appkit for reusable UI primitives
+└─ uses dart_macos_runtime for host services and packaging
+
+dart_macos_runtime
+├─ generic Developer JIT and Release AOT hosts
+├─ AppKit-main lifecycle and bounded diagnostics
+└─ manifest validation, compilation, bundle assembly, and ad-hoc signing
+
+dart_appkit
+└─ AppKit object/event C ABI and Dart facade
+```
+
+Terminal workers, PTY behavior, rendering, and product recovery policy do not
+enter either generic host. Native capability loading is the next additive
+runtime boundary.
+
 ## Startup sequence
 
 1. `main.mm` validates Kernel/version/revision arguments on the process main
@@ -206,12 +226,35 @@ The Engine's official install name and the Runner's rpath meet at
 process's stdio and receives SDK metadata plus application arguments directly,
 without a shell.
 
+The manifest-driven `dart_macos_runtime:build` path generalizes that workflow.
+One versioned JSON document owns product identity, minimum macOS version,
+entrypoint, declared resources, and diagnostics policy. Unknown keys and path
+traversal are rejected. The builder generates a private Dart wrapper whose
+`main` is retained for native AOT invocation, so applications keep an ordinary
+`main(List<String>)` in both modes.
+
+Developer JIT stages `application.dill` with the release Engine library;
+Release AOT stages a Mach-O `application.aot` snapshot with the product Engine
+library. Both bundles place the generic executable in `Contents/MacOS`, the
+Engine in `Contents/Frameworks`, and only declared/runtime-owned data in
+`Contents/Resources`. A generated build manifest records mode, architecture,
+bundle identity, payload, Engine, SDK version/revision, and resource list.
+
+The exported `dmr_*` lifecycle ABI is independent from the `da_*` AppKit ABI.
+The first nonzero 1–255 process result wins on the AppKit main thread;
+termination is queued rather than re-entering AppKit from Dart. Diagnostic
+phase changes are monotonic and main-thread-only. When enabled by the manifest,
+the host atomically writes an owner-only bounded current record and retains at
+most one unclean predecessor below the product-selected Application Support
+directory. `MacosRuntime.bundleResourcePath` resolves only normalized paths
+below the fixed bundle resource directory.
+
 ## Deliberate limits
 
 Only the single root UI isolate may call AppKit. In-process worker isolates are
 not a supported feature of the pinned stock Engine host. A consuming product is
 responsible for any official-Dart worker processes, IPC, recovery, and
 packaging; workers must send results back to the UI process for AppKit changes.
-The MVP does not implement widgets, layout, Metal, VM Service, hot reload, AOT
-GUI packaging, signing, sandbox entitlements, or terminal-specific
+The runtime does not implement widgets, layout, Metal, VM Service, hot reload,
+production signing/notarization, sandbox entitlements, or terminal-specific
 input/rendering.

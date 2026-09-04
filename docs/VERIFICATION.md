@@ -33,6 +33,11 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
+| Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |
+| Configurable bounded diagnostics | Native validation, permissions, phase ordering, previous-unclean retention, and clean finish tests | Verified |
+| Manifest-driven Developer JIT application | Generic host build and real hello-window Timer/menu/close smoke | Verified |
+| Manifest-driven Release AOT application | Generic host/snapshot build and the same real hello-window smoke | Verified |
+| Runtime package and builder | Strict manifest/resource tests, fake-process JIT/AOT assembly, Dart analysis | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |
@@ -70,6 +75,18 @@ Run the real GUI integration smoke test:
 
 ```shell
 make example-smoke
+```
+
+The generic JIT/AOT host and manifest path are verified from
+`examples/hello_window` with:
+
+```shell
+dart run dart_macos_runtime:build \
+  --manifest macos_application.json --mode developer-jit --run \
+  -- --auto-close-after=2
+dart run dart_macos_runtime:build \
+  --manifest macos_application.json --mode release-aot --run \
+  -- --auto-close-after=2
 ```
 
 The verified smoke output includes:
