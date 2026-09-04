@@ -11,6 +11,16 @@
     "entrypoint": "bin/main.dart"
   },
   "resources": [],
+  "nativeCapabilities": [
+    {
+      "id": "dart_appkit_example_view",
+      "package": "dart_appkit_example_view",
+      "library": "libdart_appkit_example_view.dylib",
+      "abiVersion": 1,
+      "abiVersionSymbol": "daev_abi_version",
+      "initializerSymbol": "daev_initialize"
+    }
+  ],
   "diagnostics": {
     "enabled": false,
     "applicationSupportName": "Dart AppKit Hello"

@@ -156,14 +156,22 @@ handle satisfies a generic-view lookup, while a generic view never satisfies a
 text-only lookup. `Window.contentView` borrows either kind and retains its Dart
 wrapper without transferring the registry lease.
 
-Native products may register a named `NSView` subclass through the separate
-Objective-C++ custom-view provider header before starting Dart. The plain-C
-`da_view_create_custom` call copies the provider name, constructs the class on
-the AppKit main thread, and inserts the instance as an ordinary generic-view
-handle. `View.custom` exposes only that newly minted handle; there is no Dart
-API for adopting a pointer or wrapping an arbitrary numeric handle. Provider
-classes are process-lifetime metadata. Instance ownership, attachment, release,
-and shutdown use the existing registry contract.
+Native dependencies register named `NSView` factories through the separate
+versioned `da_native_extension_services_v1` table. Its size/version prefix and
+plain-C factory function prevent Objective-C/C++ types from becoming ABI. A
+factory returns one retained opaque object entirely within native code; the
+host consumes that retain, validates the result as an `NSView`, and inserts it
+as an ordinary generic-view handle. Existing class registration remains a
+compatible in-process convenience implemented by the same registry.
+
+`MacosNativeCapability.load(id)` reads only builder-generated declarations,
+checks the dylib filename and ABI/version/initializer symbols, opens the exact
+image under `Contents/Frameworks`, obtains the host service table, initializes
+once, and retains the `DynamicLibrary` for process life. It rejects undeclared
+or missing images and ABI mismatch before registration. This process-lifetime
+choice ensures a factory callback cannot outlive its image during explicit,
+finalizer-driven, or shutdown release. `View.custom` still exposes only the
+newly minted handle; Dart cannot adopt a pointer or arbitrary numeric handle.
 
 The general pasteboard is a process-global AppKit service, not a registered
 object. Dart receives a stable `Pasteboard` facade bound to its attached
@@ -232,6 +240,13 @@ entrypoint, declared resources, and diagnostics policy. Unknown keys and path
 traversal are rejected. The builder generates a private Dart wrapper whose
 `main` is retained for native AOT invocation, so applications keep an ordinary
 `main(List<String>)` in both modes.
+
+Each native capability declaration fixes an ID, owning package, dylib filename,
+capability ABI, ABI symbol, and initializer symbol. If declarations are present,
+the builder invokes Dart 3.13's official `dart build cli` hook pipeline for the
+same package graph and target, selects only those declared output images, stages
+them in Frameworks, and records the exact declarations in the runtime build
+manifest. Capability source never enters the generic host compile source list.
 
 Developer JIT stages `application.dill` with the release Engine library;
 Release AOT stages a Mach-O `application.aot` snapshot with the product Engine

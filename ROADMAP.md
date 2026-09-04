@@ -22,8 +22,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 
 ## Current position
 
-- Active task: **T10 — versioned native capability loading**
-- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8, T9**
+- Active task: **none; the native capability loading proof is complete**
+- Completed: **T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10**
 - Engine acceptance gate: **official source only**. Dart Engine source changes,
   candidate commits, and downstream patches are prohibited. The stock Dart
   3.13.2 Engine is pinned at revision
@@ -33,8 +33,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 - Selected topology: one stock Engine root for the AppKit process lifetime.
   The full public `dart_api.h` host was rejected by M1/arm64 JIT and AOT
   evidence because required platform/microtask bootstrap is private.
-- Next concrete milestone: prove dependency-owned native view plugins without
-  compiling their Objective-C++ implementation into the generic host.
+- Next concrete milestone: consuming products move terminal rendering and PTY
+  adapters into independent capability packages using this loading contract.
 
 ## Detailed tasks
 
@@ -267,7 +267,7 @@ Exit criteria:
   Release AOT modes.
 - Existing `dart_appkit` tests and legacy developer command remain compatible.
 
-### [ ] T10 — Versioned native capability loading
+### [x] T10 — Versioned native capability loading
 
 Scope:
 

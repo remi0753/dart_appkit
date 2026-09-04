@@ -31,6 +31,7 @@ APPKIT_LIBS := -framework AppKit -framework CoreFoundation
 BRIDGE_HEADERS := \
 	$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
 	$(PROJECT_ROOT)/native/bridge/include/dart_appkit_custom_view.h \
+	$(PROJECT_ROOT)/native/bridge/include/dart_appkit_native_extension.h \
 	$(PROJECT_ROOT)/native/bridge/src/AppKitObjects.h \
 	$(PROJECT_ROOT)/native/bridge/src/BridgeInternal.h \
 	$(PROJECT_ROOT)/native/bridge/src/CustomViewRegistry.h \
@@ -105,6 +106,10 @@ RUNTIME_LIFECYCLE_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/runtime_lifecycle_tests
 RUNTIME_DIAGNOSTICS_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/runtime_diagnostics_tests
+EXAMPLE_VIEW_PLUGIN_LIBRARY := \
+	$(NATIVE_BUILD_DIR)/libdart_appkit_example_view.dylib
+NATIVE_CAPABILITY_LOADER_TEST_BINARY := \
+	$(NATIVE_BUILD_DIR)/native_capability_loader_tests
 
 PUBLIC_HOST_PROBE_BUILD_DIR := $(BUILD_DIR)/public-dart-api-host
 PUBLIC_HOST_PROBE_SOURCE := \
@@ -140,7 +145,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test runtime-jit-runner runtime-aot-runner runtime-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -158,6 +163,8 @@ help:
 	@echo "  make runtime-jit-runner  Build the generic Developer JIT host"
 	@echo "  make runtime-aot-runner  Build the generic Release AOT host"
 	@echo "  make runtime-dart-test   Analyze and test dart_macos_runtime"
+	@echo "  make native-capability-loader-test  Test dynamic view capability"
+	@echo "  make example-view-dart-test  Test the dependency build hook asset"
 	@echo "  make dart-test      Analyze and test the Dart package"
 	@echo "  make example-test   Analyze and compile the hello-window Kernel"
 	@echo "  make example-smoke  Launch hello-window and close it automatically"
@@ -339,6 +346,35 @@ $(RUNTIME_DIAGNOSTICS_TEST_BINARY): $(RUNTIME_HEADERS) \
 runtime-diagnostics-test: $(RUNTIME_DIAGNOSTICS_TEST_BINARY)
 	@$(RUNTIME_DIAGNOSTICS_TEST_BINARY)
 
+$(EXAMPLE_VIEW_PLUGIN_LIBRARY): \
+		$(PROJECT_ROOT)/packages/dart_appkit_example_view/native/ExampleViewPlugin.h \
+		$(PROJECT_ROOT)/packages/dart_appkit_example_view/native/ExampleViewPlugin.m \
+		$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
+		$(PROJECT_ROOT)/native/bridge/include/dart_appkit_native_extension.h
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -dynamiclib \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/packages/dart_appkit_example_view/native \
+		$(PROJECT_ROOT)/packages/dart_appkit_example_view/native/ExampleViewPlugin.m \
+		-framework AppKit \
+		-Wl,-install_name,@rpath/libdart_appkit_example_view.dylib -o $@
+
+$(NATIVE_CAPABILITY_LOADER_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
+		$(PROJECT_ROOT)/native/runtime/test/NativeCapabilityLoaderTests.mm \
+		$(PROJECT_ROOT)/packages/dart_appkit_example_view/native/ExampleViewPlugin.h
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-I$(PROJECT_ROOT)/native/bridge/include \
+		-I$(PROJECT_ROOT)/native/bridge/src \
+		-I$(PROJECT_ROOT)/packages/dart_appkit_example_view/native \
+		$(BRIDGE_SOURCES) \
+		$(PROJECT_ROOT)/native/runtime/test/NativeCapabilityLoaderTests.mm \
+		$(APPKIT_LIBS) -o $@
+
+native-capability-loader-test: $(EXAMPLE_VIEW_PLUGIN_LIBRARY) \
+		$(NATIVE_CAPABILITY_LOADER_TEST_BINARY)
+	@$(NATIVE_CAPABILITY_LOADER_TEST_BINARY) $(EXAMPLE_VIEW_PLUGIN_LIBRARY)
+
 $(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
 		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
@@ -385,6 +421,12 @@ runtime-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart analyze
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && \
 		dart run test/run_tests.dart
+
+example-view-dart-test:
+	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart pub get
+	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart analyze
+	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && \
+		dart run test/native_asset_test.dart
 
 dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_appkit && dart pub get
@@ -493,7 +535,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test runtime-dart-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-dart-test example-view-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \

@@ -2,22 +2,35 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dart_appkit/dart_appkit.dart';
+import 'package:dart_appkit_example_view/dart_appkit_example_view.dart';
 
 Future<void> main(List<String> arguments) async {
   final Duration? autoCloseAfter = _parseAutoCloseAfter(arguments);
+  final bool useNativeCapability = arguments.contains('--native-capability');
   final AppKitApplication application = await AppKitApplication.attach();
   stdout.writeln('Dart root isolate is attached to the AppKit main thread.');
   if (arguments.isNotEmpty) {
     stdout.writeln('Application arguments: ${arguments.join(' | ')}');
   }
 
-  final TextView textView = TextView();
+  final TextView? textView;
+  final View contentView;
+  if (useNativeCapability) {
+    ExampleViewCapability.initialize();
+    contentView = ExampleViewCapability.createView();
+    textView = null;
+    stdout.writeln('Dependency-owned native capability view initialized.');
+  } else {
+    final TextView createdTextView = TextView();
+    textView = createdTextView;
+    contentView = createdTextView;
+  }
   final Window window =
       Window(
           frame: const Rect.fromLTWH(120, 120, 640, 360),
           title: 'Dart AppKit — Hello Window',
         )
-        ..contentView = textView
+        ..contentView = contentView
         ..defersCloseRequests = true;
   final Menu mainMenu = Menu();
   final Menu applicationMenu = Menu(title: 'Dart AppKit');
@@ -35,7 +48,7 @@ Future<void> main(List<String> arguments) async {
   var ticks = 0;
 
   void updateText() {
-    textView.text = <String>[
+    textView?.text = <String>[
       'Hello from an embedded Dart root isolate.',
       '',
       'Timer ticks: $ticks',
@@ -142,8 +155,8 @@ Future<void> main(List<String> arguments) async {
     if (!window.isDisposed) {
       window.dispose();
     }
-    if (!textView.isDisposed) {
-      textView.dispose();
+    if (!contentView.isDisposed) {
+      contentView.dispose();
     }
     await application.terminate();
   }

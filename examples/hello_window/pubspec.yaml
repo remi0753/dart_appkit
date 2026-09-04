@@ -9,3 +9,5 @@ dependencies:
     path: ../../packages/dart_appkit
   dart_macos_runtime:
     path: ../../packages/dart_macos_runtime
+  dart_appkit_example_view:
+    path: ../../packages/dart_appkit_example_view

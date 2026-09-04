@@ -39,6 +39,7 @@ Manifest version 1 contains exactly these fields:
   },
   "dart": {"entrypoint": "bin/main.dart"},
   "resources": ["assets/config.json"],
+  "nativeCapabilities": [],
   "diagnostics": {
     "enabled": true,
     "applicationSupportName": "Example"
@@ -49,3 +50,10 @@ Manifest version 1 contains exactly these fields:
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized
 bundle-relative names and rejects traversal.
+
+`nativeCapabilities` entries declare the dependency package, dylib filename,
+ABI version symbol, initializer symbol, and ABI version. The builder runs the
+official Dart build-hook pipeline, stages only declared images in Frameworks,
+and records them in `runtime-build-manifest.json`. A dependency facade calls
+`MacosNativeCapability.load(id)` on the root UI isolate; it validates and
+initializes exactly once, then retains the image until process exit.

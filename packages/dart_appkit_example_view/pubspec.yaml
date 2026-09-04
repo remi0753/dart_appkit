@@ -1,0 +1,16 @@
+name: dart_appkit_example_view
+description: A build-hook native view capability used by integration tests.
+version: 0.1.0-dev.1
+publish_to: none
+
+environment:
+  sdk: '>=3.13.2 <3.14.0'
+
+dependencies:
+  code_assets: any
+  dart_appkit:
+    path: ../dart_appkit
+  dart_macos_runtime:
+    path: ../dart_macos_runtime
+  hooks: any
+  native_toolchain_c: any

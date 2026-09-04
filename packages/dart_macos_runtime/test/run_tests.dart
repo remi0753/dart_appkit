@@ -51,6 +51,7 @@ const String _validManifest = '''
   },
   "dart": {"entrypoint": "bin/main.dart"},
   "resources": ["assets/message.txt"],
+  "nativeCapabilities": [],
   "diagnostics": {
     "enabled": true,
     "applicationSupportName": "Dart AppKit Hello"
@@ -135,6 +136,17 @@ final class _FakeExecutor implements BuilderProcessExecutor {
           .firstWhere((String value) => value.startsWith('--macho='))
           .substring('--macho='.length);
       _write(output, 'fake AOT snapshot');
+    } else if (executable.endsWith('/bin/dart') &&
+        arguments.length >= 2 &&
+        arguments[0] == 'build' &&
+        arguments[1] == 'cli') {
+      final String output = arguments
+          .firstWhere((String value) => value.startsWith('--output='))
+          .substring('--output='.length);
+      _write(
+        '$output/bundle/lib/libexample_view.dylib',
+        'fake capability image',
+      );
     } else if (executable != '/bin/chmod' &&
         executable != '/usr/bin/codesign') {
       throw StateError('unexpected command: $executable $arguments');
@@ -232,6 +244,79 @@ Future<void> main() async {
         _validManifest.replaceFirst('"bin/main.dart"', '"../bin/main.dart"'),
       );
     });
+    final MacosApplicationManifest capabilityManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"nativeCapabilities": []',
+            '''"nativeCapabilities": [
+      {
+        "id": "example_view",
+        "package": "example_view",
+        "library": "libexample_view.dylib",
+        "abiVersion": 1,
+        "abiVersionSymbol": "example_abi_version",
+        "initializerSymbol": "example_initialize"
+      }
+    ]''',
+          ),
+        );
+    _expect(
+      capabilityManifest.nativeCapabilities.single.id == 'example_view',
+      'native capability declaration',
+    );
+  });
+
+  await _test('native capability declaration and image retention', () async {
+    final Directory root = await Directory.systemTemp.createTemp(
+      'dmr_capability.',
+    );
+    final String contents = '${root.path}/Example.app/Contents';
+    final String executable = '$contents/MacOS/example';
+    final String library = '$contents/Frameworks/libexample_view.dylib';
+    _write(library, 'fake dylib');
+    _write(
+      '$contents/Resources/runtime-build-manifest.json',
+      jsonEncode(<String, Object>{
+        'nativeCapabilities': <Map<String, Object>>[
+          <String, Object>{
+            'id': 'example_view',
+            'library': 'libexample_view.dylib',
+            'abiVersion': 7,
+            'abiVersionSymbol': 'example_abi_version',
+            'initializerSymbol': 'example_initialize',
+          },
+        ],
+      }),
+    );
+    var calls = 0;
+    MacosNativeCapability.resetForTesting();
+    MacosNativeCapability.setInitializerForTesting(({
+      required String libraryPath,
+      required int abiVersion,
+      required String abiVersionSymbol,
+      required String initializerSymbol,
+    }) {
+      ++calls;
+      _expect(libraryPath == library, 'declared image path');
+      _expect(abiVersion == 7, 'declared ABI');
+      _expect(abiVersionSymbol == 'example_abi_version', 'version symbol');
+      _expect(initializerSymbol == 'example_initialize', 'initializer symbol');
+    });
+    final MacosNativeCapability first = MacosNativeCapability.load(
+      'example_view',
+      resolvedExecutable: executable,
+    );
+    final MacosNativeCapability second = MacosNativeCapability.load(
+      'example_view',
+      resolvedExecutable: executable,
+    );
+    _expect(identical(first, second), 'duplicate initialization is idempotent');
+    _expect(calls == 1, 'initializer runs exactly once');
+    _expectThrows<MacosNativeCapabilityException>(() {
+      MacosNativeCapability.load('missing', resolvedExecutable: executable);
+    });
+    MacosNativeCapability.resetForTesting();
+    await root.delete(recursive: true);
   });
 
   await _test('runtime facade and resource boundary', () async {
@@ -334,6 +419,58 @@ Future<void> main() async {
             command.executable.endsWith('/gen_snapshot'),
       ),
       'AOT snapshotter runs',
+    );
+    await fixture.root.delete(recursive: true);
+  });
+
+  await _test('native asset hooks are staged by declaration', () async {
+    final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _validManifest.replaceFirst(
+        '"nativeCapabilities": []',
+        '''"nativeCapabilities": [
+      {
+        "id": "example_view",
+        "package": "example_view",
+        "library": "libexample_view.dylib",
+        "abiVersion": 1,
+        "abiVersionSymbol": "example_abi_version",
+        "initializerSymbol": "example_initialize"
+      }
+    ]''',
+      ),
+    );
+    final _FakeExecutor executor = _FakeExecutor();
+    final int result = await fixture
+        .builder(executor)
+        .run(
+          RuntimeBuilderOptions.parse(<String>[
+            '--manifest=${fixture.project.path}/macos_application.json',
+            '--build-dir=${fixture.root.path}/build-capability',
+          ]),
+        );
+    _expect(result == 0, 'capability build succeeds');
+    final String contents =
+        '${fixture.root.path}/build-capability/HelloWindow.app/Contents';
+    _expect(
+      File('$contents/Frameworks/libexample_view.dylib').existsSync(),
+      'declared capability image is staged',
+    );
+    final Map<String, Object?> buildManifest = jsonDecode(
+      File('$contents/Resources/runtime-build-manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    final List<Object?> capabilities =
+        buildManifest['nativeCapabilities']! as List<Object?>;
+    _expect(capabilities.length == 1, 'capability declaration is recorded');
+    _expect(
+      executor.commands.any(
+        (_RecordedCommand command) =>
+            command.executable.endsWith('/bin/dart') &&
+            command.arguments.take(2).join(' ') == 'build cli',
+      ),
+      'Dart build hooks run',
     );
     await fixture.root.delete(recursive: true);
   });

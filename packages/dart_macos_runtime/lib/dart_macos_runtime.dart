@@ -5,6 +5,9 @@ export 'src/application_manifest.dart'
     show
         MacosApplicationManifest,
         MacosApplicationManifestException,
-        MacosDiagnosticsManifest;
+        MacosDiagnosticsManifest,
+        MacosNativeCapabilityManifest;
+export 'src/native_capability.dart'
+    show MacosNativeCapability, MacosNativeCapabilityException;
 export 'src/runtime.dart'
     show MacosRuntime, MacosRuntimeException, RuntimeDiagnosticPhase;

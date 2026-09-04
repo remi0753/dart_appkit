@@ -20,6 +20,24 @@ final class MacosDiagnosticsManifest {
   final String applicationSupportName;
 }
 
+final class MacosNativeCapabilityManifest {
+  const MacosNativeCapabilityManifest({
+    required this.id,
+    required this.package,
+    required this.library,
+    required this.abiVersion,
+    required this.abiVersionSymbol,
+    required this.initializerSymbol,
+  });
+
+  final String id;
+  final String package;
+  final String library;
+  final int abiVersion;
+  final String abiVersionSymbol;
+  final String initializerSymbol;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -29,6 +47,7 @@ final class MacosApplicationManifest {
     required this.minimumSystemVersion,
     required this.entrypoint,
     required this.resources,
+    required this.nativeCapabilities,
     required this.diagnostics,
   });
 
@@ -47,6 +66,7 @@ final class MacosApplicationManifest {
       'application',
       'dart',
       'resources',
+      'nativeCapabilities',
       'diagnostics',
     }, 'manifest');
     if (root['schemaVersion'] != 1) {
@@ -111,6 +131,17 @@ final class MacosApplicationManifest {
           'resources[$index]',
         ),
     ];
+    final List<Object?> capabilityValues = switch (root['nativeCapabilities']) {
+      final List<Object?> value => value,
+      _ => throw const MacosApplicationManifestException(
+        'manifest.nativeCapabilities must be an array',
+      ),
+    };
+    final List<MacosNativeCapabilityManifest> nativeCapabilities =
+        <MacosNativeCapabilityManifest>[
+          for (var index = 0; index < capabilityValues.length; ++index)
+            _capability(capabilityValues[index], index),
+        ];
     final Object? enabledValue = diagnostics['enabled'];
     if (enabledValue is! bool) {
       throw const MacosApplicationManifestException(
@@ -143,6 +174,12 @@ final class MacosApplicationManifest {
         'manifest.resources contains a duplicate path',
       );
     }
+    if (nativeCapabilities.map((value) => value.id).toSet().length !=
+        nativeCapabilities.length) {
+      throw const MacosApplicationManifestException(
+        'manifest.nativeCapabilities contains a duplicate id',
+      );
+    }
     return MacosApplicationManifest(
       name: name,
       executableName: executableName,
@@ -151,6 +188,9 @@ final class MacosApplicationManifest {
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
       resources: List<String>.unmodifiable(resources),
+      nativeCapabilities: List<MacosNativeCapabilityManifest>.unmodifiable(
+        nativeCapabilities,
+      ),
       diagnostics: MacosDiagnosticsManifest(
         enabled: enabledValue,
         applicationSupportName: supportName,
@@ -175,6 +215,7 @@ final class MacosApplicationManifest {
   final String minimumSystemVersion;
   final String entrypoint;
   final List<String> resources;
+  final List<MacosNativeCapabilityManifest> nativeCapabilities;
   final MacosDiagnosticsManifest diagnostics;
 
   static final RegExp _identifier = RegExp(
@@ -186,6 +227,52 @@ final class MacosApplicationManifest {
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
 }
+
+MacosNativeCapabilityManifest _capability(Object? value, int index) {
+  final String path = 'nativeCapabilities[$index]';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{
+    'id',
+    'package',
+    'library',
+    'abiVersion',
+    'abiVersionSymbol',
+    'initializerSymbol',
+  }, path);
+  final String id = _string(object['id'], '$path.id');
+  final String package = _string(object['package'], '$path.package');
+  final String library = _string(object['library'], '$path.library');
+  final Object? abiVersionValue = object['abiVersion'];
+  if (!_capabilityId.hasMatch(id) ||
+      !_packageName.hasMatch(package) ||
+      !_libraryName.hasMatch(library) ||
+      !_symbol.hasMatch(
+        _string(object['abiVersionSymbol'], '$path.abiVersionSymbol'),
+      ) ||
+      !_symbol.hasMatch(
+        _string(object['initializerSymbol'], '$path.initializerSymbol'),
+      ) ||
+      abiVersionValue is! int ||
+      abiVersionValue <= 0 ||
+      abiVersionValue > 65535) {
+    throw MacosApplicationManifestException(
+      '$path contains an invalid capability identifier, library, symbol, or ABI',
+    );
+  }
+  return MacosNativeCapabilityManifest(
+    id: id,
+    package: package,
+    library: library,
+    abiVersion: abiVersionValue,
+    abiVersionSymbol: object['abiVersionSymbol']! as String,
+    initializerSymbol: object['initializerSymbol']! as String,
+  );
+}
+
+final RegExp _capabilityId = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$');
+final RegExp _packageName = RegExp(r'^[a-z][a-z0-9_]{1,63}$');
+final RegExp _libraryName = RegExp(r'^lib[A-Za-z0-9._-]+\.dylib$');
+final RegExp _symbol = RegExp(r'^[A-Za-z_][A-Za-z0-9_]{1,127}$');
 
 Map<String, Object?> _object(Object? value, String path) {
   if (value is! Map<String, Object?>) {

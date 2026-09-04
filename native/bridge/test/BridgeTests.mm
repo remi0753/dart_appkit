@@ -14,6 +14,7 @@
 #include "ObjectRegistry.h"
 #include "dart_appkit.h"
 #include "dart_appkit_custom_view.h"
+#include "dart_appkit_native_extension.h"
 
 @interface DaTestCustomView : NSView
 @end
@@ -26,6 +27,17 @@
 
 @implementation DaAlternateCustomView
 @end
+
+void* CreateRetainedTestCustomView(void* context) {
+  Class view_class = (__bridge Class)context;
+  NSView* view = [[view_class alloc] initWithFrame:NSZeroRect];
+  return (__bridge_retained void*)view;
+}
+
+void* FailToCreateCustomView(void* context) {
+  (void)context;
+  return nullptr;
+}
 
 @interface DaReleaseThreadProbe : NSObject {
  @private
@@ -744,6 +756,86 @@ void TestRegisteredCustomViews() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestNativeExtensionServices() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  EXPECT_TRUE(da_native_extension_services(99) == nullptr);
+  EXPECT_TRUE(LastErrorMessage().find("unsupported") != std::string::npos);
+  const da_native_extension_services_v1* services =
+      da_native_extension_services(DA_NATIVE_EXTENSION_ABI_VERSION);
+  EXPECT_TRUE(services != nullptr);
+  EXPECT_EQ(services->struct_size,
+            static_cast<size_t>(sizeof(da_native_extension_services_v1)));
+  EXPECT_EQ(services->abi_version, DA_NATIVE_EXTENSION_ABI_VERSION);
+  EXPECT_TRUE(services->register_custom_view_provider != nullptr);
+
+  EXPECT_EQ(services->register_custom_view_provider(
+                nullptr, 1, CreateRetainedTestCustomView, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(services->register_custom_view_provider(
+                reinterpret_cast<const uint8_t*>("factory.invalid"), 15,
+                nullptr, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  const uint8_t invalid_utf8[] = {0xff};
+  EXPECT_EQ(services->register_custom_view_provider(
+                invalid_utf8, sizeof(invalid_utf8),
+                CreateRetainedTestCustomView, nullptr),
+            DA_STATUS_INVALID_UTF8);
+
+  void* context = (__bridge void*)DaTestCustomView.class;
+  constexpr char kProvider[] = "test.factory";
+  EXPECT_EQ(services->register_custom_view_provider(
+                reinterpret_cast<const uint8_t*>(kProvider),
+                sizeof(kProvider) - 1, CreateRetainedTestCustomView, context),
+            DA_STATUS_OK);
+  EXPECT_EQ(services->register_custom_view_provider(
+                reinterpret_cast<const uint8_t*>(kProvider),
+                sizeof(kProvider) - 1, CreateRetainedTestCustomView, context),
+            DA_STATUS_OK);
+  EXPECT_EQ(services->register_custom_view_provider(
+                reinterpret_cast<const uint8_t*>(kProvider),
+                sizeof(kProvider) - 1, FailToCreateCustomView, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  DaHandle handle = 0;
+  EXPECT_EQ(da_view_create_custom(kProvider, sizeof(kProvider) - 1, &handle),
+            DA_STATUS_OK);
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaTestCustomView.class]);
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+
+  constexpr char kFailingProvider[] = "test.factory.failure";
+  EXPECT_EQ(services->register_custom_view_provider(
+                reinterpret_cast<const uint8_t*>(kFailingProvider),
+                sizeof(kFailingProvider) - 1, FailToCreateCustomView, nullptr),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_view_create_custom(kFailingProvider,
+                                  sizeof(kFailingProvider) - 1, &handle),
+            DA_STATUS_INTERNAL_ERROR);
+  EXPECT_EQ(handle, static_cast<DaHandle>(0));
+
+  const da_native_extension_services_v1* worker_services = services;
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&] {
+    worker_services =
+        da_native_extension_services(DA_NATIVE_EXTENSION_ABI_VERSION);
+    worker_status.store(services->register_custom_view_provider(
+        reinterpret_cast<const uint8_t*>("test.worker"), 11,
+        CreateRetainedTestCustomView, context));
+  });
+  worker.join();
+  EXPECT_TRUE(worker_services == nullptr);
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  dart_appkit::ShutdownBridge();
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestThreadGuardAndFinalizer() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -1143,6 +1235,7 @@ int main() {
     TestMenus();
     TestRegistryLifecycleAndTypes();
     TestRegisteredCustomViews();
+    TestNativeExtensionServices();
     TestThreadGuardAndFinalizer();
     TestRegistryDomainsAndAsyncRelease();
     TestConcurrentAsyncRelease();

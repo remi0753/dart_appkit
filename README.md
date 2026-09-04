@@ -128,10 +128,12 @@ view.dispose();
 await app.terminate();
 ```
 
-A native product can register an `NSView` subclass through the separate
-Objective-C++ `dart_appkit_custom_view.h` extension surface before Dart starts.
-Dart then creates a normal owned generic-view handle with
-`View.custom('product.ProviderName')`; Objective-C pointers never cross FFI.
+A native capability can register an `NSView` factory through the versioned
+plain-C `dart_appkit_native_extension.h` service table. The runtime builder runs
+dependency build hooks, stages declared dylibs, and retains a loaded image for
+the process lifetime. A dependency's Dart facade initializes the image and then
+creates a normal owned generic-view handle with `View.custom`; Objective-C
+pointers never enter application Dart or a product runner.
 
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
 the embedded root isolate. Ordinary in-process workers are not part of the
@@ -164,6 +166,7 @@ native/runtime/         Generic lifecycle, diagnostics, and JIT/AOT hosts
 native/bridge/          Stable C ABI and AppKit object implementation
 packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
 packages/dart_macos_runtime/ Manifest, host facade, and application builder
+packages/dart_appkit_example_view/ Build-hook native capability proof
 examples/hello_window/  Timer, events, close, and shutdown proof
 scripts/                SDK/Engine validation and Engine build helper
 docs/                   Architecture, ABI, verification, and work log

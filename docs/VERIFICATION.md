@@ -38,6 +38,9 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Manifest-driven Developer JIT application | Generic host build and real hello-window Timer/menu/close smoke | Verified |
 | Manifest-driven Release AOT application | Generic host/snapshot build and the same real hello-window smoke | Verified |
 | Runtime package and builder | Strict manifest/resource tests, fake-process JIT/AOT assembly, Dart analysis | Verified |
+| Versioned native extension services | Size/version C ABI, main-thread registration, invalid UTF-8, duplicate/conflict, and factory failure tests | Verified |
+| Dependency-owned native capability | Dart 3.13 build-hook asset test plus dynamic image ABI/init/create/release/shutdown/lifetime native test | Verified |
+| Capability-enabled JIT/AOT GUI | Same Dart facade and manifest create the dependency view in both real generic hosts; bundles pass deep signature verification | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
 | Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |

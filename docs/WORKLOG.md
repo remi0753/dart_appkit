@@ -1589,3 +1589,64 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   deferred close request/reply, window close, handle release, and exit 0. The
   official nested SDK remains clean at
   `60a57cd42d64dc03e9f07aa60a2e250755c1ef28`.
+
+## 2026-09-04 — Versioned native capability loading
+
+- Purpose: let a Dart dependency contribute native AppKit behavior without
+  adding its Objective-C++ source, classes, or registration calls to the
+  generic runtime executable or the consuming application repository.
+- Scope: a versioned plain-C host service table; callback-backed custom-view
+  providers; generic process-lifetime capability image loading; manifest and
+  build-hook asset staging; a dependency-owned hello view and Dart facade; ABI,
+  thread, duplicate, construction, release, shutdown, and image-lifetime tests;
+  real Developer JIT and Release AOT hello integration.
+- Out of scope: terminal renderer implementation, PTY, arbitrary plugin event
+  protocols, unload/reload, and platform distribution signing.
+- Dependencies: completed generic runtime commit `649a4ac`, existing custom-view
+  registry/handle ownership, Dart 3.13 build hooks, and the unmodified official
+  Engine toolchain.
+- Completion requires the host/plugin headers to compile as C11/C++20, focused
+  native and Dart tests to pass, plugin sources to remain absent from both host
+  source inventories, both real GUI modes to create/release the dependency view,
+  the complete existing suite to pass, and all findings to be recorded here.
+- Initial decision: retain every successfully loaded capability image for the
+  process lifetime. This is intentionally stronger than opportunistic unload
+  and makes registered factory callbacks valid through asynchronous AppKit
+  handle teardown and bridge shutdown.
+- Added `dart_appkit_native_extension.h` with a size/version-prefixed v1 host
+  service table and a plain-C retained-view factory. The bridge validates main
+  thread, UTF-8 identifier, duplicates/conflicts, factory presence, and returned
+  `NSView`, then uses the existing generation/domain registry for attachment,
+  explicit release, asynchronous release, and shutdown.
+- Added `dart_appkit_example_view` as a dependency-owned integration package.
+  Its Dart 3.13 build hook uses `native_toolchain_c` to build one Objective-C
+  dylib and its Dart facade explicitly initializes the image before requesting
+  the named custom view. The view implementation is absent from generic JIT and
+  AOT host source lists and from the consuming hello application.
+- Extended the application manifest with exact native capability declarations.
+  The builder invokes `dart build cli` to run the official dependency hook/link
+  pipeline for the resolved package graph and target architecture, selects the
+  declared dylib outputs, stages them under Frameworks, signs them as nested
+  code, and records ID/package/library/ABI/symbol identity in the runtime build
+  manifest.
+- The first CLI hook integration failed because `native_toolchain_c` passed its
+  framework and encryptable linker arguments through an intermediate compile
+  step while the package enabled `-Werror`. The hook now explicitly routes a
+  dynamic library to the app bundle and disables only clang's unused command
+  line argument diagnostic; all source warnings remain errors.
+- `MacosNativeCapability` rejects undeclared, malformed, missing, symbol-missing,
+  and ABI-mismatched images. Successful loads are cached by ID and their
+  `DynamicLibrary` objects are held for process life. Native tests verify host
+  ABI mismatch, off-main initialization, idempotent initialization, conflicting
+  registration, nil factory results, view construction/deallocation, bridge
+  shutdown, and that the image remains loaded through teardown.
+- Package-local analysis and the real build-hook asset invocation pass. Runtime
+  tests cover strict declaration parsing, hook invocation/staging, generated
+  build metadata, missing declarations/images, and one-time initialization.
+  C11/C++20 headers, bridge registry tests, dynamic image tests, and the complete
+  `make test` regression pass.
+- Real Developer JIT and Release AOT hello bundles both report dependency-owned
+  view initialization, two Timer ticks, Dart menu action, deferred close/reply,
+  window close, handle release, and exit 0 through the same Dart facade. Both
+  stage only the declared hook dylib; deep code-signature verification passes.
+  The official Engine checkout remains clean at the pinned revision.
