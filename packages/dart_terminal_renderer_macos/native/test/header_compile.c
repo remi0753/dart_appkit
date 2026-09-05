@@ -8,6 +8,9 @@ _Static_assert(sizeof(DtrShapeHeaderV1) == 80, "shape header ABI size");
 _Static_assert(sizeof(DtrShapeRunV1) == 40, "shape run ABI size");
 _Static_assert(sizeof(DtrShapeFaceV1) == 144, "shape face ABI size");
 _Static_assert(sizeof(DtrShapeGlyphV1) == 48, "shape glyph ABI size");
+_Static_assert(sizeof(DtrRasterRequestV1) == 8, "raster request ABI size");
+_Static_assert(sizeof(DtrRasterHeaderV1) == 64, "raster header ABI size");
+_Static_assert(sizeof(DtrRasterGlyphV1) == 48, "raster glyph ABI size");
 
 int main(void) {
   uint32_t (*version)(void) = dtr_abi_version;
@@ -24,9 +27,13 @@ int main(void) {
   int32_t (*catalog_shape)(uint64_t, uint32_t, uint32_t, const uint8_t*,
                            uint32_t, uint8_t*, uint32_t, uint32_t*) =
       dtr_font_catalog_shape;
+  int32_t (*catalog_rasterize)(uint64_t, uint32_t,
+                               const DtrRasterRequestV1*, uint32_t, uint8_t*,
+                               uint32_t, uint32_t*) =
+      dtr_font_catalog_rasterize;
   int32_t (*catalog_count)(void) = dtr_debug_live_font_catalog_count;
   return version == 0 || initialize == 0 || live_count == 0 ||
          catalog_create == 0 || catalog_release == 0 ||
          catalog_finalizer == 0 || catalog_resolve == 0 ||
-         catalog_shape == 0 || catalog_count == 0;
+         catalog_shape == 0 || catalog_rasterize == 0 || catalog_count == 0;
 }

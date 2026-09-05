@@ -12,10 +12,12 @@ or explicit synthetic regular/bold/italic/bold-italic styles, ordered CJK and
 color-emoji fallback, terminal cell/decorations metrics, and complete shaped
 runs. The versioned packed shaping result contains copied run/face/glyph data,
 UTF-16 cluster spans, positions, advances, and feature identity. Calls and the
-Dart-owned LRU shaping cache are independently bounded and intended for a
-font/render worker domain rather than an AppKit event handler. Terminal grids,
-glyph rasterization/atlases, draw submission, shaders, input, and application
-policy remain outside this package boundary.
+Dart-owned LRU shaping cache are independently bounded. A coarse glyph-set call
+also copies 16.16-scale CoreText output as top-down alpha8 masks or straight
+RGBA8 color glyphs with baseline-relative bearings. These calls are intended
+for a font/render worker domain rather than an AppKit event handler. Terminal
+grids, atlas retention, draw submission, shaders, input, and application policy
+remain outside this package boundary.
 
 Applications declare the following native capability in their runtime manifest:
 
@@ -24,7 +26,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 3,
+  "abiVersion": 4,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -37,5 +39,6 @@ Font work does not require AppKit initialization. Create a catalog with
 `TerminalFontCatalog.open()`, resolve whole grapheme/text units with `resolve`,
 shape complete text units with `shape`, optionally retain repeated results in a
 bounded `TerminalShapingCache`, and call `dispose` from the owning worker
-domain. No native call retains a Dart pointer, and a disposed catalog generation
-cannot be reused or returned by the cache.
+domain. Use `rasterizeShaped` to batch unique face/glyph keys at the active
+backing scale. No native call retains a Dart pointer, and a disposed catalog
+generation cannot be reused or returned by the cache.

@@ -66,6 +66,9 @@ int main(int argc, const char* argv[]) {
     using FontShape = int32_t (*)(uint64_t, uint32_t, uint32_t,
                                   const uint8_t*, uint32_t, uint8_t*,
                                   uint32_t, uint32_t*);
+    using FontRasterize = int32_t (*)(uint64_t, uint32_t,
+                                      const DtrRasterRequestV1*, uint32_t,
+                                      uint8_t*, uint32_t, uint32_t*);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
     const Initialize initialize = Lookup<Initialize>(image, "dtr_initialize");
     const LiveCount live_count =
@@ -78,11 +81,13 @@ int main(int argc, const char* argv[]) {
         Lookup<FontResolve>(image, "dtr_font_catalog_resolve");
     const FontShape font_shape =
         Lookup<FontShape>(image, "dtr_font_catalog_shape");
+    const FontRasterize font_rasterize =
+        Lookup<FontRasterize>(image, "dtr_font_catalog_rasterize");
     const LiveCount live_font_count =
         Lookup<LiveCount>(image, "dtr_debug_live_font_catalog_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 3, "run shaping requires renderer ABI v3");
+    Expect(DTR_ABI_VERSION == 4, "glyph raster requires renderer ABI v4");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -207,6 +212,28 @@ int main(int argc, const char* argv[]) {
              "shape fills exactly the queried buffer");
       return result;
     };
+    auto rasterize = [&](uint64_t catalog_handle, uint32_t scale_16_16,
+                         const std::vector<DtrRasterRequestV1>& requests) {
+      uint32_t required = 0;
+      Expect(font_rasterize != nullptr &&
+                 font_rasterize(catalog_handle, scale_16_16, requests.data(),
+                                static_cast<uint32_t>(requests.size()), nullptr,
+                                0, &required) == DTR_STATUS_BUFFER_TOO_SMALL,
+             "raster size query reports a required buffer");
+      Expect(required >= sizeof(DtrRasterHeaderV1) &&
+                 required <= DTR_MAX_RASTER_OUTPUT_BYTES,
+             "raster required size is bounded");
+      std::vector<uint8_t> result(required, 0xa5);
+      uint32_t filled_required = 0;
+      Expect(font_rasterize(catalog_handle, scale_16_16, requests.data(),
+                            static_cast<uint32_t>(requests.size()),
+                            result.data(),
+                            static_cast<uint32_t>(result.size()),
+                            &filled_required) == DTR_STATUS_OK &&
+                 filled_required == required,
+             "raster fills exactly the queried buffer");
+      return result;
+    };
 
     const uint8_t kMixed[] = {
         0x41,
@@ -296,6 +323,162 @@ int main(int argc, const char* argv[]) {
                saw_cjk_fallback && saw_emoji_cluster &&
                saw_combining_cluster,
            "mixed shaping preserves CJK, color emoji, and combining clusters");
+
+    DtrRasterRequestV1 latin_raster = {0, 0};
+    DtrRasterRequestV1 cjk_raster = {0, 0};
+    DtrRasterRequestV1 emoji_raster = {0, 0};
+    DtrRasterRequestV1 combining_raster = {0, 0};
+    for (uint32_t glyph = 0; glyph < mixed_header->glyph_count; glyph++) {
+      const DtrShapeGlyphV1& item = mixed_glyphs[glyph];
+      DtrRasterRequestV1 request = {item.face_id, item.glyph_id};
+      if (item.utf16_start == 0 && latin_raster.face_id == 0) {
+        latin_raster = request;
+      } else if (item.utf16_start == 1 && cjk_raster.face_id == 0) {
+        cjk_raster = request;
+      } else if (item.utf16_start == 4 && emoji_raster.face_id == 0) {
+        emoji_raster = request;
+      } else if (item.utf16_start == 11 && combining_raster.face_id == 0) {
+        combining_raster = request;
+      }
+    }
+    constexpr char kSpace[] = " ";
+    const std::vector<uint8_t> space_shape = shape(
+        font_summary.handle, DTR_FONT_STYLE_REGULAR,
+        DTR_SHAPE_FEATURE_LIGATURES,
+        reinterpret_cast<const uint8_t*>(kSpace), sizeof(kSpace) - 1);
+    const auto* space_header =
+        reinterpret_cast<const DtrShapeHeaderV1*>(space_shape.data());
+    const auto* space_glyphs = reinterpret_cast<const DtrShapeGlyphV1*>(
+        space_shape.data() + space_header->glyphs_offset);
+    DtrRasterRequestV1 space_raster = {space_glyphs[0].face_id,
+                                       space_glyphs[0].glyph_id};
+    Expect(latin_raster.face_id != 0 && cjk_raster.face_id != 0 &&
+               emoji_raster.face_id != 0 && combining_raster.face_id != 0 &&
+               space_raster.face_id != 0,
+           "shaped glyph keys are available for raster requests");
+    const std::vector<DtrRasterRequestV1> raster_requests = {
+        latin_raster, cjk_raster, emoji_raster, combining_raster, space_raster};
+    const std::vector<uint8_t> raster_1x = rasterize(
+        font_summary.handle, 1u << 16, raster_requests);
+    const auto* raster_header =
+        reinterpret_cast<const DtrRasterHeaderV1*>(raster_1x.data());
+    const auto* raster_records = reinterpret_cast<const DtrRasterGlyphV1*>(
+        raster_1x.data() + raster_header->records_offset);
+    Expect(raster_header->magic == DTR_RASTER_BUFFER_MAGIC &&
+               raster_header->version == DTR_RASTER_BUFFER_VERSION &&
+               raster_header->header_size == sizeof(DtrRasterHeaderV1) &&
+               raster_header->total_size == raster_1x.size() &&
+               raster_header->catalog_generation == font_summary.generation &&
+               raster_header->scale_16_16 == (1u << 16) &&
+               raster_header->glyph_count == raster_requests.size() &&
+               raster_header->records_offset == sizeof(DtrRasterHeaderV1) &&
+               raster_header->pixels_offset ==
+                   sizeof(DtrRasterHeaderV1) +
+                       raster_requests.size() * sizeof(DtrRasterGlyphV1) &&
+               raster_header->pixel_bytes ==
+                   raster_header->total_size - raster_header->pixels_offset,
+           "raster header preserves generation, scale, and exact sections");
+    uint32_t raster_pixel_cursor = raster_header->pixels_offset;
+    bool saw_color_pixel = false;
+    for (uint32_t index = 0; index < raster_header->glyph_count; index++) {
+      const DtrRasterGlyphV1& item = raster_records[index];
+      const DtrRasterRequestV1& request = raster_requests[index];
+      const uint32_t bytes_per_pixel =
+          item.format == DTR_RASTER_FORMAT_RGBA8_STRAIGHT ? 4u : 1u;
+      Expect(item.face_id == request.face_id &&
+                 item.glyph_id == request.glyph_id &&
+                 item.pixels_offset == raster_pixel_cursor &&
+                 item.width <= DTR_MAX_RASTER_DIMENSION &&
+                 item.height <= DTR_MAX_RASTER_DIMENSION &&
+                 ((item.width == 0 && item.height == 0 &&
+                   item.row_stride == 0 && item.pixel_length == 0) ||
+                  (item.width > 0 && item.height > 0 &&
+                   item.row_stride == item.width * bytes_per_pixel &&
+                   item.pixel_length == item.row_stride * item.height)),
+             "raster record matches request and tight pixel extent");
+      bool nonzero_coverage = false;
+      for (uint32_t offset = 0; offset < item.pixel_length;
+           offset += bytes_per_pixel) {
+        const uint8_t* pixel =
+            raster_1x.data() + item.pixels_offset + offset;
+        const uint8_t alpha = bytes_per_pixel == 1 ? pixel[0] : pixel[3];
+        nonzero_coverage |= alpha != 0;
+        if (bytes_per_pixel == 4 && alpha != 0 &&
+            (pixel[0] != pixel[1] || pixel[1] != pixel[2])) {
+          saw_color_pixel = true;
+        }
+        if (bytes_per_pixel == 4 && alpha == 0) {
+          Expect(pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0,
+                 "straight RGBA clears transparent color channels");
+        }
+      }
+      if (index + 1 < raster_header->glyph_count) {
+        Expect(nonzero_coverage,
+               "visible Latin/CJK/emoji/combining raster has coverage");
+      }
+      raster_pixel_cursor += item.pixel_length;
+    }
+    Expect(raster_records[0].format == DTR_RASTER_FORMAT_ALPHA8 &&
+               raster_records[1].format == DTR_RASTER_FORMAT_ALPHA8 &&
+               raster_records[2].format ==
+                   DTR_RASTER_FORMAT_RGBA8_STRAIGHT &&
+               (raster_records[2].flags & DTR_RASTER_GLYPH_COLOR) != 0 &&
+               raster_records[3].format == DTR_RASTER_FORMAT_ALPHA8 &&
+               raster_records[4].width == 0 &&
+               raster_records[4].height == 0 && saw_color_pixel &&
+               raster_pixel_cursor == raster_header->total_size,
+           "raster distinguishes alpha, color, and zero-area whitespace");
+    const std::vector<uint8_t> raster_2x = rasterize(
+        font_summary.handle, 2u << 16, raster_requests);
+    const auto* raster_2x_header =
+        reinterpret_cast<const DtrRasterHeaderV1*>(raster_2x.data());
+    Expect(raster_2x_header->scale_16_16 == (2u << 16) &&
+               raster_2x_header->pixel_bytes > raster_header->pixel_bytes,
+           "2x raster has distinct scale identity and greater pixel storage");
+
+    uint32_t raster_required = 0;
+    std::vector<uint8_t> raster_undersized(raster_1x.size() - 1, 0xa5);
+    Expect(font_rasterize(
+               font_summary.handle, 1u << 16, raster_requests.data(),
+               static_cast<uint32_t>(raster_requests.size()),
+               raster_undersized.data(),
+               static_cast<uint32_t>(raster_undersized.size()),
+               &raster_required) == DTR_STATUS_BUFFER_TOO_SMALL &&
+               raster_required == raster_1x.size(),
+           "undersized raster output reports exact retry size");
+    bool raster_untouched = true;
+    for (uint8_t byte : raster_undersized) {
+      raster_untouched &= byte == 0xa5;
+    }
+    Expect(raster_untouched, "undersized raster output remains untouched");
+    const std::vector<DtrRasterRequestV1> duplicate_rasters = {
+        latin_raster, latin_raster};
+    Expect(font_rasterize(font_summary.handle, 1u << 16,
+                          duplicate_rasters.data(),
+                          static_cast<uint32_t>(duplicate_rasters.size()),
+                          nullptr, 0, &raster_required) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "duplicate raster keys are rejected");
+    const DtrRasterRequestV1 unknown_face = {UINT32_MAX, 1};
+    Expect(font_rasterize(font_summary.handle, 1u << 16, &unknown_face, 1,
+                          nullptr, 0, &raster_required) ==
+               DTR_STATUS_NOT_FOUND,
+           "unknown raster face is rejected");
+    const DtrRasterRequestV1 invalid_glyph = {latin_raster.face_id, 0x10000};
+    Expect(font_rasterize(font_summary.handle, 1u << 16, &invalid_glyph, 1,
+                          nullptr, 0, &raster_required) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "out-of-range CoreText glyph ID is rejected");
+    Expect(font_rasterize(font_summary.handle, 0, raster_requests.data(),
+                          static_cast<uint32_t>(raster_requests.size()),
+                          nullptr, 0, &raster_required) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "invalid fixed-point raster scale is rejected");
+    Expect(font_rasterize(font_summary.handle, 1u << 16,
+                          raster_requests.data(),
+                          DTR_MAX_RASTER_GLYPHS + 1, nullptr, 0,
+                          &raster_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "over-limit raster batch is rejected before reading requests");
 
     const uint8_t kEmojiFlag[] = {
         0xf0, 0x9f, 0x91, 0xa9, 0xf0, 0x9f, 0x8f, 0xbd, 0xe2, 0x80, 0x8d,
@@ -453,6 +636,41 @@ int main(int argc, const char* argv[]) {
     }
     Expect(concurrent_shape_failures.load() == 0,
            "concurrent whole-run shaping preserves one catalog generation");
+    std::atomic<int> concurrent_raster_failures{0};
+    std::vector<std::thread> rasterizers;
+    for (int worker = 0; worker < 4; worker++) {
+      rasterizers.emplace_back([&] {
+        for (int iteration = 0; iteration < 10; iteration++) {
+          uint32_t required = 0;
+          if (font_rasterize(
+                  font_summary.handle, 1u << 16, raster_requests.data(),
+                  static_cast<uint32_t>(raster_requests.size()), nullptr, 0,
+                  &required) != DTR_STATUS_BUFFER_TOO_SMALL ||
+              required < sizeof(DtrRasterHeaderV1) ||
+              required > DTR_MAX_RASTER_OUTPUT_BYTES) {
+            concurrent_raster_failures.fetch_add(1);
+            continue;
+          }
+          std::vector<uint8_t> bytes(required);
+          uint32_t filled = 0;
+          if (font_rasterize(
+                  font_summary.handle, 1u << 16, raster_requests.data(),
+                  static_cast<uint32_t>(raster_requests.size()), bytes.data(),
+                  static_cast<uint32_t>(bytes.size()), &filled) !=
+                  DTR_STATUS_OK ||
+              filled != required ||
+              reinterpret_cast<const DtrRasterHeaderV1*>(bytes.data())
+                      ->catalog_generation != font_summary.generation) {
+            concurrent_raster_failures.fetch_add(1);
+          }
+        }
+      });
+    }
+    for (std::thread& rasterizer : rasterizers) {
+      rasterizer.join();
+    }
+    Expect(concurrent_raster_failures.load() == 0,
+           "concurrent raster batches preserve one catalog generation");
     const uint64_t released_font_handle = font_summary.handle;
     Expect(font_release != nullptr &&
                font_release(released_font_handle) == DTR_STATUS_OK,
@@ -474,6 +692,14 @@ int main(int argc, const char* argv[]) {
                       &stale_shape_required) == DTR_STATUS_INVALID_HANDLE &&
                stale_shape_required == 0,
            "released font catalog generation cannot shape");
+    uint32_t stale_raster_required = 0;
+    Expect(font_rasterize(released_font_handle, 1u << 16,
+                          raster_requests.data(),
+                          static_cast<uint32_t>(raster_requests.size()),
+                          nullptr, 0, &stale_raster_required) ==
+               DTR_STATUS_INVALID_HANDLE &&
+               stale_raster_required == 0,
+           "released font catalog generation cannot rasterize");
     Expect(live_font_count() == 0, "font catalog registry returns to zero");
 
     DtrFontCatalogSummaryV1 racing_summary = {};

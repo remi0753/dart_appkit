@@ -1,5 +1,5 @@
-#import <MetalKit/MetalKit.h>
 #import <CoreText/CoreText.h>
+#import <MetalKit/MetalKit.h>
 
 #include "TerminalRendererPlugin.h"
 
@@ -27,6 +27,7 @@ static const da_native_extension_services_v1* g_initialized_services = NULL;
                    policyFlags:(uint32_t)policyFlags;
 - (NSFont*)fontForStyle:(uint32_t)style synthetic:(BOOL*)synthetic;
 - (uint32_t)faceIdForFont:(NSFont*)font;
+- (NSFont*)fontForFaceId:(uint32_t)faceId;
 - (uint32_t)faceIdForStyle:(uint32_t)style;
 - (BOOL)fillSummary:(DtrFontCatalogSummaryV1*)output handle:(uint64_t)handle;
 
@@ -81,6 +82,7 @@ static NSString* PostScriptName(NSFont* font) {
 @implementation DtrFontCatalog {
   NSLock* _faceLock;
   NSMutableDictionary<NSString*, NSNumber*>* _faceIds;
+  NSMutableDictionary<NSNumber*, NSFont*>* _fontsByFaceId;
   uint32_t _nextFaceId;
 }
 
@@ -125,6 +127,7 @@ static NSString* PostScriptName(NSFont* font) {
   _syntheticStyleBits = synthetic;
   _faceLock = [[NSLock alloc] init];
   _faceIds = [[NSMutableDictionary alloc] init];
+  _fontsByFaceId = [[NSMutableDictionary alloc] init];
   _nextFaceId = 1;
   for (id candidate in _fonts) {
     if (candidate != [NSNull null]) {
@@ -158,8 +161,16 @@ static NSString* PostScriptName(NSFont* font) {
   }
   const uint32_t identifier = _nextFaceId++;
   _faceIds[name] = @(identifier);
+  _fontsByFaceId[@(identifier)] = font;
   [_faceLock unlock];
   return identifier;
+}
+
+- (NSFont*)fontForFaceId:(uint32_t)faceId {
+  [_faceLock lock];
+  NSFont* font = _fontsByFaceId[@(faceId)];
+  [_faceLock unlock];
+  return font;
 }
 
 - (uint32_t)faceIdForStyle:(uint32_t)style {
@@ -236,6 +247,156 @@ static NSString* PostScriptName(NSFont* font) {
 }
 
 @end
+
+@interface DtrRasterizedGlyph : NSObject
+
+@property(nonatomic) uint32_t faceId;
+@property(nonatomic) uint32_t glyphId;
+@property(nonatomic) uint32_t format;
+@property(nonatomic) uint32_t flags;
+@property(nonatomic) int32_t originX;
+@property(nonatomic) int32_t originY;
+@property(nonatomic) uint32_t width;
+@property(nonatomic) uint32_t height;
+@property(nonatomic) uint32_t rowStride;
+@property(nonatomic, copy) NSData* pixels;
+
+@end
+
+@implementation DtrRasterizedGlyph
+@end
+
+static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
+                                          uint32_t glyph_id, double scale,
+                                          int32_t* status) {
+  if (status == NULL) {
+    return nil;
+  }
+  *status = DTR_STATUS_INTERNAL;
+  const CGGlyph glyph = (CGGlyph)glyph_id;
+  CGRect bounds = CGRectZero;
+  CTFontGetBoundingRectsForGlyphs((__bridge CTFontRef)font,
+                                  kCTFontOrientationHorizontal, &glyph,
+                                  &bounds, 1);
+  if (CGRectIsNull(bounds) || CGRectIsInfinite(bounds) ||
+      !isfinite(bounds.origin.x) || !isfinite(bounds.origin.y) ||
+      !isfinite(bounds.size.width) || !isfinite(bounds.size.height)) {
+    return nil;
+  }
+  DtrRasterizedGlyph* result = [[DtrRasterizedGlyph alloc] init];
+  result.faceId = face_id;
+  result.glyphId = glyph_id;
+  const CTFontSymbolicTraits traits =
+      CTFontGetSymbolicTraits((__bridge CTFontRef)font);
+  const BOOL color = (traits & kCTFontColorGlyphsTrait) != 0;
+  result.format =
+      color ? DTR_RASTER_FORMAT_RGBA8_STRAIGHT : DTR_RASTER_FORMAT_ALPHA8;
+  result.flags = (color ? DTR_RASTER_GLYPH_COLOR : 0) |
+                 (glyph_id == 0 ? DTR_RASTER_GLYPH_MISSING : 0);
+  if (CGRectIsEmpty(bounds) || bounds.size.width == 0.0 ||
+      bounds.size.height == 0.0) {
+    result.originX = 0;
+    result.originY = 0;
+    result.width = 0;
+    result.height = 0;
+    result.rowStride = 0;
+    result.pixels = [NSData data];
+    *status = DTR_STATUS_OK;
+    return result;
+  }
+
+  const double scaled_min_x = floor(CGRectGetMinX(bounds) * scale) - 1.0;
+  const double scaled_max_x = ceil(CGRectGetMaxX(bounds) * scale) + 1.0;
+  const double scaled_min_y = floor(CGRectGetMinY(bounds) * scale) - 1.0;
+  const double scaled_max_y = ceil(CGRectGetMaxY(bounds) * scale) + 1.0;
+  if (!isfinite(scaled_min_x) || !isfinite(scaled_max_x) ||
+      !isfinite(scaled_min_y) || !isfinite(scaled_max_y) ||
+      scaled_min_x < INT32_MIN || scaled_min_x > INT32_MAX ||
+      scaled_max_y < INT32_MIN || scaled_max_y > INT32_MAX) {
+    *status = DTR_STATUS_RESOURCE_EXHAUSTED;
+    return nil;
+  }
+  const int64_t width = (int64_t)(scaled_max_x - scaled_min_x);
+  const int64_t height = (int64_t)(scaled_max_y - scaled_min_y);
+  const uint32_t bytes_per_pixel = color ? 4u : 1u;
+  if (width <= 0 || height <= 0 || width > DTR_MAX_RASTER_DIMENSION ||
+      height > DTR_MAX_RASTER_DIMENSION ||
+      (uint64_t)width * bytes_per_pixel > UINT32_MAX ||
+      (uint64_t)width * (uint64_t)height * bytes_per_pixel >
+          DTR_MAX_RASTER_OUTPUT_BYTES) {
+    *status = DTR_STATUS_RESOURCE_EXHAUSTED;
+    return nil;
+  }
+  const uint32_t row_stride = (uint32_t)width * bytes_per_pixel;
+  const size_t byte_length = (size_t)row_stride * (size_t)height;
+  NSMutableData* drawing = [NSMutableData dataWithLength:byte_length];
+  NSMutableData* top_down = [NSMutableData dataWithLength:byte_length];
+  if (drawing == nil || top_down == nil) {
+    *status = DTR_STATUS_RESOURCE_EXHAUSTED;
+    return nil;
+  }
+  CGColorSpaceRef color_space =
+      color ? CGColorSpaceCreateDeviceRGB() : CGColorSpaceCreateDeviceGray();
+  if (color_space == NULL) {
+    return nil;
+  }
+  const CGBitmapInfo bitmap_info =
+      color ? (kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big)
+            : (CGBitmapInfo)kCGImageAlphaNone;
+  CGContextRef context = CGBitmapContextCreate(
+      drawing.mutableBytes, (size_t)width, (size_t)height, 8, row_stride,
+      color_space, bitmap_info);
+  CGColorSpaceRelease(color_space);
+  if (context == NULL) {
+    return nil;
+  }
+  CGContextSetShouldAntialias(context, true);
+  CGContextSetAllowsFontSmoothing(context, false);
+  CGContextSetShouldSmoothFonts(context, false);
+  CGContextSetTextMatrix(context, CGAffineTransformIdentity);
+  if (color) {
+    CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, 1.0);
+  } else {
+    CGContextSetGrayFillColor(context, 1.0, 1.0);
+  }
+  const CGPoint position = CGPointMake(-scaled_min_x / scale,
+                                       -scaled_min_y / scale);
+  CTFontDrawGlyphs((__bridge CTFontRef)font, &glyph, &position, 1, context);
+  CGContextRelease(context);
+
+  const uint8_t* source = (const uint8_t*)drawing.bytes;
+  uint8_t* destination = (uint8_t*)top_down.mutableBytes;
+  for (uint32_t y = 0; y < (uint32_t)height; y++) {
+    const uint8_t* source_row =
+        source + ((uint32_t)height - 1u - y) * row_stride;
+    uint8_t* destination_row = destination + y * row_stride;
+    if (!color) {
+      memcpy(destination_row, source_row, row_stride);
+      continue;
+    }
+    for (uint32_t x = 0; x < (uint32_t)width; x++) {
+      const uint8_t alpha = source_row[x * 4u + 3u];
+      destination_row[x * 4u + 3u] = alpha;
+      for (uint32_t channel = 0; channel < 3; channel++) {
+        const uint8_t component = source_row[x * 4u + channel];
+        const uint32_t straight =
+            alpha == 0
+                ? 0
+                : ((uint32_t)component * 255u + alpha / 2u) / alpha;
+        destination_row[x * 4u + channel] =
+            (uint8_t)(straight > 255u ? 255u : straight);
+      }
+    }
+  }
+  result.originX = (int32_t)scaled_min_x;
+  result.originY = (int32_t)scaled_max_y;
+  result.width = (uint32_t)width;
+  result.height = (uint32_t)height;
+  result.rowStride = row_stride;
+  result.pixels = top_down;
+  *status = DTR_STATUS_OK;
+  return result;
+}
 
 @interface DtrTerminalMetalView : MTKView
 @end
@@ -873,6 +1034,125 @@ int32_t dtr_font_catalog_shape(uint64_t handle, uint32_t style,
     free(cluster_boundaries);
     free(next_boundaries);
     if (!fill_valid || glyph_cursor != (uint32_t)total_glyphs) {
+      free(packed);
+      return DTR_STATUS_INTERNAL;
+    }
+    memcpy(output, packed, (size_t)required);
+    free(packed);
+    return DTR_STATUS_OK;
+  }
+}
+
+int32_t dtr_font_catalog_rasterize(
+    uint64_t handle, uint32_t scale_16_16,
+    const DtrRasterRequestV1* requests, uint32_t request_count,
+    uint8_t* output, uint32_t output_capacity, uint32_t* output_required) {
+  @autoreleasepool {
+    if (output_required == NULL ||
+        (output == NULL && output_capacity != 0)) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    *output_required = 0;
+    if (requests == NULL || request_count == 0 ||
+        request_count > DTR_MAX_RASTER_GLYPHS || scale_16_16 < (1u << 15) ||
+        scale_16_16 > (4u << 16)) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    DtrFontCatalog* catalog = FontCatalogForHandle(handle);
+    if (catalog == nil) {
+      return DTR_STATUS_INVALID_HANDLE;
+    }
+    const double scale = (double)scale_16_16 / 65536.0;
+    NSMutableSet<NSNumber*>* unique = [[NSMutableSet alloc] init];
+    NSMutableArray<DtrRasterizedGlyph*>* rasterized =
+        [[NSMutableArray alloc] initWithCapacity:request_count];
+    uint64_t total_pixel_bytes = 0;
+    for (uint32_t index = 0; index < request_count; index++) {
+      DtrRasterRequestV1 request = {0};
+      memcpy(&request,
+             (const uint8_t*)requests +
+                 (size_t)index * sizeof(DtrRasterRequestV1),
+             sizeof(request));
+      if (request.face_id == 0 || request.glyph_id > UINT16_MAX) {
+        return DTR_STATUS_INVALID_ARGUMENT;
+      }
+      const uint64_t packed_key =
+          ((uint64_t)request.face_id << 32) | request.glyph_id;
+      NSNumber* key = @(packed_key);
+      if ([unique containsObject:key]) {
+        return DTR_STATUS_INVALID_ARGUMENT;
+      }
+      [unique addObject:key];
+      NSFont* font = [catalog fontForFaceId:request.face_id];
+      if (font == nil) {
+        return DTR_STATUS_NOT_FOUND;
+      }
+      int32_t raster_status = DTR_STATUS_INTERNAL;
+      DtrRasterizedGlyph* glyph = RasterizeGlyph(
+          font, request.face_id, request.glyph_id, scale, &raster_status);
+      if (glyph == nil || raster_status != DTR_STATUS_OK) {
+        return raster_status;
+      }
+      if (total_pixel_bytes + glyph.pixels.length > UINT32_MAX ||
+          total_pixel_bytes + glyph.pixels.length >
+              DTR_MAX_RASTER_OUTPUT_BYTES) {
+        return DTR_STATUS_RESOURCE_EXHAUSTED;
+      }
+      total_pixel_bytes += glyph.pixels.length;
+      [rasterized addObject:glyph];
+    }
+
+    const uint64_t records_offset = sizeof(DtrRasterHeaderV1);
+    const uint64_t pixels_offset =
+        records_offset +
+        (uint64_t)request_count * sizeof(DtrRasterGlyphV1);
+    const uint64_t required = pixels_offset + total_pixel_bytes;
+    if (required > DTR_MAX_RASTER_OUTPUT_BYTES || required > UINT32_MAX) {
+      return DTR_STATUS_RESOURCE_EXHAUSTED;
+    }
+    *output_required = (uint32_t)required;
+    if (output == NULL || output_capacity < required) {
+      return DTR_STATUS_BUFFER_TOO_SMALL;
+    }
+    uint8_t* packed = (uint8_t*)calloc((size_t)required, sizeof(uint8_t));
+    if (packed == NULL) {
+      return DTR_STATUS_RESOURCE_EXHAUSTED;
+    }
+    DtrRasterHeaderV1* header = (DtrRasterHeaderV1*)packed;
+    header->magic = DTR_RASTER_BUFFER_MAGIC;
+    header->version = DTR_RASTER_BUFFER_VERSION;
+    header->header_size = sizeof(DtrRasterHeaderV1);
+    header->total_size = (uint32_t)required;
+    header->catalog_generation = catalog.generation;
+    header->scale_16_16 = scale_16_16;
+    header->glyph_count = request_count;
+    header->records_offset = (uint32_t)records_offset;
+    header->pixels_offset = (uint32_t)pixels_offset;
+    header->pixel_bytes = (uint32_t)total_pixel_bytes;
+    DtrRasterGlyphV1* records =
+        (DtrRasterGlyphV1*)(packed + header->records_offset);
+    uint32_t pixel_cursor = header->pixels_offset;
+    for (uint32_t index = 0; index < request_count; index++) {
+      DtrRasterizedGlyph* glyph = rasterized[index];
+      DtrRasterGlyphV1* record = &records[index];
+      record->face_id = glyph.faceId;
+      record->glyph_id = glyph.glyphId;
+      record->format = glyph.format;
+      record->flags = glyph.flags;
+      record->origin_x = glyph.originX;
+      record->origin_y = glyph.originY;
+      record->width = glyph.width;
+      record->height = glyph.height;
+      record->row_stride = glyph.rowStride;
+      record->pixels_offset = pixel_cursor;
+      record->pixel_length = (uint32_t)glyph.pixels.length;
+      if (glyph.pixels.length > 0) {
+        memcpy(packed + pixel_cursor, glyph.pixels.bytes,
+               glyph.pixels.length);
+        pixel_cursor += (uint32_t)glyph.pixels.length;
+      }
+    }
+    if (pixel_cursor != required) {
       free(packed);
       return DTR_STATUS_INTERNAL;
     }

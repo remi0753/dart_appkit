@@ -5,11 +5,13 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 3u
+#define DTR_ABI_VERSION 4u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
 #define DTR_SHAPE_BUFFER_MAGIC 0x48535444u
+#define DTR_RASTER_BUFFER_VERSION 1u
+#define DTR_RASTER_BUFFER_MAGIC 0x47525444u
 #define DTR_MAX_FONT_FAMILY_BYTES 1024u
 #define DTR_MAX_RESOLVE_TEXT_BYTES (1024u * 1024u)
 #define DTR_MAX_POSTSCRIPT_NAME_BYTES 127u
@@ -17,6 +19,9 @@
 #define DTR_MAX_SHAPE_FACES 4096u
 #define DTR_MAX_SHAPE_GLYPHS (1024u * 1024u)
 #define DTR_MAX_SHAPE_OUTPUT_BYTES (64u * 1024u * 1024u)
+#define DTR_MAX_RASTER_GLYPHS 4096u
+#define DTR_MAX_RASTER_DIMENSION 4096u
+#define DTR_MAX_RASTER_OUTPUT_BYTES (64u * 1024u * 1024u)
 
 typedef enum DtrStatus {
   DTR_STATUS_OK = 0,
@@ -175,6 +180,55 @@ typedef struct DtrShapeGlyphV1 {
   double advance;
 } DtrShapeGlyphV1;
 
+typedef struct DtrRasterRequestV1 {
+  uint32_t face_id;
+  uint32_t glyph_id;
+} DtrRasterRequestV1;
+
+enum {
+  DTR_RASTER_FORMAT_ALPHA8 = 1,
+  DTR_RASTER_FORMAT_RGBA8_STRAIGHT = 2,
+};
+
+enum {
+  DTR_RASTER_GLYPH_COLOR = 1u << 0,
+  DTR_RASTER_GLYPH_MISSING = 1u << 1,
+  DTR_RASTER_GLYPH_KNOWN_MASK =
+      DTR_RASTER_GLYPH_COLOR | DTR_RASTER_GLYPH_MISSING,
+};
+
+typedef struct DtrRasterHeaderV1 {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t header_size;
+  uint32_t total_size;
+  uint64_t catalog_generation;
+  uint32_t scale_16_16;
+  uint32_t glyph_count;
+  uint32_t records_offset;
+  uint32_t pixels_offset;
+  uint32_t pixel_bytes;
+  uint32_t reserved[5];
+} DtrRasterHeaderV1;
+
+// origin_x is the left device-pixel bearing from the glyph position.
+// origin_y is the top device-pixel bearing above the CoreText baseline.
+// Pixel rows are tightly packed top-to-bottom.
+typedef struct DtrRasterGlyphV1 {
+  uint32_t face_id;
+  uint32_t glyph_id;
+  uint32_t format;
+  uint32_t flags;
+  int32_t origin_x;
+  int32_t origin_y;
+  uint32_t width;
+  uint32_t height;
+  uint32_t row_stride;
+  uint32_t pixels_offset;
+  uint32_t pixel_length;
+  uint32_t reserved;
+} DtrRasterGlyphV1;
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -217,6 +271,14 @@ __attribute__((visibility("default"))) int32_t dtr_font_catalog_shape(
     uint64_t handle, uint32_t style, uint32_t feature_flags,
     const uint8_t* text_utf8, uint32_t text_length, uint8_t* output,
     uint32_t output_capacity, uint32_t* output_required);
+
+// Rasterizes a unique glyph set in request order at an exact unsigned 16.16
+// pixels-per-point scale. Null output with zero capacity is a size query. The
+// call retains no request/output pointer and publishes no partial output.
+__attribute__((visibility("default"))) int32_t dtr_font_catalog_rasterize(
+    uint64_t handle, uint32_t scale_16_16,
+    const DtrRasterRequestV1* requests, uint32_t request_count,
+    uint8_t* output, uint32_t output_capacity, uint32_t* output_required);
 
 __attribute__((visibility("default"))) int32_t
 dtr_debug_live_font_catalog_count(void);
