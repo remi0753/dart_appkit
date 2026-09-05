@@ -24,6 +24,34 @@ static BOOL ConsumeMetalTestFailure(uint32_t failure) {
       memory_order_relaxed, memory_order_relaxed);
 }
 
+static void SaturatingIncrementMetric(uint64_t* value) {
+  if (*value < INT64_MAX) {
+    ++*value;
+  }
+}
+
+static void SaturatingAddMetric(uint64_t* value, uint64_t increment) {
+  if (*value >= INT64_MAX || increment >= (uint64_t)INT64_MAX - *value) {
+    *value = INT64_MAX;
+  } else {
+    *value += increment;
+  }
+}
+
+static uint64_t GpuDurationNanoseconds(id<MTLCommandBuffer> command) {
+  const CFTimeInterval start = command.GPUStartTime;
+  const CFTimeInterval end = command.GPUEndTime;
+  if (!isfinite(start) || !isfinite(end) || start < 0.0 || end <= start) {
+    return 0;
+  }
+  const double nanoseconds = (end - start) * 1000000000.0;
+  if (!isfinite(nanoseconds) || nanoseconds >= (double)INT64_MAX) {
+    return INT64_MAX;
+  }
+  const uint64_t result = (uint64_t)nanoseconds;
+  return result == 0 ? 1 : result;
+}
+
 extern const uint8_t dtr_metallib_start[]
     __asm("section$start$__DATA$__dtrlib");
 extern const uint8_t dtr_metallib_end[]
@@ -580,6 +608,11 @@ enum {
   uint64_t _lastFailedFrameGeneration;
   uint64_t _drawableUnavailableCount;
   uint64_t _commandFailureCount;
+  uint64_t _gpuTimingSampleCount;
+  uint64_t _gpuTotalTimeNs;
+  uint64_t _gpuMaxTimeNs;
+  uint64_t _acceptedAtlasUploadCount;
+  uint64_t _acceptedAtlasUploadBytes;
   uint32_t _failureKind;
   BOOL _admitting;
   BOOL _shuttingDown;
@@ -738,9 +771,7 @@ enum {
   _failureKind = failure;
   _failureGeneration = 1;
   _lastFailedFrameGeneration = frameGeneration;
-  if (_commandFailureCount != UINT64_MAX) {
-    ++_commandFailureCount;
-  }
+  SaturatingIncrementMetric(&_commandFailureCount);
   _admitting = NO;
   for (DtrMetalFrameSlot* slot in _slots) {
     if (slot.state == DTR_METAL_SLOT_READY) {
@@ -927,6 +958,8 @@ enum {
                    withBytes:pixels
                  bytesPerRow:upload.row_stride
                bytesPerImage:upload.byte_length];
+      SaturatingIncrementMetric(&_acceptedAtlasUploadCount);
+      SaturatingAddMetric(&_acceptedAtlasUploadBytes, upload.byte_length);
     }
   }
   [_lock unlock];
@@ -1093,7 +1126,7 @@ enum {
     }
   }
   if (selected == nil) {
-    ++_backpressureCount;
+    SaturatingIncrementMetric(&_backpressureCount);
     [_lock unlock];
     return DTR_STATUS_BACKPRESSURED;
   }
@@ -1113,7 +1146,7 @@ enum {
   selected.state = DTR_METAL_SLOT_READY;
   _lastAcceptedFrameGeneration = header.frame_generation;
   _lastSubmissionToken = token;
-  ++_acceptedSubmissionCount;
+  SaturatingIncrementMetric(&_acceptedSubmissionCount);
   DtrMetalSubmissionV1 accepted = {0};
   accepted.struct_size = sizeof(accepted);
   accepted.version = DTR_METAL_SUBMISSION_VERSION;
@@ -1177,6 +1210,11 @@ enum {
   state.last_failed_frame_generation = _lastFailedFrameGeneration;
   state.drawable_unavailable_count = _drawableUnavailableCount;
   state.command_failure_count = _commandFailureCount;
+  state.gpu_timing_sample_count = _gpuTimingSampleCount;
+  state.gpu_total_time_ns = _gpuTotalTimeNs;
+  state.gpu_max_time_ns = _gpuMaxTimeNs;
+  state.accepted_atlas_upload_count = _acceptedAtlasUploadCount;
+  state.accepted_atlas_upload_bytes = _acceptedAtlasUploadBytes;
   memcpy(output, &state, sizeof(state));
   [_lock unlock];
   return DTR_STATUS_OK;
@@ -1212,8 +1250,8 @@ enum {
         injected_drawable_failure ? nil : view.currentDrawable;
     if (pass == nil || drawable == nil) {
       [_lock lock];
-      if (_admitting && _view == view && _drawableUnavailableCount != UINT64_MAX) {
-        ++_drawableUnavailableCount;
+      if (_admitting && _view == view) {
+        SaturatingIncrementMetric(&_drawableUnavailableCount);
       }
       [_lock unlock];
       return;
@@ -1238,7 +1276,7 @@ enum {
     for (DtrMetalFrameSlot* slot in _slots) {
       if (slot != selected && slot.state == DTR_METAL_SLOT_READY) {
         slot.state = DTR_METAL_SLOT_FREE;
-        ++_staleReadyDropCount;
+        SaturatingIncrementMetric(&_staleReadyDropCount);
       }
     }
     selected.state = DTR_METAL_SLOT_IN_FLIGHT;
@@ -1306,7 +1344,15 @@ enum {
         selected.state = DTR_METAL_SLOT_FREE;
         if (!injected_completion_failure &&
             completed.status == MTLCommandBufferStatusCompleted) {
-          ++strong_self->_completedSubmissionCount;
+          SaturatingIncrementMetric(&strong_self->_completedSubmissionCount);
+          const uint64_t gpu_duration = GpuDurationNanoseconds(completed);
+          if (gpu_duration != 0) {
+            SaturatingIncrementMetric(&strong_self->_gpuTimingSampleCount);
+            SaturatingAddMetric(&strong_self->_gpuTotalTimeNs, gpu_duration);
+            if (gpu_duration > strong_self->_gpuMaxTimeNs) {
+              strong_self->_gpuMaxTimeNs = gpu_duration;
+            }
+          }
           if (header.frame_generation >
               strong_self->_lastPresentedFrameGeneration) {
             strong_self->_lastPresentedFrameGeneration =

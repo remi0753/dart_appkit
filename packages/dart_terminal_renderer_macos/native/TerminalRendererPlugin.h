@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 8u
+#define DTR_ABI_VERSION 9u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -29,7 +29,7 @@
 #define DTR_METAL_FRAME_VERSION 1u
 #define DTR_METAL_VIEW_BINDING_VERSION 1u
 #define DTR_METAL_SUBMISSION_VERSION 1u
-#define DTR_METAL_RENDERER_STATE_VERSION 2u
+#define DTR_METAL_RENDERER_STATE_VERSION 3u
 #define DTR_METAL_FRAME_MAGIC 0x46525444u
 #define DTR_MAX_METAL_DIMENSION 4096u
 #define DTR_MAX_METAL_INSTANCES 131072u
@@ -426,6 +426,11 @@ typedef struct DtrMetalRendererStateV1 {
   uint64_t last_failed_frame_generation;
   uint64_t drawable_unavailable_count;
   uint64_t command_failure_count;
+  uint64_t gpu_timing_sample_count;
+  uint64_t gpu_total_time_ns;
+  uint64_t gpu_max_time_ns;
+  uint64_t accepted_atlas_upload_count;
+  uint64_t accepted_atlas_upload_bytes;
   uint32_t reserved[2];
 } DtrMetalRendererStateV1;
 

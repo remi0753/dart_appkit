@@ -512,6 +512,11 @@ final class TerminalMetalRendererState {
     required this.lastFailedFrameGeneration,
     required this.drawableUnavailableCount,
     required this.commandFailureCount,
+    required this.gpuTimingSampleCount,
+    required this.gpuTotalTimeNanoseconds,
+    required this.gpuMaximumTimeNanoseconds,
+    required this.acceptedAtlasUploadCount,
+    required this.acceptedAtlasUploadBytes,
   });
 
   final int rendererGeneration;
@@ -533,6 +538,11 @@ final class TerminalMetalRendererState {
   final int lastFailedFrameGeneration;
   final int drawableUnavailableCount;
   final int commandFailureCount;
+  final int gpuTimingSampleCount;
+  final int gpuTotalTimeNanoseconds;
+  final int gpuMaximumTimeNanoseconds;
+  final int acceptedAtlasUploadCount;
+  final int acceptedAtlasUploadBytes;
 }
 
 /// Generation-owned, bounded native Metal renderer.
@@ -792,7 +802,7 @@ final class TerminalMetalRenderer implements Finalizable {
           arena<_MetalRendererStateV1>();
       output.ref
         ..structSize = sizeOf<_MetalRendererStateV1>()
-        ..version = 2;
+        ..version = 3;
       _checkMetalStatus(
         _metalRendererState(handle, output),
         'Metal renderer state',
@@ -803,12 +813,13 @@ final class TerminalMetalRenderer implements Finalizable {
       );
       final bool isFaulted = value.flags & 4 != 0;
       if (value.structSize != sizeOf<_MetalRendererStateV1>() ||
-          value.version != 2 ||
+          value.version != 3 ||
           value.rendererGeneration != generation ||
           value.retiredThroughToken > value.lastSubmissionToken ||
           value.lastAcceptedFrameGeneration <
               value.lastPresentedFrameGeneration ||
           value.readySlotCount + value.inFlightSlotCount > 3 ||
+          !_validMetalMetrics(value) ||
           value.flags & ~7 != 0 ||
           !_reservedZero(value.reserved, 2) ||
           (isFaulted != (failure != TerminalMetalFailureKind.none)) ||
@@ -842,6 +853,11 @@ final class TerminalMetalRenderer implements Finalizable {
         lastFailedFrameGeneration: value.lastFailedFrameGeneration,
         drawableUnavailableCount: value.drawableUnavailableCount,
         commandFailureCount: value.commandFailureCount,
+        gpuTimingSampleCount: value.gpuTimingSampleCount,
+        gpuTotalTimeNanoseconds: value.gpuTotalTimeNanoseconds,
+        gpuMaximumTimeNanoseconds: value.gpuMaximumTimeNanoseconds,
+        acceptedAtlasUploadCount: value.acceptedAtlasUploadCount,
+        acceptedAtlasUploadBytes: value.acceptedAtlasUploadBytes,
       );
     } finally {
       arena.releaseAll();
@@ -1070,6 +1086,16 @@ final class _MetalRendererStateV1 extends Struct {
   external int drawableUnavailableCount;
   @Uint64()
   external int commandFailureCount;
+  @Uint64()
+  external int gpuTimingSampleCount;
+  @Uint64()
+  external int gpuTotalTimeNanoseconds;
+  @Uint64()
+  external int gpuMaximumTimeNanoseconds;
+  @Uint64()
+  external int acceptedAtlasUploadCount;
+  @Uint64()
+  external int acceptedAtlasUploadBytes;
   @Array(2)
   external Array<Uint32> reserved;
 }
@@ -1080,9 +1106,39 @@ void _checkMetalLayout() {
       sizeOf<_MetalAtlasResetV1>() != 32 ||
       sizeOf<_MetalAtlasUploadV1>() != 80 ||
       sizeOf<_MetalSubmissionV1>() != 40 ||
-      sizeOf<_MetalRendererStateV1>() != 136) {
+      sizeOf<_MetalRendererStateV1>() != 176) {
     throw StateError('unexpected Dart FFI Metal ABI layout');
   }
+}
+
+bool _validMetalMetrics(_MetalRendererStateV1 value) {
+  const int maximum = 0x7fffffffffffffff;
+  if (value.gpuTimingSampleCount < 0 ||
+      value.gpuTotalTimeNanoseconds < 0 ||
+      value.gpuMaximumTimeNanoseconds < 0 ||
+      value.acceptedAtlasUploadCount < 0 ||
+      value.acceptedAtlasUploadBytes < 0 ||
+      value.gpuTimingSampleCount > maximum ||
+      value.gpuTotalTimeNanoseconds > maximum ||
+      value.gpuMaximumTimeNanoseconds > maximum ||
+      value.acceptedAtlasUploadCount > maximum ||
+      value.acceptedAtlasUploadBytes > maximum ||
+      value.gpuTimingSampleCount > value.completedSubmissionCount) {
+    return false;
+  }
+  if (value.gpuTimingSampleCount == 0) {
+    if (value.gpuTotalTimeNanoseconds != 0 ||
+        value.gpuMaximumTimeNanoseconds != 0) {
+      return false;
+    }
+  } else if (value.gpuTotalTimeNanoseconds == 0 ||
+      value.gpuMaximumTimeNanoseconds == 0 ||
+      value.gpuMaximumTimeNanoseconds > value.gpuTotalTimeNanoseconds) {
+    return false;
+  }
+  return (value.acceptedAtlasUploadCount == 0) ==
+          (value.acceptedAtlasUploadBytes == 0) &&
+      value.acceptedAtlasUploadBytes >= value.acceptedAtlasUploadCount;
 }
 
 TerminalMetalFailureKind _metalFailureFromNative(int value) {

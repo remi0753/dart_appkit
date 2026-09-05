@@ -38,7 +38,7 @@ static_assert(sizeof(DtrMetalFrameHeaderV1) == 80);
 static_assert(sizeof(DtrMetalInstanceV1) == 48);
 static_assert(sizeof(DtrMetalViewBindingV1) == 32);
 static_assert(sizeof(DtrMetalSubmissionV1) == 40);
-static_assert(sizeof(DtrMetalRendererStateV1) == 136);
+static_assert(sizeof(DtrMetalRendererStateV1) == 176);
 
 int main() {
   auto* version = &dtr_abi_version;

@@ -148,8 +148,8 @@ int main(int argc, const char* argv[]) {
         image, "dtr_debug_metal_fail_next");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 8,
-           "typed Metal failure state requires renderer ABI v8");
+    Expect(DTR_ABI_VERSION == 9,
+           "Metal failure and metrics state requires renderer ABI v9");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -1055,6 +1055,11 @@ int main(int argc, const char* argv[]) {
                unbound_state.failure_generation == 0 &&
                unbound_state.drawable_unavailable_count == 0 &&
                unbound_state.command_failure_count == 0 &&
+               unbound_state.gpu_timing_sample_count == 0 &&
+               unbound_state.gpu_total_time_ns == 0 &&
+               unbound_state.gpu_max_time_ns == 0 &&
+               unbound_state.accepted_atlas_upload_count == 2 &&
+               unbound_state.accepted_atlas_upload_bytes == 20 &&
                unbound_state.flags ==
                    DTR_METAL_RENDERER_STATE_ADMITTING,
            "unbound renderer state is bounded and observable");
@@ -1412,6 +1417,9 @@ int main(int argc, const char* argv[]) {
                  queued_state.retired_through_token == 0 &&
                  queued_state.accepted_submission_count == 3 &&
                  queued_state.backpressure_count == 1 &&
+                 queued_state.gpu_timing_sample_count == 0 &&
+                 queued_state.accepted_atlas_upload_count == 2 &&
+                 queued_state.accepted_atlas_upload_bytes == 20 &&
                  queued_state.ready_slot_count == 3 &&
                  queued_state.in_flight_slot_count == 0 &&
                  queued_state.failure_kind == DTR_METAL_FAILURE_NONE &&
@@ -1459,6 +1467,11 @@ int main(int argc, const char* argv[]) {
       Expect(completed_state.retired_through_token == 3 &&
                  completed_state.last_presented_frame_generation == 3 &&
                  completed_state.completed_submission_count == 1 &&
+                 completed_state.gpu_timing_sample_count == 1 &&
+                 completed_state.gpu_total_time_ns > 0 &&
+                 completed_state.gpu_max_time_ns > 0 &&
+                 completed_state.gpu_max_time_ns <=
+                     completed_state.gpu_total_time_ns &&
                  completed_state.stale_ready_drop_count == 2 &&
                  completed_state.ready_slot_count == 0 &&
                  completed_state.in_flight_slot_count == 0,
@@ -1466,6 +1479,13 @@ int main(int argc, const char* argv[]) {
       Expect(metal_upload(presentation_summary.handle, &blocked_atlas,
                           alpha_pixels.data()) == DTR_STATUS_OK,
              "atlas replacement resumes after GPU completion");
+      completed_state.struct_size = sizeof(completed_state);
+      completed_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+      Expect(metal_state(presentation_summary.handle, &completed_state) ==
+                     DTR_STATUS_OK &&
+                 completed_state.accepted_atlas_upload_count == 3 &&
+                 completed_state.accepted_atlas_upload_bytes == 24,
+             "only three accepted atlas payloads contribute upload metrics");
       const uint64_t presentation_handle = presentation_summary.handle;
       Expect(metal_release(presentation_handle) == DTR_STATUS_OK,
              "renderer release succeeds on the AppKit main thread");
@@ -1534,6 +1554,7 @@ int main(int argc, const char* argv[]) {
                  encoding_failure_state.failure_generation == 1 &&
                  encoding_failure_state.last_failed_frame_generation == 1 &&
                  encoding_failure_state.command_failure_count == 1 &&
+                 encoding_failure_state.gpu_timing_sample_count == 0 &&
                  encoding_failure_state.retired_through_token == 1 &&
                  encoding_failure_state.ready_slot_count == 0 &&
                  encoding_failure_state.in_flight_slot_count == 0 &&
@@ -1630,6 +1651,7 @@ int main(int argc, const char* argv[]) {
                  completion_failure_state.last_failed_frame_generation == 1 &&
                  completion_failure_state.command_failure_count == 1 &&
                  completion_failure_state.completed_submission_count == 0 &&
+                 completion_failure_state.gpu_timing_sample_count == 0 &&
                  completion_failure_state.retired_through_token == 1 &&
                  (completion_failure_state.flags &
                   DTR_METAL_RENDERER_STATE_FAULTED) != 0,

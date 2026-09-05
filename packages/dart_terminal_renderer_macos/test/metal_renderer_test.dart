@@ -267,6 +267,11 @@ void _testTypedRendererReadback() {
           state.lastFailedFrameGeneration == 0 &&
           state.drawableUnavailableCount == 0 &&
           state.commandFailureCount == 0 &&
+          state.gpuTimingSampleCount == 0 &&
+          state.gpuTotalTimeNanoseconds == 0 &&
+          state.gpuMaximumTimeNanoseconds == 0 &&
+          state.acceptedAtlasUploadCount == 2 &&
+          state.acceptedAtlasUploadBytes == 5 &&
           state.readySlotCount == 0 &&
           state.inFlightSlotCount == 0,
       'typed state validates an unbound renderer snapshot',

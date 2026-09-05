@@ -27,7 +27,7 @@ _Static_assert(sizeof(DtrMetalViewBindingV1) == 32,
                "Metal view binding ABI size");
 _Static_assert(sizeof(DtrMetalSubmissionV1) == 40,
                "Metal submission ABI size");
-_Static_assert(sizeof(DtrMetalRendererStateV1) == 136,
+_Static_assert(sizeof(DtrMetalRendererStateV1) == 176,
                "Metal renderer state ABI size");
 
 int main(void) {

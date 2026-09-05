@@ -46,7 +46,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 8,
+  "abiVersion": 9,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -60,7 +60,8 @@ that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,
 upload typed `TerminalMetalAtlasUpload` rectangles, and build immutable frames
 through `TerminalMetalFrameEncoder`. `submit`
 distinguishes accepted, stale, and backpressured outcomes; `state` exposes the
-bounded retirement watermark, drawable count, and typed fault state.
+bounded retirement watermark, drawable count, typed fault state, successful GPU
+timing totals/maxima, and accepted atlas upload count/bytes.
 `renderRgba` is the synchronous test/oracle path, not the production
 presentation path. Dispose the renderer explicitly from its owner domain.
 
