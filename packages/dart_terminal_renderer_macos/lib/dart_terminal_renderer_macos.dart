@@ -2,6 +2,7 @@ import 'package:dart_appkit/dart_appkit.dart';
 import 'package:dart_macos_runtime/dart_macos_runtime.dart';
 
 export 'src/font_catalog.dart';
+export 'src/metal_renderer.dart';
 
 const String terminalRendererMacosCapabilityId = 'dart_terminal_renderer_macos';
 const String terminalMetalViewProviderIdentifier =

@@ -140,6 +140,9 @@ the instance. Only then does it borrow the provider's `NSView` pointer and the
 caller payload for the duration of the native callback. Neither pointer nor an
 AppKit registry handle is exposed to Dart, and non-provider views, stale
 handles, missing operations, and malformed payloads fail closed.
+The public Dart `View.performCustomOperation` API copies a `Uint8List` into
+temporary native storage for this synchronous call; it exposes neither the
+view handle nor the borrowed native pointer.
 
 ## Event envelope
 

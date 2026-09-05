@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'package:dart_appkit/src/native/native_bindings.dart';
 
@@ -38,6 +39,8 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
+  final Map<int, List<Uint8List>> customViewOperations =
+      <int, List<Uint8List>>{};
   final Map<int, int> contentViews = <int, int>{};
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
   final Map<int, int> windowKeyEventRoutings = <int, int>{};
@@ -382,6 +385,22 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeCallResult customViewPerformOperation(int handle, Uint8List payload) {
+    final NativeCallResult result = _status('customViewPerformOperation');
+    if (!result.isSuccess) return result;
+    if (!customViewProviders.containsKey(handle)) {
+      return const NativeCallResult.failure(
+        1,
+        'view has no registered custom operation',
+      );
+    }
+    customViewOperations
+        .putIfAbsent(handle, () => <Uint8List>[])
+        .add(Uint8List.fromList(payload));
+    return result;
+  }
+
+  @override
   NativeValueResult<int> textViewCreate() {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('textViewCreate', handle);
@@ -418,6 +437,7 @@ final class FakeNativeBindings implements NativeBindings {
       windowTitles.remove(handle);
       texts.remove(handle);
       customViewProviders.remove(handle);
+      customViewOperations.remove(handle);
       contentViews.remove(handle);
       windowCloseDeferrals.remove(handle);
       windowKeyEventRoutings.remove(handle);

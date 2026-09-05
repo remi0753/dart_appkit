@@ -1099,7 +1099,29 @@ int main(int argc, const char* argv[]) {
         DTR_METAL_ATLAS_ALPHA8, 2, 2, 1, 1, 2, 2);
     Expect(metal_upload(metal_summary.handle, &alpha_generation_two,
                         alpha_pixels.data()) == DTR_STATUS_OK,
-           "new atlas generation atomically replaces old page identities");
+           "new atlas generation advances the complete snapshot identity");
+    std::vector<uint8_t> generation_two_frame = mutate_header(
+        metal_frame, ^(DtrMetalFrameHeaderV1* header) {
+          header->atlas_generation = 2;
+          header->frame_generation = 2;
+        });
+    generation_two_frame = mutate_instance(
+        generation_two_frame, 2, ^(DtrMetalInstanceV1* instance) {
+          instance->page_generation = 2;
+        });
+    uint32_t generation_two_required = 0;
+    Expect(metal_render(metal_summary.handle, generation_two_frame.data(),
+                        static_cast<uint32_t>(generation_two_frame.size()),
+                        nullptr, 0, &generation_two_required) ==
+               DTR_STATUS_BUFFER_TOO_SMALL,
+           "advanced atlas snapshot remains renderable");
+    std::vector<uint8_t> generation_two_pixels(generation_two_required);
+    Expect(metal_render(metal_summary.handle, generation_two_frame.data(),
+                        static_cast<uint32_t>(generation_two_frame.size()),
+                        generation_two_pixels.data(), generation_two_required,
+                        &generation_two_required) == DTR_STATUS_OK &&
+               PixelNear(generation_two_pixels, 8, 4, 0, 0x109010ff),
+           "atlas advance preserves unchanged color texture slices");
     Expect(metal_upload(metal_summary.handle, &alpha_upload,
                         alpha_pixels.data()) == DTR_STATUS_STALE_GENERATION,
            "older atlas upload is rejected");

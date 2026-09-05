@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dart_appkit/src/api.dart';
 import 'package:dart_appkit/testing.dart' as testing;
@@ -156,6 +157,16 @@ Future<void> _testGenericViewBoundary() async {
   _expect(
     bindings.customViewProviders.values.single == 'example.CustomView',
     'custom provider identifier forwarded',
+  );
+  final Uint8List operationPayload = Uint8List.fromList(<int>[1, 2, 3, 4]);
+  customView.performCustomOperation(operationPayload);
+  operationPayload[0] = 9;
+  _expect(
+    bindings.customViewOperations.values.single.single[0] == 1,
+    'custom view operation copies its opaque payload',
+  );
+  await _expectThrows<AppKitNativeException>(
+    () => genericView.performCustomOperation(Uint8List(0)),
   );
 
   window.contentView = textView;

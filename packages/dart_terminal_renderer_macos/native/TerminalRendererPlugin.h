@@ -460,9 +460,10 @@ __attribute__((visibility("default"))) void
 dtr_metal_renderer_release_finalizer(void* handle);
 
 // Copies one tightly packed dirty rectangle into a bounded atlas texture
-// slice. No pointer is retained. Higher atlas/page generations clear stale
-// texture contents before the new definition is published. Any upload is
-// backpressured while a READY/IN_FLIGHT frame owns the texture resource.
+// slice. No pointer is retained. A higher atlas generation advances the
+// complete snapshot identity while preserving unchanged slices; a higher page
+// generation clears that reused slice before the new definition is published.
+// Any upload is backpressured while a READY/IN_FLIGHT frame owns the texture.
 __attribute__((visibility("default"))) int32_t dtr_metal_renderer_upload_atlas(
     uint64_t handle, const DtrMetalAtlasUploadV1* upload,
     const uint8_t* pixels);

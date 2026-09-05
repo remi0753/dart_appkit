@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:typed_data';
 
 import 'native_bindings.dart';
 
@@ -162,6 +163,16 @@ _StringCreateDart? _lookupCustomViewCreate(DynamicLibrary library) {
   try {
     return library.lookupFunction<_StringCreateNative, _StringCreateDart>(
       'da_view_create_custom',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStringDart? _lookupCustomViewPerformOperation(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_HandleStringNative, _HandleStringDart>(
+      'da_view_perform_custom_operation',
     );
   } on ArgumentError {
     return null;
@@ -408,6 +419,7 @@ final class FfiNativeBindings implements NativeBindings {
           ),
       _viewCreate = _lookupViewCreate(library),
       _customViewCreate = _lookupCustomViewCreate(library),
+      _customViewPerformOperation = _lookupCustomViewPerformOperation(library),
       _textViewCreate = library
           .lookupFunction<_CreateHandleNative, _CreateHandleDart>(
             'da_text_view_create',
@@ -483,6 +495,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStringDart _windowSetTitle;
   final _CreateHandleDart? _viewCreate;
   final _StringCreateDart? _customViewCreate;
+  final _HandleStringDart? _customViewPerformOperation;
   final _CreateHandleDart _textViewCreate;
   final _HandleStringDart _textViewSetText;
   final _TwoHandlesDart _windowSetContentView;
@@ -540,6 +553,22 @@ final class FfiNativeBindings implements NativeBindings {
     T Function(Pointer<Uint8> pointer, int length) body,
   ) {
     final List<int> bytes = utf8.encode(value);
+    if (bytes.isEmpty) {
+      return body(nullptr, 0);
+    }
+    final Pointer<Uint8> pointer = _allocate(bytes.length).cast<Uint8>();
+    try {
+      pointer.asTypedList(bytes.length).setAll(0, bytes);
+      return body(pointer, bytes.length);
+    } finally {
+      _free(pointer.cast<Void>());
+    }
+  }
+
+  T _withBytes<T>(
+    Uint8List bytes,
+    T Function(Pointer<Uint8> pointer, int length) body,
+  ) {
     if (bytes.isEmpty) {
       return body(nullptr, 0);
     }
@@ -1046,6 +1075,22 @@ final class FfiNativeBindings implements NativeBindings {
         _free(handlePointer.cast<Void>());
       }
     });
+  }
+
+  @override
+  NativeCallResult customViewPerformOperation(int handle, Uint8List payload) {
+    final _HandleStringDart? operation = _customViewPerformOperation;
+    if (operation == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support custom view operations',
+      );
+    }
+    return _withBytes(
+      payload,
+      (Pointer<Uint8> pointer, int length) =>
+          _callResult(operation(handle, pointer, length)),
+    );
   }
 
   @override

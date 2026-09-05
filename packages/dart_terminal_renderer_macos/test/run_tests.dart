@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'font_catalog_test.dart';
+import 'metal_renderer_test.dart';
 import 'native_asset_test.dart';
 import 'raster_test.dart';
 import 'shaping_test.dart';
@@ -8,6 +9,7 @@ import 'shaping_test.dart';
 void main() {
   runNativeAssetTests();
   runFontCatalogTests();
+  runMetalRendererTests();
   runRasterTests();
   runShapingTests();
   if (exitCode != 0) {

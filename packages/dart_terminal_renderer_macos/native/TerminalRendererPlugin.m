@@ -837,7 +837,6 @@ enum {
     result = DTR_STATUS_BACKPRESSURED;
   } else {
     if (upload.atlas_generation > _atlasGeneration) {
-      [self clearAllAtlasTextures];
       _atlasGeneration = upload.atlas_generation;
     }
     if (result == DTR_STATUS_OK &&

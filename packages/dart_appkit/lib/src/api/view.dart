@@ -20,4 +20,15 @@ base class View extends _NativeResource {
   }
 
   View._(NativeBindings bindings, int handle) : super(bindings, handle);
+
+  /// Performs the opaque, synchronous operation registered by this custom
+  /// view's native provider. The payload is copied for the call and is never
+  /// retained by dart_appkit.
+  void performCustomOperation(Uint8List payload) {
+    ensureAlive();
+    _checkCall(
+      _bindings.customViewPerformOperation(_handle, payload),
+      'View.performCustomOperation',
+    );
+  }
 }

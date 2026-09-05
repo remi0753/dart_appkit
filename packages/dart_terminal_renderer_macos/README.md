@@ -26,6 +26,10 @@ calls are intended for a font/render worker domain rather than an AppKit event
 handler. Terminal grids, atlas allocation policy, input, and application policy
 remain outside this package boundary.
 
+Atlas generations identify complete Dart-owned snapshots. Advancing a snapshot
+preserves unchanged native slices so dirty rectangles remain sufficient; a
+newer page generation clears only its reused texture slice before upload.
+
 Applications declare the following native capability in their runtime manifest:
 
 ```json
@@ -41,6 +45,14 @@ Applications declare the following native capability in their runtime manifest:
 
 Call `TerminalRendererMacos.initialize()` after attaching the AppKit
 application, then use `TerminalRendererMacos.createView()`.
+
+Create bounded GPU resources with `TerminalMetalRenderer.open()`, bind them to
+that view with `bindToView`, upload typed `TerminalMetalAtlasUpload` rectangles,
+and build immutable frames through `TerminalMetalFrameEncoder`. `submit`
+distinguishes accepted, stale, and backpressured outcomes; `state` exposes the
+bounded retirement watermark. `renderRgba` is the synchronous test/oracle path,
+not the production presentation path. Dispose the renderer explicitly from its
+owner domain.
 
 Font work does not require AppKit initialization. Create a catalog with
 `TerminalFontCatalog.open()`, resolve whole grapheme/text units with `resolve`,

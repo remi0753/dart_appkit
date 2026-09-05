@@ -1,4 +1,5 @@
 import 'dart:ffi';
+import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
@@ -95,6 +96,7 @@ abstract interface class NativeBindings {
 
   NativeValueResult<int> viewCreate();
   NativeValueResult<int> customViewCreate(String providerIdentifier);
+  NativeCallResult customViewPerformOperation(int handle, Uint8List payload);
   NativeValueResult<int> textViewCreate();
   NativeCallResult textViewSetText(int handle, String text);
   NativeCallResult windowSetContentView(int windowHandle, int viewHandle);

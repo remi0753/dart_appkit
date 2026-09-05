@@ -3,6 +3,7 @@ library;
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'native/ffi_native_bindings.dart';
 import 'native/native_bindings.dart';
