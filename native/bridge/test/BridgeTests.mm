@@ -28,6 +28,47 @@
 @implementation DaAlternateCustomView
 @end
 
+@interface DaKeyEventProbeView : NSView
+
+@property(nonatomic, assign) NSInteger keyDownCount;
+@property(nonatomic, assign) NSInteger keyUpCount;
+
+@end
+
+@implementation DaKeyEventProbeView
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)keyDown:(NSEvent*)event {
+  (void)event;
+  ++_keyDownCount;
+}
+
+- (void)keyUp:(NSEvent*)event {
+  (void)event;
+  ++_keyUpCount;
+}
+
+@end
+
+@interface DaKeyEquivalentProbeMenu : NSMenu
+
+@property(nonatomic, assign) NSInteger performCount;
+
+@end
+
+@implementation DaKeyEquivalentProbeMenu
+
+- (BOOL)performKeyEquivalent:(NSEvent*)event {
+  (void)event;
+  ++_performCount;
+  return YES;
+}
+
+@end
+
 void* CreateRetainedTestCustomView(void* context) {
   Class view_class = (__bridge Class)context;
   NSView* view = [[view_class alloc] initWithFrame:NSZeroRect];
@@ -1223,6 +1264,98 @@ void TestInputEvents() {
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
 }
 
+void TestKeyEventRouting() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+  DaKeyEventProbeView* view =
+      [[DaKeyEventProbeView alloc] initWithFrame:NSZeroRect];
+  owner.window.contentView = view;
+  EXPECT_TRUE([owner.window makeFirstResponder:view]);
+  EXPECT_EQ(owner.window.daKeyEventRouting,
+            DA_KEY_EVENT_ROUTING_DART_AND_APPKIT);
+
+  NSMenu* previous_main_menu = NSApp.mainMenu;
+  NSApp.mainMenu = nil;
+  NSEvent* key_down = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                       location:NSZeroPoint
+                                  modifierFlags:NSEventModifierFlagControl
+                                      timestamp:3.0
+                                   windowNumber:owner.window.windowNumber
+                                        context:nil
+                                     characters:@"\x04"
+                      charactersIgnoringModifiers:@"d"
+                                      isARepeat:NO
+                                        keyCode:2];
+  NSEvent* key_up = [NSEvent keyEventWithType:NSEventTypeKeyUp
+                                     location:NSZeroPoint
+                                modifierFlags:NSEventModifierFlagControl
+                                    timestamp:3.1
+                                 windowNumber:owner.window.windowNumber
+                                      context:nil
+                                   characters:@"\x04"
+                    charactersIgnoringModifiers:@"d"
+                                    isARepeat:NO
+                                      keyCode:2];
+  [owner.window sendEvent:key_down];
+  [owner.window sendEvent:key_up];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(1));
+  EXPECT_EQ(view.keyUpCount, static_cast<NSInteger>(1));
+
+  EXPECT_EQ(da_window_set_key_event_routing(
+                window_handle, DA_KEY_EVENT_ROUTING_DART_ONLY),
+            DA_STATUS_OK);
+  [owner.window sendEvent:key_down];
+  [owner.window sendEvent:key_up];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(1));
+  EXPECT_EQ(view.keyUpCount, static_cast<NSInteger>(1));
+
+  DaKeyEquivalentProbeMenu* menu =
+      [[DaKeyEquivalentProbeMenu alloc] initWithTitle:@"Main"];
+  NSApp.mainMenu = menu;
+  NSEvent* menu_key = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                        location:NSZeroPoint
+                                   modifierFlags:NSEventModifierFlagCommand
+                                       timestamp:3.2
+                                    windowNumber:owner.window.windowNumber
+                                         context:nil
+                                      characters:@"w"
+                       charactersIgnoringModifiers:@"w"
+                                       isARepeat:NO
+                                         keyCode:13];
+  [owner.window sendEvent:menu_key];
+  EXPECT_EQ(menu.performCount, static_cast<NSInteger>(1));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(1));
+  NSApp.mainMenu = previous_main_menu;
+
+  EXPECT_EQ(da_window_set_key_event_routing(window_handle, -1),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_key_event_routing(window_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  const DaHandle view_handle = CreateView();
+  EXPECT_EQ(da_window_set_key_event_routing(
+                view_handle, DA_KEY_EVENT_ROUTING_DART_ONLY),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(da_window_set_key_event_routing(
+        window_handle, DA_KEY_EVENT_ROUTING_DART_AND_APPKIT));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(view_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_key_event_routing(
+                window_handle, DA_KEY_EVENT_ROUTING_DART_AND_APPKIT),
+            DA_STATUS_INVALID_HANDLE);
+}
+
 }  // namespace
 
 int main() {
@@ -1244,6 +1377,7 @@ int main() {
     TestWindowStateEvents();
     TestWindowEvents();
     TestInputEvents();
+    TestKeyEventRouting();
     dart_appkit::ResetBridgeForTesting();
   }
 

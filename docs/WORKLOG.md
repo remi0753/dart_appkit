@@ -1821,3 +1821,45 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   The hello-window dependency capability passes real GUI smokes in Developer
   JIT and Release AOT after these changes. Dart Terminal separately passes both
   bundle audits and its complete lifecycle/traffic/resource/shutdown matrix.
+
+## 2026-09-05 — Configurable key event routing
+
+- Purpose: let raw-input applications prevent duplicate AppKit responder
+  delivery after an asynchronous Dart key event, eliminating the system beep
+  caused by a first-responder view with no native key handler.
+- Scope: a typed per-window C/Dart policy, compatibility default, exclusive Dart
+  routing with main-menu arbitration, native/Dart/legacy tests, and public
+  architecture/ABI documentation.
+- Out of scope: terminal key encoding, zsh EOF semantics, `NSTextInputClient`,
+  marked text, IME candidate placement, or product-specific native code.
+- Confirmed cause: `DaWindow.sendEvent:` posts a key event through the Dart port
+  and then unconditionally calls `[super sendEvent:event]`; `DaView` accepts
+  first-responder status but has no key responder, so ordinary terminal input
+  reaches AppKit's unhandled responder path.
+- The selected policy is configured before dispatch because Dart port delivery
+  is asynchronous and cannot synchronously return a handled disposition. Dual
+  routing stays the default; a consuming window explicitly opts into exclusive
+  routing. Native main-menu key equivalents retain priority in exclusive mode.
+- Added `DaKeyEventRouting` and the additive main-thread-only
+  `da_window_set_key_event_routing` ABI. New windows explicitly initialize the
+  compatibility default. Invalid values, wrong/stale handle kinds, and
+  wrong-thread access return their existing typed statuses.
+- Added the public `KeyEventRouting` enum and cached `Window.keyEventRouting`
+  property. Failed native updates do not change cached state, repeated values
+  do not make duplicate calls, and a bridge without the additive symbol returns
+  the deterministic unsupported-version result.
+- `DaWindow.sendEvent:` now gives `NSApp.mainMenu` first refusal in exclusive
+  mode. A consumed key equivalent is not posted as raw input. Remaining key-down
+  and key-up records are posted once to Dart and return before `NSWindow`'s
+  responder dispatch; mouse and other events retain their existing route.
+- Native tests use a recording first responder to prove that dual mode forwards
+  key-down/up while exclusive mode suppresses both, without relying on audible
+  output as a test interface. A recording main menu proves shortcut priority.
+- Focused `make contract-check native-test`, `make dart-test ffi-smoke`, and the
+  complete `make test` passed on 2026-09-05. The complete run included warning-
+  clean C11/C++20 headers, bridge/runner/runtime/capability/PTY native suites,
+  every Dart package analysis/test, Kernel compilation, real FFI loading, and
+  the legacy bridge fallback.
+- Final diff review and `git diff --check` passed. Audible confirmation belongs
+  to the consuming terminal adoption because the generic hello window retains
+  the compatibility default by design.

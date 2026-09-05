@@ -58,6 +58,7 @@ void main(List<String> arguments) {
           8 ||
       bindings.windowRequestClose(1).status != 8 ||
       bindings.windowSetCloseRequestDeferral(1, true).status != 8 ||
+      bindings.windowSetKeyEventRouting(1, 1).status != 8 ||
       bindings
               .windowReplyToCloseRequest(handle: 1, operationId: 1, allow: true)
               .status !=

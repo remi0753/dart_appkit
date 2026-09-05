@@ -85,6 +85,7 @@ abstract interface class NativeBindings {
   NativeCallResult windowClose(int handle);
   NativeCallResult windowRequestClose(int handle);
   NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled);
+  NativeCallResult windowSetKeyEventRouting(int handle, int routing);
   NativeCallResult windowReplyToCloseRequest({
     required int handle,
     required int operationId,

@@ -171,6 +171,26 @@ The event poster is injected internally by the Runner. No AppKit delegate enters
 an isolate or invokes a Dart closure synchronously. A post that cannot be queued
 is dropped; it never blocks AppKit waiting for Dart.
 
+## Key event routing
+
+`da_window_set_key_event_routing` takes a `DaKeyEventRouting` value on the
+AppKit main thread. Every new window defaults to
+`DA_KEY_EVENT_ROUTING_DART_AND_APPKIT`, preserving the original behavior: a key
+is posted to Dart and then follows normal AppKit responder dispatch.
+
+`DA_KEY_EVENT_ROUTING_DART_ONLY` is intended for raw-input views. For key-down,
+the application main menu first receives normal key-equivalent arbitration. A
+consumed menu shortcut produces its menu action and is not also posted as raw
+input. Any remaining key-down or key-up is posted once to Dart and is not sent
+through the content view's ordinary responder chain. Mouse and non-key window
+events are unchanged.
+
+The setting is per window and does not change event protocol payloads. The
+function is an additive ABI symbol: current bindings expose it through the
+typed `KeyEventRouting` property, while a legacy bridge without the symbol
+returns `DA_STATUS_UNSUPPORTED_VERSION`. No synchronous Dart callback or
+handled reply is introduced.
+
 ## Lifecycle decisions
 
 Close and termination deferral are disabled by default, preserving the legacy

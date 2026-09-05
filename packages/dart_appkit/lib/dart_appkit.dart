@@ -16,6 +16,7 @@ export 'src/api.dart'
         AppKitMouseEventKind,
         AppKitNativeException,
         AppKitScreen,
+        KeyEventRouting,
         ModifierKeys,
         Menu,
         MenuItem,

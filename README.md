@@ -8,7 +8,8 @@ Dart message work is limited per run-loop turn.
 The reusable surface is deliberately small: one window, generic, text, and
 registered native-provider views, menus and menu-item actions, periodic
 `Timer` updates, lifecycle/window/input events, plain-text pasteboard snapshots,
-explicit native ownership, and a restart-based developer command.
+explicit native ownership, per-window key-event routing, and a restart-based
+developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -134,6 +135,12 @@ window.dispose();
 view.dispose();
 await app.terminate();
 ```
+
+Windows default to `KeyEventRouting.dartAndAppKit`, which mirrors key events to
+Dart and retains ordinary AppKit responder behavior. Raw-input surfaces can set
+`window.keyEventRouting = KeyEventRouting.dartOnly`; native main-menu key
+equivalents keep priority, while remaining keys reach Dart without also falling
+through an unhandled AppKit responder path.
 
 A native capability can register an `NSView` factory through the versioned
 plain-C `dart_appkit_native_extension.h` service table. The runtime builder runs

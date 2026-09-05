@@ -40,6 +40,7 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, int> contentViews = <int, int>{};
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
+  final Map<int, int> windowKeyEventRoutings = <int, int>{};
   final Map<int, String> menuTitles = <int, String>{};
   final Map<int, FakeMenuItemState> menuItems = <int, FakeMenuItemState>{};
   final Map<int, List<int>> menuContents = <int, List<int>>{};
@@ -294,6 +295,7 @@ final class FakeNativeBindings implements NativeBindings {
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.window;
       windowTitles[handle] = title;
+      windowKeyEventRoutings[handle] = 0;
     }
     return result;
   }
@@ -318,6 +320,15 @@ final class FakeNativeBindings implements NativeBindings {
     final NativeCallResult result = _status('windowSetCloseRequestDeferral');
     if (result.isSuccess) {
       windowCloseDeferrals[handle] = enabled;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSetKeyEventRouting(int handle, int routing) {
+    final NativeCallResult result = _status('windowSetKeyEventRouting');
+    if (result.isSuccess) {
+      windowKeyEventRoutings[handle] = routing;
     }
     return result;
   }
@@ -409,6 +420,7 @@ final class FakeNativeBindings implements NativeBindings {
       customViewProviders.remove(handle);
       contentViews.remove(handle);
       windowCloseDeferrals.remove(handle);
+      windowKeyEventRoutings.remove(handle);
       menuTitles.remove(handle);
       menuItems.remove(handle);
       menuContents.remove(handle);

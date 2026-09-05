@@ -1,5 +1,14 @@
 part of '../api.dart';
 
+/// Controls native responder dispatch after window key-event arbitration.
+enum KeyEventRouting {
+  /// Post key events to Dart and continue normal AppKit responder dispatch.
+  dartAndAppKit,
+
+  /// Let native menu shortcuts run, then post remaining keys only to Dart.
+  dartOnly,
+}
+
 final class Window extends _NativeResource {
   factory Window({required Rect frame, required String title}) {
     final AppKitApplication application = AppKitApplication._requireCurrent();
@@ -33,6 +42,7 @@ final class Window extends _NativeResource {
   bool _visible = false;
   bool _occluded = true;
   bool _defersCloseRequests = false;
+  KeyEventRouting _keyEventRouting = KeyEventRouting.dartAndAppKit;
   double? _backingScaleFactor;
   AppKitScreen? _screen;
 
@@ -109,6 +119,27 @@ final class Window extends _NativeResource {
   AppKitScreen? get screen => _screen;
 
   bool get defersCloseRequests => _defersCloseRequests;
+
+  KeyEventRouting get keyEventRouting {
+    ensureAlive();
+    return _keyEventRouting;
+  }
+
+  set keyEventRouting(KeyEventRouting value) {
+    ensureAlive();
+    if (value == _keyEventRouting) {
+      return;
+    }
+    final int nativeValue = switch (value) {
+      KeyEventRouting.dartAndAppKit => 0,
+      KeyEventRouting.dartOnly => 1,
+    };
+    _checkCall(
+      _bindings.windowSetKeyEventRouting(_handle, nativeValue),
+      'Window.keyEventRouting',
+    );
+    _keyEventRouting = value;
+  }
 
   set defersCloseRequests(bool value) {
     ensureAlive();
@@ -213,6 +244,7 @@ final class Window extends _NativeResource {
     super.dispose();
     _contentView = null;
     _defersCloseRequests = false;
+    _keyEventRouting = KeyEventRouting.dartAndAppKit;
     unawaited(_eventController.close());
   }
 }

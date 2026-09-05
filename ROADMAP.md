@@ -22,8 +22,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 
 ## Current position
 
-- Active task: **none; the native capability loading proof is complete**
-- Completed: **T0 through T13**
+- Active task: **none; configurable key event routing is complete**
+- Completed: **T0 through T14**
 - Engine acceptance gate: **official source only**. Dart Engine source changes,
   candidate commits, and downstream patches are prohibited. The stock Dart
   3.13.2 Engine is pinned at revision
@@ -33,8 +33,8 @@ debug/JIT Kernel execution, and a restart-based developer workflow.
 - Selected topology: one stock Engine root for the AppKit process lifetime.
   The full public `dart_api.h` host was rejected by M1/arm64 JIT and AOT
   evidence because required platform/microtask bootstrap is private.
-- Next concrete milestone: consuming products move terminal rendering and PTY
-  adapters into independent capability packages using this loading contract.
+- Next concrete milestone: consuming raw-input products adopt the explicit
+  Dart-only key routing policy where native responder dispatch is unwanted.
 
 ## Detailed tasks
 
@@ -339,6 +339,29 @@ Exit criteria:
   compilation, executable staging, metadata, and bundle lookup.
 - Existing runtime manifests, JIT/AOT applications, native capability staging,
   and the full repository regression remain compatible.
+
+### [x] T14 — Configurable key event routing
+
+Scope:
+
+- Add a typed, per-window policy that chooses whether key events posted to Dart
+  also continue through AppKit's normal responder dispatch.
+- Preserve dual Dart/AppKit routing as the default and provide an explicit
+  Dart-exclusive mode for raw-input surfaces such as terminals.
+- In exclusive mode, preserve native main-menu key equivalents while preventing
+  unhandled content-view delivery and its system beep.
+- Keep routing asynchronous and configured ahead of dispatch; do not add
+  synchronous native-to-Dart callbacks.
+
+Exit criteria:
+
+- The public C ABI and Dart API document the values, default, main-thread rule,
+  compatibility behavior, and menu arbitration.
+- Native tests prove default pass-through, exclusive suppression, one Dart event,
+  menu key-equivalent handling, invalid values, wrong handles, and wrong threads.
+- Dart tests prove typed state, idempotence, failed-setter state preservation,
+  and deterministic behavior when an older bridge lacks the additive symbol.
+- Header checks, format, analysis, FFI/legacy tests, and full `make test` pass.
 
 ## Beyond this MVP
 

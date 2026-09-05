@@ -211,6 +211,17 @@ _HandleBoolStatusDart? _lookupWindowCloseDeferral(DynamicLibrary library) {
   }
 }
 
+_HandleBoolStatusDart? _lookupWindowKeyEventRouting(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_HandleBoolStatusNative, _HandleBoolStatusDart>(
+          'da_window_set_key_event_routing',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleOperationReplyDart? _lookupWindowCloseReply(DynamicLibrary library) {
   try {
     return library
@@ -389,6 +400,7 @@ final class FfiNativeBindings implements NativeBindings {
           ),
       _windowRequestClose = _lookupWindowRequestClose(library),
       _windowCloseDeferral = _lookupWindowCloseDeferral(library),
+      _windowKeyEventRouting = _lookupWindowKeyEventRouting(library),
       _windowCloseReply = _lookupWindowCloseReply(library),
       _windowSetTitle = library
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
@@ -466,6 +478,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStatusDart _windowClose;
   final _HandleStatusDart? _windowRequestClose;
   final _HandleBoolStatusDart? _windowCloseDeferral;
+  final _HandleBoolStatusDart? _windowKeyEventRouting;
   final _HandleOperationReplyDart? _windowCloseReply;
   final _HandleStringDart _windowSetTitle;
   final _CreateHandleDart? _viewCreate;
@@ -957,6 +970,18 @@ final class FfiNativeBindings implements NativeBindings {
       );
     }
     return _callResult(function(handle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult windowSetKeyEventRouting(int handle, int routing) {
+    final _HandleBoolStatusDart? function = _windowKeyEventRouting;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support key event routing',
+      );
+    }
+    return _callResult(function(handle, routing));
   }
 
   @override

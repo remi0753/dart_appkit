@@ -103,6 +103,14 @@ typedef enum DaModifier {
   DA_MODIFIER_FUNCTION = 1 << 6
 } DaModifier;
 
+/** Per-window key routing after native menu key-equivalent arbitration. */
+typedef enum DaKeyEventRouting {
+  /** Post to Dart, then continue through AppKit's normal responder path. */
+  DA_KEY_EVENT_ROUTING_DART_AND_APPKIT = 0,
+  /** Post non-menu keys to Dart without normal AppKit responder dispatch. */
+  DA_KEY_EVENT_ROUTING_DART_ONLY = 1
+} DaKeyEventRouting;
+
 /** Safe on any thread. */
 DA_EXPORT uint32_t da_abi_version(void);
 
@@ -209,6 +217,17 @@ DA_EXPORT int32_t da_window_request_close(DaHandle window);
 /** Main thread only. Enables or disables asynchronous user-close decisions. */
 DA_EXPORT int32_t da_window_set_close_request_deferral(DaHandle window,
                                                        int32_t enabled);
+
+/**
+ * Main thread only. Configures per-window key-event routing.
+ *
+ * routing must be a DaKeyEventRouting value. The default is
+ * DA_KEY_EVENT_ROUTING_DART_AND_APPKIT. In DART_ONLY mode, main-menu key
+ * equivalents retain priority; remaining key events are posted to Dart and
+ * are not sent through the ordinary AppKit responder chain.
+ */
+DA_EXPORT int32_t da_window_set_key_event_routing(DaHandle window,
+                                                  int32_t routing);
 
 /**
  * Main thread only. Completes the one pending user-close request.

@@ -18,6 +18,7 @@
 @interface DaWindow : NSWindow
 
 @property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign) DaKeyEventRouting daKeyEventRouting;
 
 - (void)daPostInputEvent:(NSEvent*)event;
 

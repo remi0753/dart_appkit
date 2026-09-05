@@ -176,6 +176,66 @@ Future<void> _testGenericViewBoundary() async {
   await raw.close();
 }
 
+Future<void> _testKeyEventRoutingPolicy() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'Key routing',
+  );
+  final int handle = bindings.objects.keys.single;
+
+  _expect(
+    window.keyEventRouting == KeyEventRouting.dartAndAppKit &&
+        bindings.windowKeyEventRoutings[handle] == 0,
+    'window defaults to Dart and AppKit key routing',
+  );
+
+  window.keyEventRouting = KeyEventRouting.dartOnly;
+  _expect(
+    window.keyEventRouting == KeyEventRouting.dartOnly &&
+        bindings.windowKeyEventRoutings[handle] == 1,
+    'Dart-only key routing reaches native window',
+  );
+  final int callsAfterChange = bindings.operations
+      .where((String value) => value == 'windowSetKeyEventRouting')
+      .length;
+  window.keyEventRouting = KeyEventRouting.dartOnly;
+  _expect(
+    bindings.operations
+            .where((String value) => value == 'windowSetKeyEventRouting')
+            .length ==
+        callsAfterChange,
+    'unchanged key routing is not sent twice',
+  );
+
+  bindings.failNextOperation = 'windowSetKeyEventRouting';
+  await _expectThrows<AppKitNativeException>(
+    () => window.keyEventRouting = KeyEventRouting.dartAndAppKit,
+  );
+  _expect(
+    window.keyEventRouting == KeyEventRouting.dartOnly &&
+        bindings.windowKeyEventRoutings[handle] == 1,
+    'failed routing update preserves Dart and native state',
+  );
+
+  window.keyEventRouting = KeyEventRouting.dartAndAppKit;
+  _expect(
+    bindings.windowKeyEventRoutings[handle] == 0,
+    'dual routing can be restored',
+  );
+  window.dispose();
+  await _expectThrows<StateError>(() => window.keyEventRouting);
+  await _expectThrows<StateError>(
+    () => window.keyEventRouting = KeyEventRouting.dartOnly,
+  );
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testEventRoutingAndDecoding() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -998,6 +1058,7 @@ Future<void> main() async {
     'generic and specialized view boundary',
     _testGenericViewBoundary,
   );
+  await _test('key event routing policy', _testKeyEventRoutingPolicy);
   await _test(
     'event decoding and weak window routing',
     _testEventRoutingAndDecoding,

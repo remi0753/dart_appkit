@@ -115,6 +115,15 @@ delegate request is coalesced, a stale reply is rejected, and posting failure
 allows the OS action. Programmatic close/termination bypass this deferral so
 the ordinary disposal and shutdown path remains one-way.
 
+Key routing is configured per window before event dispatch. The compatibility
+default posts key events to Dart and then continues through `NSWindow`'s normal
+responder path. `KeyEventRouting.dartOnly` first gives the native main menu a
+chance to consume a key equivalent; it posts every remaining key event to Dart
+without calling the normal responder path. This is required for raw-input
+surfaces whose first responder is a renderer rather than an AppKit editor. The
+policy is not a per-event Dart acknowledgement: port delivery remains
+asynchronous, so AppKit never waits for or synchronously re-enters Dart.
+
 ## Hosted-isolate boundary
 
 The stock Dart 3.13.2 Engine contract used here supports one process-lifetime

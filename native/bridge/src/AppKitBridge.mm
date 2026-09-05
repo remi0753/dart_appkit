@@ -949,6 +949,7 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
     window.title = copied_title;
     window.releasedWhenClosed = NO;
     window.acceptsMouseMovedEvents = YES;
+    window.daKeyEventRouting = DA_KEY_EVENT_ROUTING_DART_AND_APPKIT;
 
     DaWindowOwner* owner = [[DaWindowOwner alloc] initWithWindow:window];
     const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
@@ -1041,6 +1042,27 @@ int32_t da_window_set_close_request_deferral(DaHandle window, int32_t enabled) {
         DA_STATUS_INVALID_ARGUMENT,
         "reply to the pending close request before disabling deferral");
   }
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_set_key_event_routing(DaHandle window, int32_t routing) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (routing != DA_KEY_EVENT_ROUTING_DART_AND_APPKIT &&
+      routing != DA_KEY_EVENT_ROUTING_DART_ONLY) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "routing must be a DaKeyEventRouting value");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  owner.window.daKeyEventRouting = static_cast<DaKeyEventRouting>(routing);
   return DA_STATUS_OK;
 }
 
