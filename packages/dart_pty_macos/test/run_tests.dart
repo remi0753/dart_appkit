@@ -158,7 +158,7 @@ Future<void> main() async {
   });
 
   await _test('real Dart listener callback and process lifecycle', () async {
-    _expect(_abiVersion() == 3, 'native asset ABI');
+    _expect(_abiVersion() == 4, 'native asset ABI');
     final PtyProcess process = await startPty(
       PtyCommand(
         executable: '/bin/sh',
@@ -296,6 +296,95 @@ Future<void> main() async {
       'termios metadata includes VEOF without terminal content',
     );
     _expect(_liveSessionCount() == 0, 'diagnostic session is released');
+  });
+
+  await _test('live Dart child cannot steal native PTY completion', () async {
+    final Process dartOwnedChild = await Process.start('/bin/sleep', const [
+      '30',
+    ]);
+    PtyProcess? process;
+    StreamSubscription<Uint8List>? outputSubscription;
+    StreamSubscription<PtyDiagnosticEvent>? diagnosticSubscription;
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      process = await startPty(
+        PtyCommand(
+          executable: '/bin/sh',
+          arguments: const <String>[
+            '-c',
+            'printf __DPTY_DART_REAPER_READY__; IFS= read -r value; exit 37',
+          ],
+          includeParentEnvironment: false,
+        ),
+        enableDiagnostics: true,
+      );
+      final StringBuffer output = StringBuffer();
+      final Completer<void> ready = Completer<void>();
+      final List<PtyDiagnosticEvent> diagnostics = <PtyDiagnosticEvent>[];
+      outputSubscription = process.output.listen((Uint8List bytes) {
+        output.write(utf8.decode(bytes, allowMalformed: true));
+        if (!ready.isCompleted &&
+            output.toString().contains('__DPTY_DART_REAPER_READY__')) {
+          ready.complete();
+        }
+      });
+      diagnosticSubscription = process.diagnostics.listen(diagnostics.add);
+      await ready.future.timeout(const Duration(seconds: 3));
+      final PtyWriteReceipt receipt = process.writeTracked(
+        Uint8List.fromList(const <int>[0x04]),
+      );
+      _expect(
+        receipt.result == PtyWriteResult.accepted,
+        'competing-reaper Control-D is accepted',
+      );
+      final PtyExit result = await process.exit.timeout(
+        const Duration(seconds: 3),
+      );
+      _expect(
+        result.exitCode == 37 && result.signal == null,
+        'competing Dart reaper preserves PTY exit status',
+      );
+      final PtyDiagnosticEvent external = diagnostics.firstWhere(
+        (PtyDiagnosticEvent event) =>
+            event.stage == PtyDiagnosticStage.externalReapObserved,
+      );
+      _expect(
+        external.childProcessId == process.pid &&
+            external.childStatus != null &&
+            external.systemError == 10,
+        'external Dart reap is explicitly classified with retained status',
+      );
+      _expect(
+        diagnostics.any(
+          (PtyDiagnosticEvent event) =>
+              event.stage == PtyDiagnosticStage.exitPublished &&
+              event.exitCode == 37,
+        ),
+        'external reap publishes exactly one matching PTY exit',
+      );
+      await outputSubscription.cancel();
+      outputSubscription = null;
+      await diagnosticSubscription.cancel();
+      diagnosticSubscription = null;
+      await process.dispose();
+      process = null;
+      _expect(_liveSessionCount() == 0, 'external-reap session is released');
+    } finally {
+      await outputSubscription?.cancel();
+      await diagnosticSubscription?.cancel();
+      final PtyProcess? remainingProcess = process;
+      if (remainingProcess != null) {
+        remainingProcess.forceClose();
+        try {
+          await remainingProcess.exit.timeout(const Duration(seconds: 3));
+          await remainingProcess.dispose();
+        } on Object {
+          // Preserve the original test failure; the process is force-requested.
+        }
+      }
+      dartOwnedChild.kill(ProcessSignal.sigkill);
+      await dartOwnedChild.exitCode.timeout(const Duration(seconds: 3));
+    }
   });
 
   await _test('explicit bundled-library loading', () async {

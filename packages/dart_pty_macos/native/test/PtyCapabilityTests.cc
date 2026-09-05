@@ -139,7 +139,7 @@ void EventCallback(DptySessionHandle session, uint32_t event_type,
       events->failed = true;
       events->system_error = system_error;
     } else if (event_type >= DPTY_EVENT_WRITE_ENQUEUED &&
-               event_type <= DPTY_EVENT_PROCESS_EXIT_READY) {
+               event_type <= DPTY_EVENT_EXTERNAL_REAP_OBSERVED) {
       if (data != nullptr) {
         events->failed = true;
       }
@@ -680,6 +680,132 @@ void TestForceCloseFairnessUnderOutputFlood(Api* api) {
          "output-flood session is destroyed");
 }
 
+void TestExternalReapCompletion(Api* api) {
+  Events events;
+  events.api = api;
+  const std::vector<const char*> arguments = {
+      "sh", "-c",
+      "printf __DPTY_EXTERNAL_REAP_READY__; read value; sleep 0.2; exit 37"};
+  const DptySessionHandle session =
+      Create(api, &events, "/bin/sh", arguments, 256 * 1024, 128 * 1024,
+             64 * 1024, true);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "external-reap child starts");
+  Expect(WaitForMarker(&events, "__DPTY_EXTERNAL_REAP_READY__",
+                       std::chrono::seconds(3)),
+         "external-reap child is ready");
+  pid_t child = -1;
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    child = static_cast<pid_t>(events.pid);
+  }
+  pid_t externally_reaped_pid = -1;
+  int externally_reaped_status = 0;
+  int external_reap_error = 0;
+  std::thread external_reaper([&] {
+    errno = 0;
+    externally_reaped_pid = waitpid(child, &externally_reaped_status, 0);
+    external_reap_error = externally_reaped_pid < 0 ? errno : 0;
+  });
+  const uint8_t newline = '\n';
+  Expect(api->write(session, &newline, 1) == DPTY_STATUS_OK,
+         "external-reap child exit is released");
+  const bool exited = WaitFor(&events, std::chrono::seconds(3),
+                              [](const Events& value) {
+                                return value.exited;
+                              });
+  external_reaper.join();
+  Expect(exited, "external reap still publishes child exit");
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    Expect(externally_reaped_pid == events.pid && external_reap_error == 0,
+           "test competitor reaps the exact PTY child");
+    Expect(events.exit_code == 37 && events.exit_signal == 0,
+           "kernel exit status preserves external normal exit");
+    const auto ready = std::find_if(
+        events.diagnostics.begin(), events.diagnostics.end(),
+        [](const Diagnostic& value) {
+          return value.type == DPTY_EVENT_PROCESS_EXIT_READY;
+    });
+    Expect(ready != events.diagnostics.end() && ready->length == 1 &&
+               ready->value2 == externally_reaped_status,
+           "NOTE_EXITSTATUS matches the externally reaped wait status");
+    const auto external = std::find_if(
+        events.diagnostics.begin(), events.diagnostics.end(),
+        [](const Diagnostic& value) {
+          return value.type == DPTY_EVENT_EXTERNAL_REAP_OBSERVED;
+        });
+    Expect(external != events.diagnostics.end() &&
+               external->value1 == events.pid &&
+               external->value2 == externally_reaped_status &&
+               external->system_error == ECHILD,
+           "external reap is explicitly classified from matching kernel data");
+  }
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "externally reaped session is destroyed");
+}
+
+void TestExternalReapSignalCompletion(Api* api) {
+  Events events;
+  events.api = api;
+  const std::vector<const char*> arguments = {
+      "sh", "-c",
+      "printf __DPTY_EXTERNAL_SIGNAL_READY__; read value; sleep 0.2; "
+      "kill -TERM $$"};
+  const DptySessionHandle session =
+      Create(api, &events, "/bin/sh", arguments, 256 * 1024, 128 * 1024,
+             64 * 1024, true);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "external-reap signal child starts");
+  Expect(WaitForMarker(&events, "__DPTY_EXTERNAL_SIGNAL_READY__",
+                       std::chrono::seconds(3)),
+         "external-reap signal child is ready");
+  pid_t child = -1;
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    child = static_cast<pid_t>(events.pid);
+  }
+  pid_t externally_reaped_pid = -1;
+  int externally_reaped_status = 0;
+  int external_reap_error = 0;
+  std::thread external_reaper([&] {
+    errno = 0;
+    externally_reaped_pid = waitpid(child, &externally_reaped_status, 0);
+    external_reap_error = externally_reaped_pid < 0 ? errno : 0;
+  });
+  const uint8_t newline = '\n';
+  Expect(api->write(session, &newline, 1) == DPTY_STATUS_OK,
+         "external-reap signal exit is released");
+  const bool exited = WaitFor(&events, std::chrono::seconds(3),
+                              [](const Events& value) {
+                                return value.exited;
+                              });
+  external_reaper.join();
+  Expect(exited, "external signal reap still publishes child exit");
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    Expect(externally_reaped_pid == events.pid && external_reap_error == 0,
+           "test competitor reaps the signaled PTY child");
+    Expect(WIFSIGNALED(externally_reaped_status) &&
+               WTERMSIG(externally_reaped_status) == SIGTERM,
+           "external waiter observes the expected terminating signal");
+    Expect(events.exit_code == 128 + SIGTERM &&
+               events.exit_signal == SIGTERM,
+           "kernel exit status preserves external signal exit");
+    const auto external = std::find_if(
+        events.diagnostics.begin(), events.diagnostics.end(),
+        [](const Diagnostic& value) {
+          return value.type == DPTY_EVENT_EXTERNAL_REAP_OBSERVED;
+        });
+    Expect(external != events.diagnostics.end() &&
+               external->value2 == externally_reaped_status &&
+               external->system_error == ECHILD,
+           "external signal reap retains matching kernel status");
+  }
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "externally reaped signal session is destroyed");
+}
+
 }  // namespace
 
 int main(int argc, const char* argv[]) {
@@ -726,6 +852,8 @@ int main(int argc, const char* argv[]) {
   TestDirectForceClose(&api);
   TestTrackedWriteDiagnostics(&api);
   TestForceCloseFairnessUnderOutputFlood(&api);
+  TestExternalReapCompletion(&api);
+  TestExternalReapSignalCompletion(&api);
   Expect(api.live_count() == 0, "all native sessions are released");
   dlclose(image);
   if (failures != 0) {

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DPTY_ABI_VERSION 3u
+#define DPTY_ABI_VERSION 4u
 
 #if defined(__cplusplus)
 extern "C" {
@@ -38,6 +38,7 @@ typedef enum DptyEventType {
   DPTY_EVENT_STATE_SNAPSHOT = 13,
   DPTY_EVENT_TERMIOS_SNAPSHOT = 14,
   DPTY_EVENT_PROCESS_EXIT_READY = 15,
+  DPTY_EVENT_EXTERNAL_REAP_OBSERVED = 16,
 } DptyEventType;
 
 typedef enum DptySessionStateFlag {
@@ -48,6 +49,8 @@ typedef enum DptySessionStateFlag {
   DPTY_SESSION_STATE_READ_PAUSED = 1u << 4,
   DPTY_SESSION_STATE_READ_ENABLED = 1u << 5,
   DPTY_SESSION_STATE_WRITE_ENABLED = 1u << 6,
+  DPTY_SESSION_STATE_CHILD_EXIT_OBSERVED = 1u << 7,
+  DPTY_SESSION_STATE_CHILD_EXTERNALLY_REAPED = 1u << 8,
 } DptySessionStateFlag;
 
 typedef enum DptySignal {
@@ -86,7 +89,10 @@ typedef enum DptySignal {
 // TERMIOS_SNAPSHOT: sequence=related write request id or 0,
 //   length=VEOF character value, value1=termios c_lflag, value2=1 when valid,
 //   system_error=tcgetattr errno on failure.
-// PROCESS_EXIT_READY: value1=child pid, value2=kqueue NOTE_EXIT data.
+// PROCESS_EXIT_READY: length=1 when value2 contains a valid kernel exit
+//   status, value1=child pid, value2=kqueue NOTE_EXITSTATUS data.
+// EXTERNAL_REAP_OBSERVED: value1=child pid, value2=the retained kernel exit
+//   status used after waitpid returned ECHILD.
 typedef void (*dpty_event_callback_v1)(DptySessionHandle session,
                                        uint32_t event_type, uint64_t sequence,
                                        const uint8_t* data, size_t length,

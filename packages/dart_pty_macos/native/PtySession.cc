@@ -224,7 +224,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     size_t queued_bytes = 0;
     {
       const std::lock_guard<std::mutex> lock(mutex_);
-      if (state_ != State::kRunning || closing_) {
+      if (state_ != State::kRunning || closing_ || child_completed_) {
         return SetError(DPTY_STATUS_WRONG_STATE, 0,
                         "PTY session does not accept writes");
       }
@@ -289,7 +289,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     }
     {
       const std::lock_guard<std::mutex> lock(mutex_);
-      if (state_ != State::kRunning || closing_) {
+      if (state_ != State::kRunning || closing_ || child_completed_) {
         return SetError(DPTY_STATUS_WRONG_STATE, 0,
                         "PTY session cannot be resized");
       }
@@ -307,7 +307,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     }
     {
       const std::lock_guard<std::mutex> lock(mutex_);
-      if (state_ != State::kRunning || closing_) {
+      if (state_ != State::kRunning || closing_ || child_completed_) {
         return SetError(DPTY_STATUS_WRONG_STATE, 0,
                         "PTY session cannot receive a signal");
       }
@@ -462,7 +462,7 @@ class Session final : public std::enable_shared_from_this<Session> {
       if (close_started_) {
         state_flags |= DPTY_SESSION_STATE_CLOSE_STARTED;
       }
-      if (child_reaped_) {
+      if (child_reaped_by_session_) {
         state_flags |= DPTY_SESSION_STATE_CHILD_REAPED;
       }
       if (master_eof_) {
@@ -477,6 +477,12 @@ class Session final : public std::enable_shared_from_this<Session> {
       if (write_enabled_) {
         state_flags |= DPTY_SESSION_STATE_WRITE_ENABLED;
       }
+      if (child_completed_) {
+        state_flags |= DPTY_SESSION_STATE_CHILD_EXIT_OBSERVED;
+      }
+      if (child_externally_reaped_) {
+        state_flags |= DPTY_SESSION_STATE_CHILD_EXTERNALLY_REAPED;
+      }
     }
     EmitDiagnostic(DPTY_EVENT_STATE_SNAPSHOT, related_write_request_id,
                    queued_bytes, static_cast<int64_t>(foreground),
@@ -488,12 +494,17 @@ class Session final : public std::enable_shared_from_this<Session> {
         terminal_result == 0 ? 1 : 0, terminal_error);
   }
 
-  void ObserveProcessExitReady(pid_t child, int64_t status_hint) {
+  void ObserveProcessExitReady(pid_t child, int64_t status_hint,
+                               bool status_valid) {
+    if (status_valid) {
+      process_exit_status_ = static_cast<int>(status_hint);
+      process_exit_status_valid_ = true;
+    }
     if (process_exit_ready_observed_) {
       return;
     }
     process_exit_ready_observed_ = true;
-    EmitDiagnostic(DPTY_EVENT_PROCESS_EXIT_READY, 0, 0,
+    EmitDiagnostic(DPTY_EVENT_PROCESS_EXIT_READY, 0, status_valid ? 1 : 0,
                    static_cast<int64_t>(child), status_hint, 0);
   }
 
@@ -605,7 +616,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     EV_SET(&changes[1], static_cast<uintptr_t>(master_fd_), EVFILT_WRITE,
            EV_ADD | EV_CLEAR | EV_DISABLE, 0, 0, nullptr);
     EV_SET(&changes[2], static_cast<uintptr_t>(child_pid_), EVFILT_PROC,
-           EV_ADD | EV_CLEAR, NOTE_EXIT, 0, nullptr);
+           EV_ADD | EV_CLEAR, NOTE_EXIT | NOTE_EXITSTATUS, 0, nullptr);
     EV_SET(&changes[3], kControlEventIdentifier, EVFILT_USER, EV_ADD | EV_CLEAR,
            0, 0, nullptr);
     if (kevent(descriptor, changes, 4, nullptr, 0, nullptr) != 0) {
@@ -637,7 +648,9 @@ class Session final : public std::enable_shared_from_this<Session> {
             FlushWrites();
           } else if (events[index].filter == EVFILT_PROC) {
             ObserveProcessExitReady(static_cast<pid_t>(events[index].ident),
-                                    static_cast<int64_t>(events[index].data));
+                                    static_cast<int64_t>(events[index].data),
+                                    (events[index].fflags &
+                                     NOTE_EXITSTATUS) != 0);
             ReapChild();
           }
         }
@@ -647,7 +660,7 @@ class Session final : public std::enable_shared_from_this<Session> {
         ReadAvailable();
       }
       ReapChild();
-      if (child_reaped_) {
+      if (child_completed_) {
         ReadAvailable();
         bool outstanding_capacity = false;
         {
@@ -698,7 +711,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     for (const int signal : signals) {
       SendToForeground(signal);
     }
-    if (force_close && !child_reaped_) {
+    if (force_close && !child_completed_) {
       size_t queued_bytes = 0;
       {
         const std::lock_guard<std::mutex> lock(mutex_);
@@ -720,7 +733,7 @@ class Session final : public std::enable_shared_from_this<Session> {
       close_kill_deadline_ = std::chrono::steady_clock::now() +
                              std::chrono::milliseconds(grace_millis);
     }
-    if (close_started_ && !child_reaped_ &&
+    if (close_started_ && !child_completed_ &&
         std::chrono::steady_clock::now() >= close_kill_deadline_) {
       SendToProcessGroups(SIGKILL);
       close_kill_deadline_ = std::chrono::steady_clock::time_point::max();
@@ -806,7 +819,7 @@ class Session final : public std::enable_shared_from_this<Session> {
   }
 
   void FlushWrites() {
-    if (master_fd_ < 0 || child_reaped_) {
+    if (master_fd_ < 0 || child_completed_) {
       return;
     }
     size_t batches = 0;
@@ -980,7 +993,7 @@ class Session final : public std::enable_shared_from_this<Session> {
   }
 
   void ReapChild() {
-    if (child_reaped_) {
+    if (child_completed_) {
       return;
     }
     pid_t child = -1;
@@ -995,12 +1008,16 @@ class Session final : public std::enable_shared_from_this<Session> {
     errno = 0;
     const pid_t waited = waitpid(child, &status, WNOHANG);
     if (waited == child) {
-      ObserveProcessExitReady(waited, status);
+      ObserveProcessExitReady(waited, status, true);
       {
         const std::lock_guard<std::mutex> lock(mutex_);
-        child_reaped_ = true;
+        child_completed_ = true;
+        child_reaped_by_session_ = true;
         child_status_ = status;
         emit_waitpid_pending_ = false;
+        writes_.clear();
+        write_offset_ = 0;
+        write_queued_bytes_ = 0;
       }
       EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0,
                      static_cast<int64_t>(waited), status, 0);
@@ -1015,14 +1032,34 @@ class Session final : public std::enable_shared_from_this<Session> {
         EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0, 0, 0, 0);
       }
     } else if (errno != EINTR) {
+      const int32_t wait_error = errno;
       bool emit_error = false;
+      bool external_reap = false;
+      int retained_status = 0;
       {
         const std::lock_guard<std::mutex> lock(mutex_);
         emit_error = !waitpid_error_observed_;
         waitpid_error_observed_ = true;
+        if (wait_error == ECHILD && process_exit_ready_observed_ &&
+            process_exit_status_valid_) {
+          child_completed_ = true;
+          child_externally_reaped_ = true;
+          child_status_ = process_exit_status_;
+          emit_waitpid_pending_ = false;
+          writes_.clear();
+          write_offset_ = 0;
+          write_queued_bytes_ = 0;
+          external_reap = true;
+          retained_status = child_status_;
+        }
       }
       if (emit_error) {
-        EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0, -1, 0, errno);
+        EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0, -1, 0, wait_error);
+      }
+      if (external_reap) {
+        EmitDiagnostic(DPTY_EVENT_EXTERNAL_REAP_OBSERVED, 0, 0,
+                       static_cast<int64_t>(child), retained_status,
+                       wait_error);
       }
     }
   }
@@ -1082,7 +1119,9 @@ class Session final : public std::enable_shared_from_this<Session> {
   int master_fd_ = -1;
   int exec_error_fd_ = -1;
   pid_t child_pid_ = -1;
-  bool child_reaped_ = false;
+  bool child_completed_ = false;
+  bool child_reaped_by_session_ = false;
+  bool child_externally_reaped_ = false;
   int child_status_ = 0;
   bool master_eof_ = false;
   bool finished_reaping_ = false;
@@ -1105,6 +1144,8 @@ class Session final : public std::enable_shared_from_this<Session> {
   bool emit_waitpid_pending_ = false;
   bool waitpid_error_observed_ = false;
   bool process_exit_ready_observed_ = false;
+  bool process_exit_status_valid_ = false;
+  int process_exit_status_ = 0;
   uint32_t close_grace_millis_ = 0;
   std::chrono::steady_clock::time_point close_kill_deadline_ =
       std::chrono::steady_clock::time_point::max();

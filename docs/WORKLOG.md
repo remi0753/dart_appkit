@@ -1916,3 +1916,33 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Complete `make test` passed. All C11/C++20 warning gates, native bridge,
   runtime, renderer, PTY, Dart package, launcher, Kernel, FFI, and legacy-event
   regressions remained green.
+
+## 2026-09-05 — PTY completion after an external Dart reap
+
+- Purpose: prevent a terminated native PTY child from remaining logically live
+  when the stock Dart macOS process handler reaps it before the PTY reactor.
+- Scope: preserve kernel exit status, distinguish PTY-owned and external reap,
+  clear stale writes, publish one exit, and cover normal/signal exits plus a
+  real competing Dart child. The stock Dart Engine remains unmodified.
+- A real Dart Terminal log and a minimal reproduction both recorded tracked
+  Control-D completion, kqueue process-exit readiness, then
+  `waitpid=-1/ECHILD` while a `Process.start` worker remained alive. The pinned
+  stock runtime uses PID-unrestricted `wait()` and discards children absent
+  from its private process list, proving a child-reap ownership race distinct
+  from the earlier output-flood fairness defect.
+- PTY ABI v4 requests `NOTE_EXITSTATUS`, records whether the kernel status is
+  valid, and adds an explicit `externalReapObserved` diagnostic. The reactor
+  prefers its own PID-specific `waitpid`; only a matching kernel exit with valid
+  status can recover `ECHILD`. Pending input is then cleared, output drains, and
+  the existing single exit publication reports the retained normal or signal
+  status.
+- Native tests install a blocking competing waiter and prove external normal
+  exit 37 and SIGTERM retain exactly the same raw wait status reported by
+  kqueue. A real Dart FFI test keeps a `Process.start` child alive while
+  Control-D ends a PTY reader and proves status 37, external-reap
+  classification, exit publication, disposal, and zero live sessions.
+- Focused `make dpty-native-test dpty-dart-test` passes, including C11/C++20
+  warning gates, analysis, the two deterministic native external-reap cases,
+  and the real stock-Dart competing-reaper case. Complete repository
+  `make test` also passes every bridge, runner, runtime, renderer, PTY, package,
+  launcher, Kernel, FFI, and legacy-event regression.

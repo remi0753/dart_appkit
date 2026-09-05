@@ -5,7 +5,7 @@ applications. Native code owns only `forkpty`, the audited child `execve` path,
 master-FD readiness, bounded byte queues, resize/signals, close escalation, and
 child reaping. Dart owns session policy and terminal semantics.
 
-The v3 `dpty_*` C ABI provides:
+The v4 `dpty_*` C ABI provides:
 
 - copied argv, environment, working directory, and initial size before fork;
 - an isolated C child branch using only audited async-signal-safe operations;
@@ -16,8 +16,9 @@ The v3 `dpty_*` C ABI provides:
 - idempotent, nonblocking immediate force close before or during graceful close;
 - opt-in, content-free write/control/reap diagnostics with tracked-write IDs;
 - bounded reactor turns so continuous output cannot starve writes or close;
-- exactly one started/error and exit lifecycle, `waitpid` reaping, and
-  generation-checked session handles.
+- exactly one started/error and exit lifecycle, `waitpid` reaping or verified
+  external-reap recovery from `NOTE_EXITSTATUS`, and generation-checked session
+  handles.
 
 The Dart facade uses a listener-style native callback so reactor threads enqueue
 events without entering the UI isolate synchronously. `FakePtyBackend` provides
@@ -35,7 +36,9 @@ admission, reactor dequeue, and `write(2)` completion. Passing
 termios/VEOF snapshots, signal results, `waitpid` results, and exit publication
 through `PtyProcess.diagnostics`. Diagnostics are off by default and contain no
 input/output bytes, commands, environment values, working directories, or
-terminal text.
+terminal text. `externalReapObserved` identifies the macOS case where another
+process-wide waiter reaped the child after a matching kernel exit notification;
+the retained kernel status still produces exactly one normal exit event.
 
 `MacosPtyBackend.shared` uses the official native-assets mapping in ordinary
 Dart tools. A custom application host can instead call

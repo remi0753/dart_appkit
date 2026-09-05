@@ -109,6 +109,7 @@ enum PtyDiagnosticStage {
   stateSnapshot,
   termiosSnapshot,
   processExitReady,
+  externalReapObserved,
 }
 
 /// Content-free observation of a native PTY lifecycle boundary.

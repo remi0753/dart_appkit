@@ -8,7 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'api.dart';
 
 const String _assetId = 'package:dart_pty_macos/dart_pty_macos.dart';
-const int _abiVersion = 3;
+const int _abiVersion = 4;
 const int _statusOk = 0;
 const int _statusBackpressured = 4;
 const int _eventStarted = 1;
@@ -26,6 +26,7 @@ const int _eventExitPublished = 12;
 const int _eventStateSnapshot = 13;
 const int _eventTermiosSnapshot = 14;
 const int _eventProcessExitReady = 15;
+const int _eventExternalReapObserved = 16;
 
 typedef _EventNative = Void Function(
   Uint64,
@@ -364,6 +365,7 @@ void _dispatchEvent(
     case _eventStateSnapshot:
     case _eventTermiosSnapshot:
     case _eventProcessExitReady:
+    case _eventExternalReapObserved:
       process._didDiagnostic(
         _decodeDiagnostic(
           eventType,
@@ -432,7 +434,7 @@ PtyDiagnosticEvent _decodeDiagnostic(
     _eventWaitpidResult => PtyDiagnosticEvent(
       stage: PtyDiagnosticStage.waitpidResult,
       waitpidResult: value1,
-      childStatus: value2,
+      childStatus: value1 > 0 ? value2 : null,
       systemError: systemError,
     ),
     _eventExitPublished => PtyDiagnosticEvent(
@@ -459,7 +461,13 @@ PtyDiagnosticEvent _decodeDiagnostic(
     _eventProcessExitReady => PtyDiagnosticEvent(
       stage: PtyDiagnosticStage.processExitReady,
       childProcessId: value1,
+      childStatus: length == 1 ? value2 : null,
+    ),
+    _eventExternalReapObserved => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.externalReapObserved,
+      childProcessId: value1,
       childStatus: value2,
+      systemError: systemError,
     ),
     _ => throw StateError('unreachable PTY diagnostic event $eventType'),
   };

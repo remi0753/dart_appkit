@@ -15,21 +15,27 @@ does not consume or renumber the `da_*` ABI.
 working-directory strings are copied before `dpty_session_create` returns.
 Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
 `resize`, `send_signal`, `close`, and `force_close` only enqueue bounded work;
-FD readiness and `waitpid` remain on the session reactor. PTY ABI version 3
-retains the idempotent `force_close` operation and extends the size-prefixed V1
-configuration with opt-in diagnostics. `dpty_session_write_tracked` returns an
+FD readiness and `waitpid` remain on the session reactor. PTY ABI version 4
+retains the idempotent `force_close` operation and size-prefixed V1 diagnostic
+configuration introduced in v3. `dpty_session_write_tracked` returns an
 opaque request ID for correlating queue admission, reactor dequeue, and native
 write completion. Diagnostic callbacks contain only fixed scalar counters,
 state flags, process-group/signal results, termios flags/VEOF identity, and
 `waitpid`/exit results; they never contain terminal bytes or process launch
-strings.
+strings. The process filter requests `NOTE_EXIT | NOTE_EXITSTATUS`. A successful
+PID-specific `waitpid` remains authoritative. If a matching kernel exit event
+with valid status is followed by `ECHILD`, the session classifies an external
+reap, retains that status, clears pending writes, drains output, and publishes
+exactly one exit. A bare `ECHILD` without the matching status is never promoted
+to success.
 
 An OUTPUT callback carries at most 64 KiB and borrows its byte pointer until the
 exact sequence/length pair is acknowledged in order. The high watermark
 disables the kqueue read filter and the low watermark re-enables it. Writes are
 copied only when the configured capacity admits the entire call; saturation
 returns `DPTY_STATUS_BACKPRESSURED` without waiting. EXIT reports either the
-child status or `128 + signal`, after the owning reactor has reaped the PID.
+child status or `128 + signal`, after the owning reactor has reaped the PID or
+verified that another process-wide waiter reaped it after `NOTE_EXITSTATUS`.
 Destroy requires a finished session with no unacknowledged output and retires
 that handle generation.
 
