@@ -14,8 +14,11 @@ does not consume or renumber the `da_*` ABI.
 `DptySessionConfigV1` is size/version prefixed and all argv, environment, and
 working-directory strings are copied before `dpty_session_create` returns.
 Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
-`resize`, `send_signal`, and `close` only enqueue bounded work; FD readiness and
-`waitpid` remain on the session reactor.
+`resize`, `send_signal`, `close`, and `force_close` only enqueue bounded work;
+FD readiness and `waitpid` remain on the session reactor. PTY ABI version 2 adds
+the idempotent `force_close` operation without changing the size-prefixed V1
+configuration or statistics layouts. It remains valid during graceful close
+and moves SIGKILL process-group delivery onto the reactor immediately.
 
 An OUTPUT callback carries at most 64 KiB and borrows its byte pointer until the
 exact sequence/length pair is acknowledged in order. The high watermark

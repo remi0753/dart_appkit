@@ -6,10 +6,15 @@ import 'dart:typed_data';
 import 'dart_pty_macos.dart';
 
 final class FakePtyBackend implements PtyBackend {
-  FakePtyBackend({this.firstPid = 4000, this.autoExitOnClose = true});
+  FakePtyBackend({
+    this.firstPid = 4000,
+    this.autoExitOnClose = true,
+    this.autoExitOnForceClose = true,
+  });
 
   final int firstPid;
   final bool autoExitOnClose;
+  final bool autoExitOnForceClose;
   final List<PtyCommand> commands = <PtyCommand>[];
   final List<FakePtyProcess> processes = <FakePtyProcess>[];
 
@@ -33,6 +38,7 @@ final class FakePtyBackend implements PtyBackend {
       initialSize: initialSize,
       writeCapacityBytes: writeCapacityBytes,
       autoExitOnClose: autoExitOnClose,
+      autoExitOnForceClose: autoExitOnForceClose,
     );
     processes.add(process);
     return process;
@@ -45,16 +51,19 @@ final class FakePtyProcess implements PtyProcess {
     required PtySize initialSize,
     required this.writeCapacityBytes,
     required this.autoExitOnClose,
+    required this.autoExitOnForceClose,
   }) : sizes = <PtySize>[initialSize];
 
   @override
   final int pid;
   final int writeCapacityBytes;
   final bool autoExitOnClose;
+  final bool autoExitOnForceClose;
   final List<Uint8List> writes = <Uint8List>[];
   final List<PtySize> sizes;
   final List<PtySignal> signals = <PtySignal>[];
   final List<Duration> closeGracePeriods = <Duration>[];
+  int forceCloseRequests = 0;
   final StreamController<Uint8List> _output = StreamController<Uint8List>(
     sync: true,
   );
@@ -120,6 +129,17 @@ final class FakePtyProcess implements PtyProcess {
     closeGracePeriods.add(gracePeriod);
     if (autoExitOnClose) {
       finish(exitCode: 129, signal: 1);
+    }
+  }
+
+  @override
+  void forceClose() {
+    if (_finished) {
+      return;
+    }
+    ++forceCloseRequests;
+    if (autoExitOnForceClose) {
+      finish(exitCode: 137, signal: 9);
     }
   }
 

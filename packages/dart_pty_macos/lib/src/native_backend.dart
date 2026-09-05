@@ -8,7 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'api.dart';
 
 const String _assetId = 'package:dart_pty_macos/dart_pty_macos.dart';
-const int _abiVersion = 1;
+const int _abiVersion = 2;
 const int _statusOk = 0;
 const int _statusBackpressured = 4;
 const int _eventStarted = 1;
@@ -147,6 +147,12 @@ external int _sessionSendSignal(int session, int signal);
 )
 external int _sessionClose(int session, int gracePeriodMillis);
 
+@Native<Int32 Function(Uint64)>(
+  symbol: 'dpty_session_force_close',
+  assetId: _assetId,
+)
+external int _sessionForceClose(int session);
+
 @Native<Int32 Function(Uint64, Pointer<_NativeStats>)>(
   symbol: 'dpty_session_get_stats',
   assetId: _assetId,
@@ -192,6 +198,7 @@ final class _PtyFunctions {
       sessionResize = _sessionResize,
       sessionSendSignal = _sessionSendSignal,
       sessionClose = _sessionClose,
+      sessionForceClose = _sessionForceClose,
       sessionGetStats = _sessionGetStats,
       sessionDestroy = _sessionDestroy;
 
@@ -227,6 +234,10 @@ final class _PtyFunctions {
           .lookupFunction<_SessionUint32Native, _SessionUint32Dart>(
             'dpty_session_close',
           ),
+      sessionForceClose = library
+          .lookupFunction<_SessionHandleNative, _SessionHandleDart>(
+            'dpty_session_force_close',
+          ),
       sessionGetStats = library
           .lookupFunction<_SessionStatsNative, _SessionStatsDart>(
             'dpty_session_get_stats',
@@ -244,6 +255,7 @@ final class _PtyFunctions {
   final _SessionResizeDart sessionResize;
   final _SessionUint32Dart sessionSendSignal;
   final _SessionUint32Dart sessionClose;
+  final _SessionHandleDart sessionForceClose;
   final _SessionStatsDart sessionGetStats;
   final _SessionHandleDart sessionDestroy;
 }
@@ -538,6 +550,14 @@ final class _MacosPtyProcess implements PtyProcess {
       );
     }
     _checkStatus(_functions.sessionClose(_handle, milliseconds), 'PTY close');
+  }
+
+  @override
+  void forceClose() {
+    if (_finished || _disposed) {
+      return;
+    }
+    _checkStatus(_functions.sessionForceClose(_handle), 'PTY force close');
   }
 
   @override

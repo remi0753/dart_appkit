@@ -131,6 +131,7 @@ abstract interface class PtyProcess {
   void resize(PtySize size);
   void sendSignal(PtySignal signal);
   void close({Duration gracePeriod = const Duration(seconds: 2)});
+  void forceClose();
   Future<void> dispose();
 }
 

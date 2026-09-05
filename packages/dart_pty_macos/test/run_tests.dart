@@ -126,8 +126,39 @@ Future<void> main() async {
     _expect(process.finalStats?.hasExited ?? false, 'fake stats finalized');
   });
 
+  await _test('fake force close remains valid while closing', () async {
+    final FakePtyBackend backend = FakePtyBackend(
+      autoExitOnClose: false,
+      autoExitOnForceClose: false,
+    );
+    final PtyProcess process = await startPty(
+      PtyCommand(executable: '/bin/sh'),
+      backend: backend,
+    );
+    final FakePtyProcess fake = backend.processes.single;
+    process.close(gracePeriod: const Duration(seconds: 60));
+    process.forceClose();
+    process.forceClose();
+    _expect(
+      fake.forceCloseRequests == 2,
+      'repeated force requests are accepted after graceful close',
+    );
+    fake.finish(exitCode: 137, signal: 9);
+    final PtyExit exit = await process.exit;
+    process.forceClose();
+    await process.dispose();
+    _expect(
+      fake.forceCloseRequests == 2,
+      'force close is a no-op after process completion',
+    );
+    _expect(
+      exit.exitCode == 137 && exit.signal == 9,
+      'fake forced exit is preserved',
+    );
+  });
+
   await _test('real Dart listener callback and process lifecycle', () async {
-    _expect(_abiVersion() == 1, 'native asset ABI');
+    _expect(_abiVersion() == 2, 'native asset ABI');
     final PtyProcess process = await startPty(
       PtyCommand(
         executable: '/bin/sh',
@@ -157,6 +188,54 @@ Future<void> main() async {
     await process.dispose();
     _expect(_liveSessionCount() == 0, 'real native session is released');
   });
+
+  await _test(
+    'real force close bypasses an active graceful deadline',
+    () async {
+      final PtyProcess process = await startPty(
+        PtyCommand(
+          executable: '/bin/sh',
+          arguments: const <String>[
+            '-c',
+            "trap '' HUP TERM; printf __DPTY_DART_FORCE__; while :; do sleep 1; done",
+          ],
+          includeParentEnvironment: false,
+        ),
+      );
+      final StringBuffer output = StringBuffer();
+      final Completer<void> ready = Completer<void>();
+      final StreamSubscription<Uint8List> subscription = process.output.listen((
+        Uint8List bytes,
+      ) {
+        output.write(utf8.decode(bytes, allowMalformed: true));
+        if (!ready.isCompleted &&
+            output.toString().contains('__DPTY_DART_FORCE__')) {
+          ready.complete();
+        }
+      });
+      await ready.future.timeout(const Duration(seconds: 3));
+      process.close(gracePeriod: const Duration(seconds: 60));
+      final Stopwatch elapsed = Stopwatch()..start();
+      process.forceClose();
+      process.forceClose();
+      final PtyExit exit = await process.exit.timeout(
+        const Duration(seconds: 3),
+      );
+      elapsed.stop();
+      process.forceClose();
+      await subscription.cancel();
+      await process.dispose();
+      _expect(
+        exit.exitCode == 137 && exit.signal == 9,
+        'real explicit force close reports SIGKILL',
+      );
+      _expect(
+        elapsed.elapsed < const Duration(seconds: 2),
+        'real explicit force close bypasses the 60 second grace period',
+      );
+      _expect(_liveSessionCount() == 0, 'force-closed session is released');
+    },
+  );
 
   await _test('explicit bundled-library loading', () async {
     final Uri packageLibrary = (await Isolate.resolvePackageUri(

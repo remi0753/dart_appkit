@@ -291,6 +291,23 @@ class Session final : public std::enable_shared_from_this<Session> {
     return DPTY_STATUS_OK;
   }
 
+  int32_t ForceClose() {
+    {
+      const std::lock_guard<std::mutex> lock(mutex_);
+      if (state_ == State::kFinished) {
+        return DPTY_STATUS_OK;
+      }
+      if (state_ != State::kRunning) {
+        return SetError(DPTY_STATUS_WRONG_STATE, 0,
+                        "PTY session has not started");
+      }
+      closing_ = true;
+      force_close_requested_ = true;
+    }
+    Wake();
+    return DPTY_STATUS_OK;
+  }
+
   int32_t GetStats(DptySessionStatsV1* output) const {
     if (output == nullptr || output->struct_size < sizeof(DptySessionStatsV1) ||
         output->abi_version != DPTY_ABI_VERSION) {
@@ -528,6 +545,7 @@ class Session final : public std::enable_shared_from_this<Session> {
     std::optional<PendingResize> resize;
     std::deque<int> signals;
     bool begin_close = false;
+    bool force_close = false;
     uint32_t grace_millis = 0;
     bool resume_read = false;
     {
@@ -535,7 +553,11 @@ class Session final : public std::enable_shared_from_this<Session> {
       resize = pending_resize_;
       pending_resize_.reset();
       signals.swap(pending_signals_);
-      if (closing_ && !close_started_) {
+      force_close = force_close_requested_;
+      force_close_requested_ = false;
+      if (force_close) {
+        close_started_ = true;
+      } else if (closing_ && !close_started_) {
         close_started_ = true;
         begin_close = true;
         grace_millis = close_grace_millis_;
@@ -552,7 +574,10 @@ class Session final : public std::enable_shared_from_this<Session> {
     for (const int signal : signals) {
       SendToForeground(signal);
     }
-    if (begin_close) {
+    if (force_close && !child_reaped_) {
+      SendToProcessGroups(SIGKILL);
+      close_kill_deadline_ = std::chrono::steady_clock::time_point::max();
+    } else if (begin_close) {
       SendToProcessGroups(SIGHUP);
       close_kill_deadline_ = std::chrono::steady_clock::now() +
                              std::chrono::milliseconds(grace_millis);
@@ -828,6 +853,7 @@ class Session final : public std::enable_shared_from_this<Session> {
   std::deque<int> pending_signals_;
   bool closing_ = false;
   bool close_started_ = false;
+  bool force_close_requested_ = false;
   uint32_t close_grace_millis_ = 0;
   std::chrono::steady_clock::time_point close_kill_deadline_ =
       std::chrono::steady_clock::time_point::max();
@@ -1029,6 +1055,13 @@ dpty_session_close(DptySessionHandle session, uint32_t grace_period_millis) {
   const std::shared_ptr<Session> value = LookupSession(session);
   return value == nullptr ? DPTY_STATUS_INVALID_HANDLE
                           : value->Close(grace_period_millis);
+}
+
+extern "C" __attribute__((visibility("default"))) int32_t
+dpty_session_force_close(DptySessionHandle session) {
+  ClearError();
+  const std::shared_ptr<Session> value = LookupSession(session);
+  return value == nullptr ? DPTY_STATUS_INVALID_HANDLE : value->ForceClose();
 }
 
 extern "C" __attribute__((visibility("default"))) int32_t

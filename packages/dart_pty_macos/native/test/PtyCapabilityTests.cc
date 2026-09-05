@@ -53,6 +53,7 @@ struct Api {
   int32_t (*resize)(DptySessionHandle, uint16_t, uint16_t) = nullptr;
   int32_t (*send_signal)(DptySessionHandle, uint32_t) = nullptr;
   int32_t (*close)(DptySessionHandle, uint32_t) = nullptr;
+  int32_t (*force_close)(DptySessionHandle) = nullptr;
   int32_t (*stats)(DptySessionHandle, DptySessionStatsV1*) = nullptr;
   int32_t (*destroy)(DptySessionHandle) = nullptr;
   uint64_t (*live_count)() = nullptr;
@@ -439,6 +440,69 @@ void TestForcedClose(Api* api) {
          "forced-close session is destroyed");
 }
 
+void TestExplicitForceClose(Api* api) {
+  Events events;
+  events.api = api;
+  const std::vector<const char*> arguments = {
+      "sh", "-c",
+      "trap '' HUP TERM; echo __DPTY_FORCE_READY__; while :; do sleep 1; "
+      "done"};
+  const DptySessionHandle session = Create(api, &events, "/bin/sh", arguments);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "explicit-force child starts");
+  Expect(WaitForMarker(&events, "__DPTY_FORCE_READY__",
+                       std::chrono::seconds(3)),
+         "explicit-force child installed its signal handlers");
+  Expect(api->close(session, 60000) == DPTY_STATUS_OK,
+         "long graceful close is queued");
+  const Clock::time_point force_started = Clock::now();
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "force close is accepted while closing");
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "force close is idempotent while closing");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.exited; }),
+         "explicit force close reaps stubborn child");
+  Expect(Clock::now() - force_started < std::chrono::seconds(2),
+         "explicit force bypasses the graceful deadline");
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    Expect(events.exit_signal == SIGKILL &&
+               events.exit_code == 128 + SIGKILL,
+           "explicit force close reports SIGKILL");
+  }
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "force close accepts an already-finished session");
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "explicit-force session is destroyed");
+}
+
+void TestDirectForceClose(Api* api) {
+  Events events;
+  events.api = api;
+  const std::vector<const char*> arguments = {
+      "sh", "-c", "while :; do sleep 1; done"};
+  const DptySessionHandle session = Create(api, &events, "/bin/sh", arguments);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "direct-force child starts");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.started; }),
+         "direct-force child started event");
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "force close is accepted before graceful close");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.exited; }),
+         "direct force close reaps child");
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    Expect(events.exit_signal == SIGKILL &&
+               events.exit_code == 128 + SIGKILL,
+           "direct force close reports SIGKILL");
+  }
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "direct-force session is destroyed");
+}
+
 }  // namespace
 
 int main(int argc, const char* argv[]) {
@@ -461,6 +525,8 @@ int main(int argc, const char* argv[]) {
   api.send_signal =
       Lookup<decltype(api.send_signal)>(image, "dpty_session_send_signal");
   api.close = Lookup<decltype(api.close)>(image, "dpty_session_close");
+  api.force_close =
+      Lookup<decltype(api.force_close)>(image, "dpty_session_force_close");
   api.stats = Lookup<decltype(api.stats)>(image, "dpty_session_get_stats");
   api.destroy = Lookup<decltype(api.destroy)>(image, "dpty_session_destroy");
   api.live_count =
@@ -477,6 +543,8 @@ int main(int argc, const char* argv[]) {
   TestExecFailure(&api);
   TestGracefulClose(&api);
   TestForcedClose(&api);
+  TestExplicitForceClose(&api);
+  TestDirectForceClose(&api);
   Expect(api.live_count() == 0, "all native sessions are released");
   dlclose(image);
   if (failures != 0) {

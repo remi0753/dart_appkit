@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DPTY_ABI_VERSION 1u
+#define DPTY_ABI_VERSION 2u
 
 #if defined(__cplusplus)
 extern "C" {
@@ -114,6 +114,11 @@ dpty_session_send_signal(DptySessionHandle session, uint32_t signal);
 // Requests SIGHUP immediately and SIGKILL after grace_period_millis.
 __attribute__((visibility("default"))) int32_t
 dpty_session_close(DptySessionHandle session, uint32_t grace_period_millis);
+
+// Requests immediate SIGKILL escalation. Valid before or during graceful close,
+// idempotent, and returns without waiting for process exit or reaping.
+__attribute__((visibility("default"))) int32_t
+dpty_session_force_close(DptySessionHandle session);
 
 __attribute__((visibility("default"))) int32_t dpty_session_get_stats(
     DptySessionHandle session, DptySessionStatsV1* out_stats);
