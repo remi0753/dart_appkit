@@ -25,6 +25,7 @@ final class FakePtyBackend implements PtyBackend {
     int readHighWaterBytes = 1024 * 1024,
     int readLowWaterBytes = 512 * 1024,
     int writeCapacityBytes = 1024 * 1024,
+    bool enableDiagnostics = false,
   }) async {
     if (readHighWaterBytes <= 0 ||
         readLowWaterBytes < 0 ||
@@ -39,6 +40,7 @@ final class FakePtyBackend implements PtyBackend {
       writeCapacityBytes: writeCapacityBytes,
       autoExitOnClose: autoExitOnClose,
       autoExitOnForceClose: autoExitOnForceClose,
+      diagnosticsEnabled: enableDiagnostics,
     );
     processes.add(process);
     return process;
@@ -52,6 +54,7 @@ final class FakePtyProcess implements PtyProcess {
     required this.writeCapacityBytes,
     required this.autoExitOnClose,
     required this.autoExitOnForceClose,
+    required this.diagnosticsEnabled,
   }) : sizes = <PtySize>[initialSize];
 
   @override
@@ -59,6 +62,7 @@ final class FakePtyProcess implements PtyProcess {
   final int writeCapacityBytes;
   final bool autoExitOnClose;
   final bool autoExitOnForceClose;
+  final bool diagnosticsEnabled;
   final List<Uint8List> writes = <Uint8List>[];
   final List<PtySize> sizes;
   final List<PtySignal> signals = <PtySignal>[];
@@ -67,14 +71,20 @@ final class FakePtyProcess implements PtyProcess {
   final StreamController<Uint8List> _output = StreamController<Uint8List>(
     sync: true,
   );
+  final StreamController<PtyDiagnosticEvent> _diagnostics =
+      StreamController<PtyDiagnosticEvent>(sync: true);
   final Completer<PtyExit> _exit = Completer<PtyExit>();
   var _queuedWriteBytes = 0;
   var _bytesRead = 0;
+  var _nextWriteRequestId = 1;
   var _finished = false;
   PtyStats? _finalStats;
 
   @override
   Stream<Uint8List> get output => _output.stream;
+
+  @override
+  Stream<PtyDiagnosticEvent> get diagnostics => _diagnostics.stream;
 
   @override
   Future<PtyExit> get exit => _exit.future;
@@ -98,6 +108,17 @@ final class FakePtyProcess implements PtyProcess {
     return PtyWriteResult.accepted;
   }
 
+  @override
+  PtyWriteReceipt writeTracked(Uint8List bytes) {
+    final PtyWriteResult result = write(bytes);
+    return PtyWriteReceipt(
+      result: result,
+      requestId: result == PtyWriteResult.accepted
+          ? _nextWriteRequestId++
+          : null,
+    );
+  }
+
   void drainWrites() {
     _queuedWriteBytes = 0;
   }
@@ -107,6 +128,13 @@ final class FakePtyProcess implements PtyProcess {
     final Uint8List copied = Uint8List.fromList(bytes);
     _bytesRead += copied.length;
     _output.add(copied);
+  }
+
+  void emitDiagnostic(PtyDiagnosticEvent event) {
+    _requireRunning();
+    if (diagnosticsEnabled) {
+      _diagnostics.add(event);
+    }
   }
 
   @override
@@ -162,6 +190,7 @@ final class FakePtyProcess implements PtyProcess {
     );
     _exit.complete(PtyExit(exitCode: exitCode, signal: signal));
     unawaited(_output.close());
+    unawaited(_diagnostics.close());
   }
 
   @override

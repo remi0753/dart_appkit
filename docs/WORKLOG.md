@@ -1863,3 +1863,56 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Final diff review and `git diff --check` passed. Audible confirmation belongs
   to the consuming terminal adoption because the generic hello window retains
   the compatibility default by design.
+## 2026-09-05 — opt-in PTY boundary diagnostics for Control-D investigation
+
+- Dart Terminal reported an intermittent path where Control-D writes were
+  admitted but no native exit was observed, and a later force-close request
+  also crossed the Dart FFI boundary without an exit callback. The existing
+  PTY ABI exposes queue admission only, so it cannot distinguish reactor flush,
+  terminal semantics, signal delivery, `waitpid`, and callback publication.
+- The reusable PTY package will add opt-in, content-free diagnostic events and
+  tracked-write receipts. Diagnostics are disabled by default, carry counts and
+  opaque IDs rather than bytes, and expose terminal flags/control-character
+  identity without commands, environment, cwd, or terminal text.
+- Static inspection also found an unbounded `ReadAvailable` loop ahead of
+  `ProcessControl`. With a continuously readable master this can starve queued
+  writes and force-close control. The fix will add a per-turn read budget plus
+  an explicit retry wake, with an output-flood force-close regression.
+
+### Implemented contract and root-cause evidence
+
+- PTY ABI v3 adds `dpty_session_write_tracked`, an opt-in diagnostic flag, and
+  fixed scalar events for write enqueue/dequeue/completion/error, session and
+  termios/VEOF snapshots, force-close dequeue, each `kill(2)` result, kqueue
+  process-exit readiness, `waitpid`, and exit callback publication. The Dart
+  facade exposes `PtyWriteReceipt`, `PtyDiagnosticEvent`, and a diagnostics
+  stream; the fake backend implements the same surface.
+- Ordinary writes and sessions do not emit diagnostics. A tracked request emits
+  a bounded number of records, each with an opaque ID and numeric state only.
+  Native tests reject non-null data pointers on every diagnostic event and
+  prove diagnostics remain empty by default.
+- `ReadAvailable` now returns after at most eight 64 KiB batches and explicitly
+  wakes the reactor if unread work may remain. Write draining similarly returns
+  after eight calls or 512 KiB. This ensures every turn returns to queued
+  resize/signal/close processing and `waitpid` without weakening the existing
+  high/low-water backpressure contract.
+- Signal delivery now observes the actual child process group with `getpgid`,
+  avoids duplicate group delivery, records each target/result/errno, and falls
+  back to the child PID if no successful group delivery covers it.
+- A clean checkout of the pre-change commit `6fa96b8` was built in a temporary
+  directory. With `/usr/bin/yes x` continuously feeding an auto-acknowledged
+  PTY, force close was not processed within 1 second; the probe required an
+  external SIGKILL and reported `bounded=false elapsed_ms=1007`. The identical
+  scenario against the bounded reactor completed in 6 ms and observed both
+  `forceCloseDequeued` and `exitPublished`. This reproduces the intermittent
+  queue/control starvation class rather than inferring it solely from source.
+
+### Verification
+
+- Focused `make dpty-native-test dpty-dart-test` passed. Native coverage includes
+  diagnostic opt-in/privacy, tracked-write identity, state snapshots,
+  force/signal/reap/publication order, and force-close fairness during continuous
+  output. Dart coverage proves ABI v3 mapping and real listener delivery.
+- Complete `make test` passed. All C11/C++20 warning gates, native bridge,
+  runtime, renderer, PTY, Dart package, launcher, Kernel, FFI, and legacy-event
+  regressions remained green.

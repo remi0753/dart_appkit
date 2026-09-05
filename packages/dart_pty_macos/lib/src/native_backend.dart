@@ -8,13 +8,24 @@ import 'package:ffi/ffi.dart';
 import 'api.dart';
 
 const String _assetId = 'package:dart_pty_macos/dart_pty_macos.dart';
-const int _abiVersion = 2;
+const int _abiVersion = 3;
 const int _statusOk = 0;
 const int _statusBackpressured = 4;
 const int _eventStarted = 1;
 const int _eventOutput = 2;
 const int _eventExit = 3;
 const int _eventError = 4;
+const int _eventWriteEnqueued = 5;
+const int _eventWriteDequeued = 6;
+const int _eventWriteCompleted = 7;
+const int _eventWriteError = 8;
+const int _eventForceCloseDequeued = 9;
+const int _eventSignalDelivery = 10;
+const int _eventWaitpidResult = 11;
+const int _eventExitPublished = 12;
+const int _eventStateSnapshot = 13;
+const int _eventTermiosSnapshot = 14;
+const int _eventProcessExitReady = 15;
 
 typedef _EventNative = Void Function(
   Uint64,
@@ -65,6 +76,9 @@ final class _SessionConfig extends Struct {
 
   external Pointer<NativeFunction<_EventNative>> callback;
   external Pointer<Void> callbackContext;
+
+  @Uint32()
+  external int diagnosticsEnabled;
 }
 
 final class _NativeStats extends Struct {
@@ -123,6 +137,17 @@ external int _sessionStart(int session);
 )
 external int _sessionWrite(int session, Pointer<Uint8> bytes, int length);
 
+@Native<Int32 Function(Uint64, Pointer<Uint8>, Size, Pointer<Uint64>)>(
+  symbol: 'dpty_session_write_tracked',
+  assetId: _assetId,
+)
+external int _sessionWriteTracked(
+  int session,
+  Pointer<Uint8> bytes,
+  int length,
+  Pointer<Uint64> requestId,
+);
+
 @Native<Int32 Function(Uint64, Uint64, Size)>(
   symbol: 'dpty_session_ack_output',
   assetId: _assetId,
@@ -179,6 +204,18 @@ typedef _SessionHandleNative = Int32 Function(Uint64);
 typedef _SessionHandleDart = int Function(int);
 typedef _SessionWriteNative = Int32 Function(Uint64, Pointer<Uint8>, Size);
 typedef _SessionWriteDart = int Function(int, Pointer<Uint8>, int);
+typedef _SessionWriteTrackedNative = Int32 Function(
+  Uint64,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint64>,
+);
+typedef _SessionWriteTrackedDart = int Function(
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint64>,
+);
 typedef _SessionAckNative = Int32 Function(Uint64, Uint64, Size);
 typedef _SessionAckDart = int Function(int, int, int);
 typedef _SessionResizeNative = Int32 Function(Uint64, Uint16, Uint16);
@@ -194,6 +231,7 @@ final class _PtyFunctions {
       sessionCreate = _sessionCreate,
       sessionStart = _sessionStart,
       sessionWrite = _sessionWrite,
+      sessionWriteTracked = _sessionWriteTracked,
       sessionAckOutput = _sessionAckOutput,
       sessionResize = _sessionResize,
       sessionSendSignal = _sessionSendSignal,
@@ -217,6 +255,10 @@ final class _PtyFunctions {
       sessionWrite = library
           .lookupFunction<_SessionWriteNative, _SessionWriteDart>(
             'dpty_session_write',
+          ),
+      sessionWriteTracked = library
+          .lookupFunction<_SessionWriteTrackedNative, _SessionWriteTrackedDart>(
+            'dpty_session_write_tracked',
           ),
       sessionAckOutput = library
           .lookupFunction<_SessionAckNative, _SessionAckDart>(
@@ -251,6 +293,7 @@ final class _PtyFunctions {
   final _SessionCreateDart sessionCreate;
   final _SessionHandleDart sessionStart;
   final _SessionWriteDart sessionWrite;
+  final _SessionWriteTrackedDart sessionWriteTracked;
   final _SessionAckDart sessionAckOutput;
   final _SessionResizeDart sessionResize;
   final _SessionUint32Dart sessionSendSignal;
@@ -310,12 +353,116 @@ void _dispatchEvent(
         ),
       );
       return;
+    case _eventWriteEnqueued:
+    case _eventWriteDequeued:
+    case _eventWriteCompleted:
+    case _eventWriteError:
+    case _eventForceCloseDequeued:
+    case _eventSignalDelivery:
+    case _eventWaitpidResult:
+    case _eventExitPublished:
+    case _eventStateSnapshot:
+    case _eventTermiosSnapshot:
+    case _eventProcessExitReady:
+      process._didDiagnostic(
+        _decodeDiagnostic(
+          eventType,
+          sequence,
+          length,
+          value1,
+          value2,
+          systemError,
+        ),
+      );
+      return;
     default:
       process._didFail(
         PtyException('native PTY returned unknown event $eventType'),
       );
       return;
   }
+}
+
+PtyDiagnosticEvent _decodeDiagnostic(
+  int eventType,
+  int sequence,
+  int length,
+  int value1,
+  int value2,
+  int systemError,
+) {
+  final int? requestId = sequence == 0 ? null : sequence;
+  return switch (eventType) {
+    _eventWriteEnqueued => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.writeEnqueued,
+      requestId: requestId,
+      byteCount: length,
+      queuedBytes: value1,
+    ),
+    _eventWriteDequeued => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.writeDequeued,
+      requestId: requestId,
+      byteCount: length,
+      queuedBytes: value1,
+    ),
+    _eventWriteCompleted => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.writeCompleted,
+      requestId: requestId,
+      byteCount: length,
+      queuedBytes: value1,
+    ),
+    _eventWriteError => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.writeError,
+      requestId: requestId,
+      byteCount: length,
+      queuedBytes: value1,
+      systemError: systemError,
+    ),
+    _eventForceCloseDequeued => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.forceCloseDequeued,
+      queuedBytes: value1,
+    ),
+    _eventSignalDelivery => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.signalDelivery,
+      signal: length,
+      signalTarget: value1,
+      operationResult: value2,
+      systemError: systemError,
+    ),
+    _eventWaitpidResult => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.waitpidResult,
+      waitpidResult: value1,
+      childStatus: value2,
+      systemError: systemError,
+    ),
+    _eventExitPublished => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.exitPublished,
+      exitCode: value1,
+      exitSignal: value2 == 0 ? null : value2,
+    ),
+    _eventStateSnapshot => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.stateSnapshot,
+      requestId: requestId,
+      queuedBytes: length,
+      foregroundProcessGroup: value1,
+      sessionStateFlags: value2,
+      systemError: systemError,
+    ),
+    _eventTermiosSnapshot => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.termiosSnapshot,
+      requestId: requestId,
+      terminalEofCharacter: value2 == 1 ? length : null,
+      terminalLocalFlags: value2 == 1 ? value1 : null,
+      operationResult: value2,
+      systemError: systemError,
+    ),
+    _eventProcessExitReady => PtyDiagnosticEvent(
+      stage: PtyDiagnosticStage.processExitReady,
+      childProcessId: value1,
+      childStatus: value2,
+    ),
+    _ => throw StateError('unreachable PTY diagnostic event $eventType'),
+  };
 }
 
 Future<PtyProcess> startPty(
@@ -325,6 +472,7 @@ Future<PtyProcess> startPty(
   int readHighWaterBytes = 1024 * 1024,
   int readLowWaterBytes = 512 * 1024,
   int writeCapacityBytes = 1024 * 1024,
+  bool enableDiagnostics = false,
 }) {
   final PtyBackend selected = backend ?? MacosPtyBackend.shared;
   return selected.start(
@@ -333,6 +481,7 @@ Future<PtyProcess> startPty(
     readHighWaterBytes: readHighWaterBytes,
     readLowWaterBytes: readLowWaterBytes,
     writeCapacityBytes: writeCapacityBytes,
+    enableDiagnostics: enableDiagnostics,
   );
 }
 
@@ -366,6 +515,7 @@ final class MacosPtyBackend implements PtyBackend {
     int readHighWaterBytes = 1024 * 1024,
     int readLowWaterBytes = 512 * 1024,
     int writeCapacityBytes = 1024 * 1024,
+    bool enableDiagnostics = false,
   }) async {
     if (!Platform.isMacOS) {
       throw UnsupportedError('dart_pty_macos requires macOS');
@@ -434,7 +584,8 @@ final class MacosPtyBackend implements PtyBackend {
         ..readLowWaterBytes = readLowWaterBytes
         ..writeCapacityBytes = writeCapacityBytes
         ..callback = _eventCallback.nativeFunction
-        ..callbackContext = nullptr;
+        ..callbackContext = nullptr
+        ..diagnosticsEnabled = enableDiagnostics ? 1 : 0;
       final Pointer<Uint64> output = arena<Uint64>();
       final int createStatus = _functions.sessionCreate(config, output);
       if (createStatus != _statusOk || output.value == 0) {
@@ -477,6 +628,8 @@ final class _MacosPtyProcess implements PtyProcess {
   final StreamController<Uint8List> _output = StreamController<Uint8List>(
     sync: true,
   );
+  final StreamController<PtyDiagnosticEvent> _diagnostics =
+      StreamController<PtyDiagnosticEvent>(sync: true);
   int _pid = -1;
   bool _finished = false;
   bool _disposed = false;
@@ -489,6 +642,9 @@ final class _MacosPtyProcess implements PtyProcess {
   Stream<Uint8List> get output => _output.stream;
 
   @override
+  Stream<PtyDiagnosticEvent> get diagnostics => _diagnostics.stream;
+
+  @override
   Future<PtyExit> get exit => _exit.future;
 
   @override
@@ -496,24 +652,47 @@ final class _MacosPtyProcess implements PtyProcess {
 
   @override
   PtyWriteResult write(Uint8List bytes) {
+    return _write(bytes, tracked: false).result;
+  }
+
+  @override
+  PtyWriteReceipt writeTracked(Uint8List bytes) {
+    return _write(bytes, tracked: true);
+  }
+
+  PtyWriteReceipt _write(Uint8List bytes, {required bool tracked}) {
     _requireRunning();
     if (bytes.isEmpty) {
       throw ArgumentError.value(bytes, 'bytes', 'must not be empty');
     }
     final Pointer<Uint8> nativeBytes = malloc<Uint8>(bytes.length);
+    final Pointer<Uint64> requestId = tracked ? calloc<Uint64>() : nullptr;
     try {
       nativeBytes.asTypedList(bytes.length).setAll(0, bytes);
-      final int status = _functions.sessionWrite(
-        _handle,
-        nativeBytes,
-        bytes.length,
-      );
+      final int status = tracked
+          ? _functions.sessionWriteTracked(
+              _handle,
+              nativeBytes,
+              bytes.length,
+              requestId,
+            )
+          : _functions.sessionWrite(_handle, nativeBytes, bytes.length);
       if (status == _statusBackpressured) {
-        return PtyWriteResult.backpressured;
+        return const PtyWriteReceipt(
+          result: PtyWriteResult.backpressured,
+          requestId: null,
+        );
       }
       _checkStatus(status, 'PTY write');
-      return PtyWriteResult.accepted;
+      final int? acceptedRequestId = tracked ? requestId.value : null;
+      return PtyWriteReceipt(
+        result: PtyWriteResult.accepted,
+        requestId: acceptedRequestId,
+      );
     } finally {
+      if (tracked) {
+        calloc.free(requestId);
+      }
       malloc.free(nativeBytes);
     }
   }
@@ -605,6 +784,12 @@ final class _MacosPtyProcess implements PtyProcess {
     }
   }
 
+  void _didDiagnostic(PtyDiagnosticEvent event) {
+    if (!_finished) {
+      _diagnostics.add(event);
+    }
+  }
+
   void _didExit(int exitCode, int signal) {
     if (_finished) {
       return;
@@ -629,6 +814,7 @@ final class _MacosPtyProcess implements PtyProcess {
       PtyExit(exitCode: exitCode, signal: signal == 0 ? null : signal),
     );
     unawaited(_output.close());
+    unawaited(_diagnostics.close());
   }
 
   void _didFail(PtyException error) {
@@ -649,6 +835,7 @@ final class _MacosPtyProcess implements PtyProcess {
     }
     _output.addError(error);
     unawaited(_output.close());
+    unawaited(_diagnostics.close());
   }
 
   PtyStats? _readStats() {

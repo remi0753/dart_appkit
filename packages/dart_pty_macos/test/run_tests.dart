@@ -158,7 +158,7 @@ Future<void> main() async {
   });
 
   await _test('real Dart listener callback and process lifecycle', () async {
-    _expect(_abiVersion() == 2, 'native asset ABI');
+    _expect(_abiVersion() == 3, 'native asset ABI');
     final PtyProcess process = await startPty(
       PtyCommand(
         executable: '/bin/sh',
@@ -237,6 +237,67 @@ Future<void> main() async {
     },
   );
 
+  await _test('tracked write diagnostics cross the Dart boundary', () async {
+    final PtyProcess process = await startPty(
+      PtyCommand(executable: '/bin/cat', includeParentEnvironment: false),
+      enableDiagnostics: true,
+    );
+    final List<PtyDiagnosticEvent> diagnostics = <PtyDiagnosticEvent>[];
+    final StreamSubscription<PtyDiagnosticEvent> subscription = process
+        .diagnostics
+        .listen(diagnostics.add);
+    final PtyWriteReceipt receipt = process.writeTracked(
+      Uint8List.fromList(const <int>[0x64]),
+    );
+    _expect(
+      receipt.result == PtyWriteResult.accepted && receipt.requestId != null,
+      'tracked write returns an accepted request identity',
+    );
+    await _waitFor(
+      () => diagnostics.any(
+        (PtyDiagnosticEvent event) =>
+            event.stage == PtyDiagnosticStage.writeCompleted &&
+            event.requestId == receipt.requestId,
+      ),
+      'tracked write completion diagnostic',
+    );
+    process.forceClose();
+    await process.exit.timeout(const Duration(seconds: 3));
+    await subscription.cancel();
+    await process.dispose();
+    for (final PtyDiagnosticStage stage in <PtyDiagnosticStage>[
+      PtyDiagnosticStage.writeEnqueued,
+      PtyDiagnosticStage.writeDequeued,
+      PtyDiagnosticStage.writeCompleted,
+      PtyDiagnosticStage.stateSnapshot,
+      PtyDiagnosticStage.termiosSnapshot,
+      PtyDiagnosticStage.forceCloseDequeued,
+      PtyDiagnosticStage.signalDelivery,
+      PtyDiagnosticStage.waitpidResult,
+      PtyDiagnosticStage.processExitReady,
+      PtyDiagnosticStage.exitPublished,
+    ]) {
+      _expect(
+        diagnostics.any((PtyDiagnosticEvent event) => event.stage == stage),
+        'diagnostic stage ${stage.name}',
+      );
+    }
+    _expect(
+      diagnostics
+          .where(
+            (PtyDiagnosticEvent event) =>
+                event.stage == PtyDiagnosticStage.termiosSnapshot,
+          )
+          .any(
+            (PtyDiagnosticEvent event) =>
+                event.terminalEofCharacter == 4 &&
+                event.terminalLocalFlags != null,
+          ),
+      'termios metadata includes VEOF without terminal content',
+    );
+    _expect(_liveSessionCount() == 0, 'diagnostic session is released');
+  });
+
   await _test('explicit bundled-library loading', () async {
     final Uri packageLibrary = (await Isolate.resolvePackageUri(
       Uri.parse('package:dart_pty_macos/dart_pty_macos.dart'),
@@ -303,4 +364,15 @@ Future<T> _expectThrowsAsync<T extends Object>(
     throw StateError('expected $T but caught ${error.runtimeType}: $error');
   }
   throw StateError('expected $T but no error was thrown');
+}
+
+Future<void> _waitFor(bool Function() predicate, String description) async {
+  final Stopwatch timeout = Stopwatch()..start();
+  while (timeout.elapsed < const Duration(seconds: 3)) {
+    if (predicate()) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  throw StateError('timed out waiting for $description');
 }

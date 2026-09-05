@@ -15,10 +15,14 @@ does not consume or renumber the `da_*` ABI.
 working-directory strings are copied before `dpty_session_create` returns.
 Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
 `resize`, `send_signal`, `close`, and `force_close` only enqueue bounded work;
-FD readiness and `waitpid` remain on the session reactor. PTY ABI version 2 adds
-the idempotent `force_close` operation without changing the size-prefixed V1
-configuration or statistics layouts. It remains valid during graceful close
-and moves SIGKILL process-group delivery onto the reactor immediately.
+FD readiness and `waitpid` remain on the session reactor. PTY ABI version 3
+retains the idempotent `force_close` operation and extends the size-prefixed V1
+configuration with opt-in diagnostics. `dpty_session_write_tracked` returns an
+opaque request ID for correlating queue admission, reactor dequeue, and native
+write completion. Diagnostic callbacks contain only fixed scalar counters,
+state flags, process-group/signal results, termios flags/VEOF identity, and
+`waitpid`/exit results; they never contain terminal bytes or process launch
+strings.
 
 An OUTPUT callback carries at most 64 KiB and borrows its byte pointer until the
 exact sequence/length pair is acknowledged in order. The high watermark
@@ -28,6 +32,12 @@ returns `DPTY_STATUS_BACKPRESSURED` without waiting. EXIT reports either the
 child status or `128 + signal`, after the owning reactor has reaped the PID.
 Destroy requires a finished session with no unacknowledged output and retires
 that handle generation.
+
+Read and write draining use fixed per-reactor-turn budgets. If work remains,
+the reactor explicitly wakes itself before returning to control processing.
+This preserves delivery and backpressure while preventing a continuously ready
+master FD from indefinitely delaying queued writes, force-close escalation, or
+child reaping.
 
 The post-`forkpty` project child branch is a separate C object. It calls only
 `close`, optional `chdir`, `execve`, error-pipe `write`, errno access, and

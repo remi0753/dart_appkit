@@ -33,6 +33,9 @@ constexpr size_t kMaximumStringBytes = 1024 * 1024;
 constexpr size_t kMaximumVectorEntries = 16 * 1024;
 constexpr size_t kMaximumQueueBytes = 64 * 1024 * 1024;
 constexpr size_t kReadBatchBytes = 64 * 1024;
+constexpr size_t kMaximumReadBatchesPerTurn = 8;
+constexpr size_t kMaximumWriteBatchesPerTurn = 8;
+constexpr size_t kMaximumWriteBytesPerTurn = 512 * 1024;
 constexpr uint32_t kMaximumCloseGraceMillis = 60 * 1000;
 constexpr uintptr_t kControlEventIdentifier = 1;
 
@@ -78,6 +81,7 @@ struct OwnedConfig {
   size_t write_capacity = 0;
   dpty_event_callback_v1 callback = nullptr;
   void* callback_context = nullptr;
+  bool diagnostics_enabled = false;
 };
 
 bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
@@ -93,7 +97,8 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
       source->read_low_water_bytes >= source->read_high_water_bytes ||
       source->read_high_water_bytes > kMaximumQueueBytes ||
       source->write_capacity_bytes == 0 ||
-      source->write_capacity_bytes > kMaximumQueueBytes) {
+      source->write_capacity_bytes > kMaximumQueueBytes ||
+      source->diagnostics_enabled > 1) {
     (void)SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
                    "PTY session configuration is invalid");
     return false;
@@ -144,6 +149,7 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
   target->write_capacity = source->write_capacity_bytes;
   target->callback = source->callback;
   target->callback_context = source->callback_context;
+  target->diagnostics_enabled = source->diagnostics_enabled != 0;
   return true;
 }
 
@@ -155,6 +161,13 @@ struct OutputBatch {
 struct PendingResize {
   uint16_t rows = 0;
   uint16_t columns = 0;
+};
+
+struct PendingWrite {
+  uint64_t request_id = 0;
+  bool diagnostic = false;
+  bool dequeue_observed = false;
+  std::vector<uint8_t> bytes;
 };
 
 class Session final : public std::enable_shared_from_this<Session> {
@@ -188,10 +201,27 @@ class Session final : public std::enable_shared_from_this<Session> {
   }
 
   int32_t Write(const uint8_t* bytes, size_t length) {
+    return EnqueueWrite(bytes, length, nullptr);
+  }
+
+  int32_t WriteTracked(const uint8_t* bytes, size_t length,
+                       uint64_t* out_request_id) {
+    if (out_request_id == nullptr) {
+      return SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
+                      "tracked PTY write requires an output request ID");
+    }
+    *out_request_id = 0;
+    return EnqueueWrite(bytes, length, out_request_id);
+  }
+
+  int32_t EnqueueWrite(const uint8_t* bytes, size_t length,
+                       uint64_t* out_request_id) {
     if (bytes == nullptr || length == 0) {
       return SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
                       "PTY write requires non-empty bytes");
     }
+    uint64_t request_id = 0;
+    size_t queued_bytes = 0;
     {
       const std::lock_guard<std::mutex> lock(mutex_);
       if (state_ != State::kRunning || closing_) {
@@ -204,10 +234,29 @@ class Session final : public std::enable_shared_from_this<Session> {
         return SetError(DPTY_STATUS_BACKPRESSURED, 0,
                         "PTY write queue is full");
       }
-      writes_.emplace_back(bytes, bytes + length);
+      if (out_request_id != nullptr) {
+        request_id = next_write_request_id_++;
+        if (next_write_request_id_ == 0) {
+          next_write_request_id_ = 1;
+        }
+      }
+      PendingWrite write;
+      write.request_id = request_id;
+      write.diagnostic = out_request_id != nullptr;
+      write.bytes.assign(bytes, bytes + length);
+      writes_.push_back(std::move(write));
       write_queued_bytes_ += length;
+      queued_bytes = write_queued_bytes_;
       max_write_queued_bytes_ =
           std::max(max_write_queued_bytes_, write_queued_bytes_);
+      if (out_request_id != nullptr) {
+        *out_request_id = request_id;
+        emit_waitpid_pending_ = true;
+      }
+    }
+    if (out_request_id != nullptr) {
+      EmitDiagnostic(DPTY_EVENT_WRITE_ENQUEUED, request_id, length,
+                     static_cast<int64_t>(queued_bytes), 0, 0);
     }
     Wake();
     return DPTY_STATUS_OK;
@@ -378,6 +427,76 @@ class Session final : public std::enable_shared_from_this<Session> {
                      system_error, config_.callback_context);
   }
 
+  void EmitDiagnostic(uint32_t type, uint64_t sequence, size_t length,
+                      int64_t value1, int64_t value2,
+                      int32_t system_error) const {
+    if (!config_.diagnostics_enabled) {
+      return;
+    }
+    Emit(type, sequence, nullptr, length, value1, value2, system_error);
+  }
+
+  void EmitStateSnapshot(uint64_t related_write_request_id) const {
+    int32_t foreground_error = 0;
+    errno = 0;
+    const pid_t foreground =
+        master_fd_ >= 0 ? tcgetpgrp(master_fd_) : static_cast<pid_t>(-1);
+    if (foreground < 0) {
+      foreground_error = errno;
+    }
+
+    struct termios terminal = {};
+    errno = 0;
+    const int terminal_result =
+        master_fd_ >= 0 ? tcgetattr(master_fd_, &terminal) : -1;
+    const int32_t terminal_error = terminal_result == 0 ? 0 : errno;
+
+    size_t queued_bytes = 0;
+    uint64_t state_flags = 0;
+    {
+      const std::lock_guard<std::mutex> lock(mutex_);
+      queued_bytes = write_queued_bytes_;
+      if (closing_) {
+        state_flags |= DPTY_SESSION_STATE_CLOSING;
+      }
+      if (close_started_) {
+        state_flags |= DPTY_SESSION_STATE_CLOSE_STARTED;
+      }
+      if (child_reaped_) {
+        state_flags |= DPTY_SESSION_STATE_CHILD_REAPED;
+      }
+      if (master_eof_) {
+        state_flags |= DPTY_SESSION_STATE_MASTER_EOF;
+      }
+      if (read_paused_) {
+        state_flags |= DPTY_SESSION_STATE_READ_PAUSED;
+      }
+      if (read_enabled_) {
+        state_flags |= DPTY_SESSION_STATE_READ_ENABLED;
+      }
+      if (write_enabled_) {
+        state_flags |= DPTY_SESSION_STATE_WRITE_ENABLED;
+      }
+    }
+    EmitDiagnostic(DPTY_EVENT_STATE_SNAPSHOT, related_write_request_id,
+                   queued_bytes, static_cast<int64_t>(foreground),
+                   static_cast<int64_t>(state_flags), foreground_error);
+    EmitDiagnostic(
+        DPTY_EVENT_TERMIOS_SNAPSHOT, related_write_request_id,
+        terminal_result == 0 ? terminal.c_cc[VEOF] : 0,
+        terminal_result == 0 ? static_cast<int64_t>(terminal.c_lflag) : 0,
+        terminal_result == 0 ? 1 : 0, terminal_error);
+  }
+
+  void ObserveProcessExitReady(pid_t child, int64_t status_hint) {
+    if (process_exit_ready_observed_) {
+      return;
+    }
+    process_exit_ready_observed_ = true;
+    EmitDiagnostic(DPTY_EVENT_PROCESS_EXIT_READY, 0, 0,
+                   static_cast<int64_t>(child), status_hint, 0);
+  }
+
   void FinishError(DptyStatus status, int32_t system_error) {
     {
       const std::lock_guard<std::mutex> lock(mutex_);
@@ -517,11 +636,16 @@ class Session final : public std::enable_shared_from_this<Session> {
           } else if (events[index].filter == EVFILT_WRITE) {
             FlushWrites();
           } else if (events[index].filter == EVFILT_PROC) {
+            ObserveProcessExitReady(static_cast<pid_t>(events[index].ident),
+                                    static_cast<int64_t>(events[index].data));
             ReapChild();
           }
         }
       }
       ProcessControl();
+      if (read_retry_requested_) {
+        ReadAvailable();
+      }
       ReapChild();
       if (child_reaped_) {
         ReadAvailable();
@@ -575,9 +699,23 @@ class Session final : public std::enable_shared_from_this<Session> {
       SendToForeground(signal);
     }
     if (force_close && !child_reaped_) {
+      size_t queued_bytes = 0;
+      {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        queued_bytes = write_queued_bytes_;
+        emit_waitpid_pending_ = true;
+      }
+      EmitDiagnostic(DPTY_EVENT_FORCE_CLOSE_DEQUEUED, 0, 0,
+                     static_cast<int64_t>(queued_bytes), 0, 0);
+      EmitStateSnapshot(0);
       SendToProcessGroups(SIGKILL);
       close_kill_deadline_ = std::chrono::steady_clock::time_point::max();
     } else if (begin_close) {
+      {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        emit_waitpid_pending_ = true;
+      }
+      EmitStateSnapshot(0);
       SendToProcessGroups(SIGHUP);
       close_kill_deadline_ = std::chrono::steady_clock::now() +
                              std::chrono::milliseconds(grace_millis);
@@ -596,8 +734,11 @@ class Session final : public std::enable_shared_from_this<Session> {
 
   void ReadAvailable() {
     if (master_fd_ < 0 || master_eof_) {
+      read_retry_requested_ = false;
       return;
     }
+    read_retry_requested_ = false;
+    size_t batches = 0;
     for (;;) {
       size_t available = 0;
       bool pause_read = false;
@@ -639,6 +780,12 @@ class Session final : public std::enable_shared_from_this<Session> {
               std::max(max_read_in_flight_bytes_, read_in_flight_bytes_);
         }
         Emit(DPTY_EVENT_OUTPUT, sequence, data, length, 0, 0, 0);
+        ++batches;
+        if (batches >= kMaximumReadBatchesPerTurn) {
+          read_retry_requested_ = true;
+          Wake();
+          return;
+        }
         continue;
       }
       if (count == 0 || (count < 0 && errno == EIO)) {
@@ -662,33 +809,72 @@ class Session final : public std::enable_shared_from_this<Session> {
     if (master_fd_ < 0 || child_reaped_) {
       return;
     }
+    size_t batches = 0;
+    size_t bytes_written_this_turn = 0;
     for (;;) {
       const uint8_t* data = nullptr;
       size_t length = 0;
       bool empty = false;
+      bool emit_dequeue = false;
+      bool diagnostic = false;
+      uint64_t request_id = 0;
+      size_t queued_bytes = 0;
       {
         const std::lock_guard<std::mutex> lock(mutex_);
         if (writes_.empty()) {
           empty = true;
         } else {
-          data = writes_.front().data() + write_offset_;
-          length = writes_.front().size() - write_offset_;
+          PendingWrite& write = writes_.front();
+          data = write.bytes.data() + write_offset_;
+          length = write.bytes.size() - write_offset_;
+          diagnostic = write.diagnostic;
+          request_id = write.request_id;
+          queued_bytes = write_queued_bytes_;
+          if (diagnostic && !write.dequeue_observed) {
+            write.dequeue_observed = true;
+            emit_dequeue = true;
+          }
         }
       }
       if (empty) {
         SetWriteEnabled(false);
         return;
       }
+      if (emit_dequeue) {
+        EmitDiagnostic(DPTY_EVENT_WRITE_DEQUEUED, request_id, length,
+                       static_cast<int64_t>(queued_bytes), 0, 0);
+        EmitStateSnapshot(request_id);
+      }
       const ssize_t count = write(master_fd_, data, length);
       if (count > 0) {
         const size_t consumed = static_cast<size_t>(count);
-        const std::lock_guard<std::mutex> lock(mutex_);
-        write_offset_ += consumed;
-        write_queued_bytes_ -= consumed;
-        bytes_written_ += consumed;
-        if (write_offset_ == writes_.front().size()) {
-          writes_.pop_front();
-          write_offset_ = 0;
+        bool completed = false;
+        size_t request_bytes = 0;
+        size_t remaining_queued_bytes = 0;
+        {
+          const std::lock_guard<std::mutex> lock(mutex_);
+          write_offset_ += consumed;
+          write_queued_bytes_ -= consumed;
+          bytes_written_ += consumed;
+          if (write_offset_ == writes_.front().bytes.size()) {
+            request_bytes = writes_.front().bytes.size();
+            completed = writes_.front().diagnostic;
+            request_id = writes_.front().request_id;
+            writes_.pop_front();
+            write_offset_ = 0;
+          }
+          remaining_queued_bytes = write_queued_bytes_;
+        }
+        if (completed) {
+          EmitDiagnostic(DPTY_EVENT_WRITE_COMPLETED, request_id, request_bytes,
+                         static_cast<int64_t>(remaining_queued_bytes), 0, 0);
+        }
+        ++batches;
+        bytes_written_this_turn += consumed;
+        if (batches >= kMaximumWriteBatchesPerTurn ||
+            bytes_written_this_turn >= kMaximumWriteBytesPerTurn) {
+          Wake();
+          return;
         }
         continue;
       }
@@ -697,6 +883,9 @@ class Session final : public std::enable_shared_from_this<Session> {
       }
       if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
         SetWriteEnabled(true);
+      } else if (count < 0 && diagnostic) {
+        EmitDiagnostic(DPTY_EVENT_WRITE_ERROR, request_id, length,
+                       static_cast<int64_t>(queued_bytes), 0, errno);
       }
       return;
     }
@@ -735,14 +924,33 @@ class Session final : public std::enable_shared_from_this<Session> {
     (void)kevent(descriptor, &change, 1, nullptr, 0, nullptr);
   }
 
+  int DeliverSignal(pid_t target, int signal) const {
+    errno = 0;
+    const int result = kill(target, signal);
+    const int32_t system_error = result == 0 ? 0 : errno;
+    EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
+                   static_cast<size_t>(signal), static_cast<int64_t>(target),
+                   result, system_error);
+    return result;
+  }
+
   void SendToForeground(int signal) {
-    pid_t target = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
-    if (target <= 0) {
-      const std::lock_guard<std::mutex> lock(mutex_);
-      target = child_pid_;
+    errno = 0;
+    const pid_t foreground = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
+    if (foreground > 0 && DeliverSignal(-foreground, signal) == 0) {
+      return;
     }
-    if (target > 0) {
-      (void)kill(-target, signal);
+    pid_t child = -1;
+    {
+      const std::lock_guard<std::mutex> lock(mutex_);
+      child = child_pid_;
+    }
+    if (child > 0) {
+      (void)DeliverSignal(child, signal);
+    } else if (foreground <= 0) {
+      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
+                     static_cast<size_t>(signal), 0, -1,
+                     errno == 0 ? ESRCH : errno);
     }
   }
 
@@ -753,12 +961,21 @@ class Session final : public std::enable_shared_from_this<Session> {
       child = child_pid_;
     }
     const pid_t foreground = master_fd_ >= 0 ? tcgetpgrp(master_fd_) : -1;
+    const pid_t child_group = child > 0 ? getpgid(child) : -1;
+    bool child_signaled = false;
     if (foreground > 0) {
-      (void)kill(-foreground, signal);
+      const int result = DeliverSignal(-foreground, signal);
+      child_signaled = result == 0 && child_group == foreground;
     }
-    if (child > 0 && child != foreground) {
-      (void)kill(-child, signal);
-      (void)kill(child, signal);
+    if (child_group > 0 && child_group != foreground) {
+      child_signaled = DeliverSignal(-child_group, signal) == 0;
+    }
+    if (child > 0 && !child_signaled) {
+      (void)DeliverSignal(child, signal);
+    }
+    if (foreground <= 0 && child <= 0) {
+      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
+                     static_cast<size_t>(signal), 0, -1, ESRCH);
     }
   }
 
@@ -775,10 +992,38 @@ class Session final : public std::enable_shared_from_this<Session> {
       return;
     }
     int status = 0;
+    errno = 0;
     const pid_t waited = waitpid(child, &status, WNOHANG);
     if (waited == child) {
-      child_reaped_ = true;
-      child_status_ = status;
+      ObserveProcessExitReady(waited, status);
+      {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        child_reaped_ = true;
+        child_status_ = status;
+        emit_waitpid_pending_ = false;
+      }
+      EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0,
+                     static_cast<int64_t>(waited), status, 0);
+    } else if (waited == 0) {
+      bool emit_pending = false;
+      {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        emit_pending = emit_waitpid_pending_;
+        emit_waitpid_pending_ = false;
+      }
+      if (emit_pending) {
+        EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0, 0, 0, 0);
+      }
+    } else if (errno != EINTR) {
+      bool emit_error = false;
+      {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        emit_error = !waitpid_error_observed_;
+        waitpid_error_observed_ = true;
+      }
+      if (emit_error) {
+        EmitDiagnostic(DPTY_EVENT_WAITPID_RESULT, 0, 0, -1, 0, errno);
+      }
     }
   }
 
@@ -796,6 +1041,7 @@ class Session final : public std::enable_shared_from_this<Session> {
       state_ = State::kFinished;
     }
     finished_reaping_ = true;
+    EmitDiagnostic(DPTY_EVENT_EXIT_PUBLISHED, 0, 0, exit_code, signal, 0);
     Emit(DPTY_EVENT_EXIT, 0, nullptr, 0, exit_code, signal, 0);
   }
 
@@ -840,20 +1086,25 @@ class Session final : public std::enable_shared_from_this<Session> {
   int child_status_ = 0;
   bool master_eof_ = false;
   bool finished_reaping_ = false;
+  bool read_retry_requested_ = false;
   bool read_enabled_ = true;
   bool write_enabled_ = false;
   uint64_t next_sequence_ = 0;
   std::deque<OutputBatch> outstanding_;
   size_t read_in_flight_bytes_ = 0;
   bool read_paused_ = false;
-  std::deque<std::vector<uint8_t>> writes_;
+  std::deque<PendingWrite> writes_;
   size_t write_offset_ = 0;
   size_t write_queued_bytes_ = 0;
+  uint64_t next_write_request_id_ = 1;
   std::optional<PendingResize> pending_resize_;
   std::deque<int> pending_signals_;
   bool closing_ = false;
   bool close_started_ = false;
   bool force_close_requested_ = false;
+  bool emit_waitpid_pending_ = false;
+  bool waitpid_error_observed_ = false;
+  bool process_exit_ready_observed_ = false;
   uint32_t close_grace_millis_ = 0;
   std::chrono::steady_clock::time_point close_kill_deadline_ =
       std::chrono::steady_clock::time_point::max();
@@ -1022,6 +1273,21 @@ extern "C" __attribute__((visibility("default"))) int32_t dpty_session_write(
   const std::shared_ptr<Session> value = LookupSession(session);
   return value == nullptr ? DPTY_STATUS_INVALID_HANDLE
                           : value->Write(bytes, length);
+}
+
+extern "C" __attribute__((visibility("default"))) int32_t
+dpty_session_write_tracked(DptySessionHandle session, const uint8_t* bytes,
+                           size_t length, uint64_t* out_request_id) {
+  ClearError();
+  if (out_request_id == nullptr) {
+    return SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
+                    "tracked PTY write output request ID is null");
+  }
+  *out_request_id = 0;
+  const std::shared_ptr<Session> value = LookupSession(session);
+  return value == nullptr
+             ? DPTY_STATUS_INVALID_HANDLE
+             : value->WriteTracked(bytes, length, out_request_id);
 }
 
 extern "C" __attribute__((visibility("default"))) int32_t

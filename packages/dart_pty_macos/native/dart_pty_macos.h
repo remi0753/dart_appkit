@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DPTY_ABI_VERSION 2u
+#define DPTY_ABI_VERSION 3u
 
 #if defined(__cplusplus)
 extern "C" {
@@ -27,7 +27,28 @@ typedef enum DptyEventType {
   DPTY_EVENT_OUTPUT = 2,
   DPTY_EVENT_EXIT = 3,
   DPTY_EVENT_ERROR = 4,
+  DPTY_EVENT_WRITE_ENQUEUED = 5,
+  DPTY_EVENT_WRITE_DEQUEUED = 6,
+  DPTY_EVENT_WRITE_COMPLETED = 7,
+  DPTY_EVENT_WRITE_ERROR = 8,
+  DPTY_EVENT_FORCE_CLOSE_DEQUEUED = 9,
+  DPTY_EVENT_SIGNAL_DELIVERY = 10,
+  DPTY_EVENT_WAITPID_RESULT = 11,
+  DPTY_EVENT_EXIT_PUBLISHED = 12,
+  DPTY_EVENT_STATE_SNAPSHOT = 13,
+  DPTY_EVENT_TERMIOS_SNAPSHOT = 14,
+  DPTY_EVENT_PROCESS_EXIT_READY = 15,
 } DptyEventType;
+
+typedef enum DptySessionStateFlag {
+  DPTY_SESSION_STATE_CLOSING = 1u << 0,
+  DPTY_SESSION_STATE_CLOSE_STARTED = 1u << 1,
+  DPTY_SESSION_STATE_CHILD_REAPED = 1u << 2,
+  DPTY_SESSION_STATE_MASTER_EOF = 1u << 3,
+  DPTY_SESSION_STATE_READ_PAUSED = 1u << 4,
+  DPTY_SESSION_STATE_READ_ENABLED = 1u << 5,
+  DPTY_SESSION_STATE_WRITE_ENABLED = 1u << 6,
+} DptySessionStateFlag;
 
 typedef enum DptySignal {
   DPTY_SIGNAL_INTERRUPT = 1,
@@ -39,10 +60,33 @@ typedef enum DptySignal {
 } DptySignal;
 
 // OUTPUT data remains valid until its exact sequence/length pair is
-// acknowledged. Other events have data=null and length=sequence=0.
+// acknowledged. Other events have data=null. Diagnostic events are emitted
+// only when DptySessionConfigV1.diagnostics_enabled is nonzero and never carry
+// terminal content.
 // STARTED: value1=child pid.
 // EXIT: value1=portable exit code, value2=terminating signal or 0.
 // ERROR: value1=DptyStatus, system_error=errno or 0.
+// WRITE_ENQUEUED: sequence=request id, length=request bytes,
+//   value1=total queued bytes.
+// WRITE_DEQUEUED: sequence=request id, length=pending request bytes,
+//   value1=total queued bytes.
+// WRITE_COMPLETED: sequence=request id, length=request bytes,
+//   value1=remaining queued bytes.
+// WRITE_ERROR: sequence=request id, length=pending request bytes,
+//   value1=total queued bytes, system_error=errno.
+// FORCE_CLOSE_DEQUEUED: value1=total queued bytes.
+// SIGNAL_DELIVERY: length=signal, value1=kill(2) target (negative for a process
+//   group), value2=kill result, system_error=errno on failure.
+// WAITPID_RESULT: value1=waitpid result, value2=child status when reaped,
+//   system_error=errno on failure. A pending result is coalesced per trigger.
+// EXIT_PUBLISHED: value1=portable exit code, value2=signal or 0.
+// STATE_SNAPSHOT: sequence=related write request id or 0, length=queued bytes,
+//   value1=foreground process group or -1, value2=DptySessionStateFlag bits,
+//   system_error=tcgetpgrp errno on failure.
+// TERMIOS_SNAPSHOT: sequence=related write request id or 0,
+//   length=VEOF character value, value1=termios c_lflag, value2=1 when valid,
+//   system_error=tcgetattr errno on failure.
+// PROCESS_EXIT_READY: value1=child pid, value2=kqueue NOTE_EXIT data.
 typedef void (*dpty_event_callback_v1)(DptySessionHandle session,
                                        uint32_t event_type, uint64_t sequence,
                                        const uint8_t* data, size_t length,
@@ -65,6 +109,7 @@ typedef struct DptySessionConfigV1 {
   size_t write_capacity_bytes;
   dpty_event_callback_v1 callback;
   void* callback_context;
+  uint32_t diagnostics_enabled;
 } DptySessionConfigV1;
 
 typedef struct DptySessionStatsV1 {
@@ -100,6 +145,12 @@ dpty_session_start(DptySessionHandle session);
 // Copies accepted bytes into a bounded queue. Never waits for FD readiness.
 __attribute__((visibility("default"))) int32_t dpty_session_write(
     DptySessionHandle session, const uint8_t* bytes, size_t length);
+
+// The tracked variant also returns an opaque request ID which correlates the
+// write diagnostic events. The ID is zero when the write is rejected.
+__attribute__((visibility("default"))) int32_t dpty_session_write_tracked(
+    DptySessionHandle session, const uint8_t* bytes, size_t length,
+    uint64_t* out_request_id);
 
 __attribute__((visibility("default"))) int32_t dpty_session_ack_output(
     DptySessionHandle session, uint64_t sequence, size_t length);

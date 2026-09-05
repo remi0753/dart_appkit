@@ -49,6 +49,8 @@ struct Api {
   int32_t (*create)(const DptySessionConfigV1*, DptySessionHandle*) = nullptr;
   int32_t (*start)(DptySessionHandle) = nullptr;
   int32_t (*write)(DptySessionHandle, const uint8_t*, size_t) = nullptr;
+  int32_t (*write_tracked)(DptySessionHandle, const uint8_t*, size_t,
+                           uint64_t*) = nullptr;
   int32_t (*ack)(DptySessionHandle, uint64_t, size_t) = nullptr;
   int32_t (*resize)(DptySessionHandle, uint16_t, uint16_t) = nullptr;
   int32_t (*send_signal)(DptySessionHandle, uint32_t) = nullptr;
@@ -64,6 +66,15 @@ struct PendingAck {
   size_t length;
 };
 
+struct Diagnostic {
+  uint32_t type = 0;
+  uint64_t sequence = 0;
+  size_t length = 0;
+  int64_t value1 = 0;
+  int64_t value2 = 0;
+  int32_t system_error = 0;
+};
+
 struct Events {
   Api* api = nullptr;
   std::mutex mutex;
@@ -72,6 +83,7 @@ struct Events {
   bool exited = false;
   bool failed = false;
   bool auto_ack = true;
+  bool retain_output = true;
   int64_t pid = -1;
   int64_t exit_code = -1;
   int64_t exit_signal = 0;
@@ -82,6 +94,7 @@ struct Events {
   std::vector<uint8_t> output;
   std::string recent_output;
   std::deque<PendingAck> pending_acks;
+  std::vector<Diagnostic> diagnostics;
 };
 
 void EventCallback(DptySessionHandle session, uint32_t event_type,
@@ -101,11 +114,14 @@ void EventCallback(DptySessionHandle session, uint32_t event_type,
         events->failed = true;
       }
       ++events->next_sequence;
-      events->output.insert(events->output.end(), data, data + length);
-      events->recent_output.append(reinterpret_cast<const char*>(data), length);
-      if (events->recent_output.size() > 256 * 1024) {
-        events->recent_output.erase(0,
-                                    events->recent_output.size() - 256 * 1024);
+      if (events->retain_output) {
+        events->output.insert(events->output.end(), data, data + length);
+        events->recent_output.append(reinterpret_cast<const char*>(data),
+                                     length);
+        if (events->recent_output.size() > 256 * 1024) {
+          events->recent_output.erase(
+              0, events->recent_output.size() - 256 * 1024);
+        }
       }
       events->x_bytes += static_cast<uint64_t>(
           std::count(data, data + length, static_cast<uint8_t>('x')));
@@ -122,6 +138,14 @@ void EventCallback(DptySessionHandle session, uint32_t event_type,
     } else if (event_type == DPTY_EVENT_ERROR) {
       events->failed = true;
       events->system_error = system_error;
+    } else if (event_type >= DPTY_EVENT_WRITE_ENQUEUED &&
+               event_type <= DPTY_EVENT_PROCESS_EXIT_READY) {
+      if (data != nullptr) {
+        events->failed = true;
+      }
+      events->diagnostics.push_back(
+          Diagnostic{event_type, sequence, length, value1, value2,
+                     system_error});
     } else {
       events->failed = true;
     }
@@ -155,6 +179,20 @@ bool WaitForMarker(Events* events, const std::string& marker,
   });
 }
 
+bool HasDiagnosticLocked(const Events& events, uint32_t type) {
+  return std::any_of(events.diagnostics.begin(), events.diagnostics.end(),
+                     [type](const Diagnostic& value) {
+                       return value.type == type;
+                     });
+}
+
+bool WaitForDiagnostic(Events* events, uint32_t type,
+                       std::chrono::milliseconds timeout) {
+  return WaitFor(events, timeout, [&](const Events& value) {
+    return HasDiagnosticLocked(value, type);
+  });
+}
+
 int32_t Write(Api* api, DptySessionHandle session, const std::string& value) {
   return api->write(session, reinterpret_cast<const uint8_t*>(value.data()),
                     value.size());
@@ -164,7 +202,8 @@ DptySessionHandle Create(Api* api, Events* events, const char* executable,
                          const std::vector<const char*>& arguments,
                          size_t high_water = 256 * 1024,
                          size_t low_water = 128 * 1024,
-                         size_t write_capacity = 64 * 1024) {
+                         size_t write_capacity = 64 * 1024,
+                         bool diagnostics = false) {
   const char* environment[] = {"PATH=/usr/bin:/bin", "TERM=xterm-256color",
                                "HOME=/private/tmp"};
   DptySessionConfigV1 config = {};
@@ -183,6 +222,7 @@ DptySessionHandle Create(Api* api, Events* events, const char* executable,
   config.write_capacity_bytes = write_capacity;
   config.callback = EventCallback;
   config.callback_context = events;
+  config.diagnostics_enabled = diagnostics ? 1 : 0;
   DptySessionHandle session = 0;
   Expect(api->create(&config, &session) == DPTY_STATUS_OK,
          "session configuration is copied");
@@ -345,6 +385,8 @@ void TestInteractiveSession(Api* api) {
     Expect(!events.failed, "interactive session has no native error");
     Expect(events.exit_code == 37 && events.exit_signal == 0,
            "exit status is preserved");
+    Expect(events.diagnostics.empty(),
+           "diagnostics remain disabled by default");
     child_pid = events.pid;
   }
   DptySessionStatsV1 final_stats = {};
@@ -503,6 +545,141 @@ void TestDirectForceClose(Api* api) {
          "direct-force session is destroyed");
 }
 
+void TestTrackedWriteDiagnostics(Api* api) {
+  Events events;
+  events.api = api;
+  const std::vector<const char*> arguments = {"cat"};
+  const DptySessionHandle session =
+      Create(api, &events, "/bin/cat", arguments, 256 * 1024, 128 * 1024,
+             64 * 1024, true);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "diagnostic child starts");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.started; }),
+         "diagnostic child reports start");
+
+  const uint8_t byte = 'd';
+  Expect(api->write_tracked(session, &byte, 1, nullptr) ==
+             DPTY_STATUS_INVALID_ARGUMENT,
+         "tracked write requires an output ID");
+  std::vector<uint8_t> oversized(64 * 1024 + 1, 'd');
+  uint64_t rejected_request_id = 99;
+  Expect(api->write_tracked(session, oversized.data(), oversized.size(),
+                            &rejected_request_id) ==
+                 DPTY_STATUS_BACKPRESSURED &&
+             rejected_request_id == 0,
+         "rejected tracked write clears its request ID");
+
+  uint64_t request_id = 0;
+  Expect(api->write_tracked(session, &byte, 1, &request_id) ==
+             DPTY_STATUS_OK &&
+             request_id != 0,
+         "tracked write returns an opaque request ID");
+  Expect(WaitForDiagnostic(&events, DPTY_EVENT_WRITE_COMPLETED,
+                           std::chrono::seconds(3)),
+         "tracked write reaches native completion");
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "diagnostic force close is accepted");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.exited; }),
+         "diagnostic force close exits");
+  {
+    const std::lock_guard<std::mutex> lock(events.mutex);
+    for (const uint32_t type : {
+             DPTY_EVENT_WRITE_ENQUEUED,
+             DPTY_EVENT_WRITE_DEQUEUED,
+             DPTY_EVENT_WRITE_COMPLETED,
+             DPTY_EVENT_STATE_SNAPSHOT,
+             DPTY_EVENT_TERMIOS_SNAPSHOT,
+             DPTY_EVENT_FORCE_CLOSE_DEQUEUED,
+             DPTY_EVENT_SIGNAL_DELIVERY,
+             DPTY_EVENT_WAITPID_RESULT,
+             DPTY_EVENT_PROCESS_EXIT_READY,
+             DPTY_EVENT_EXIT_PUBLISHED,
+         }) {
+      Expect(HasDiagnosticLocked(events, type),
+             "required privacy-safe diagnostic stage is emitted");
+    }
+    for (const Diagnostic& diagnostic : events.diagnostics) {
+      if (diagnostic.type == DPTY_EVENT_WRITE_ENQUEUED ||
+          diagnostic.type == DPTY_EVENT_WRITE_DEQUEUED ||
+          diagnostic.type == DPTY_EVENT_WRITE_COMPLETED) {
+        Expect(diagnostic.sequence == request_id,
+               "tracked write diagnostic preserves request identity");
+      }
+    }
+    const auto termios = std::find_if(
+        events.diagnostics.begin(), events.diagnostics.end(),
+        [](const Diagnostic& value) {
+          return value.type == DPTY_EVENT_TERMIOS_SNAPSHOT;
+        });
+    Expect(termios != events.diagnostics.end() && termios->value2 == 1 &&
+               termios->length == 4,
+           "termios snapshot records the default VEOF identity");
+    const auto signal = std::find_if(
+        events.diagnostics.begin(), events.diagnostics.end(),
+        [](const Diagnostic& value) {
+          return value.type == DPTY_EVENT_SIGNAL_DELIVERY &&
+                 value.length == SIGKILL;
+        });
+    Expect(signal != events.diagnostics.end() && signal->value1 != 0 &&
+               signal->value2 == 0 && signal->system_error == 0,
+           "signal diagnostic records the successful kill target");
+  }
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "diagnostic session is destroyed");
+}
+
+void TestForceCloseFairnessUnderOutputFlood(Api* api) {
+  Events events;
+  events.api = api;
+  events.retain_output = false;
+  const std::vector<const char*> arguments = {"yes", "x"};
+  const DptySessionHandle session =
+      Create(api, &events, "/usr/bin/yes", arguments, 1024 * 1024,
+             512 * 1024, 64 * 1024, true);
+  Expect(api->start(session) == DPTY_STATUS_OK,
+         "output-flood child starts");
+  Expect(WaitFor(&events, std::chrono::seconds(3),
+                 [](const Events& value) { return value.started; }),
+         "output-flood child reports start");
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  const uint8_t control_d = 0x04;
+  uint64_t request_id = 0;
+  Expect(api->write_tracked(session, &control_d, 1, &request_id) ==
+                 DPTY_STATUS_OK &&
+             request_id != 0,
+         "tracked Control-D is accepted during an output flood");
+  const Clock::time_point force_started = Clock::now();
+  Expect(api->force_close(session) == DPTY_STATUS_OK,
+         "force close is accepted during an output flood");
+  const bool exited = WaitFor(&events, std::chrono::seconds(2),
+                              [](const Events& value) {
+                                return value.exited;
+                              });
+  if (!exited) {
+    pid_t pid = -1;
+    {
+      const std::lock_guard<std::mutex> lock(events.mutex);
+      pid = static_cast<pid_t>(events.pid);
+    }
+    if (pid > 0) {
+      (void)kill(-pid, SIGKILL);
+      (void)kill(pid, SIGKILL);
+    }
+    (void)WaitFor(&events, std::chrono::seconds(2),
+                  [](const Events& value) { return value.exited; });
+  }
+  Expect(exited && Clock::now() - force_started < std::chrono::seconds(2),
+         "bounded read turns preserve force-close fairness under output flood");
+  Expect(WaitForDiagnostic(&events, DPTY_EVENT_FORCE_CLOSE_DEQUEUED,
+                           std::chrono::seconds(1)),
+         "reactor dequeues force close during output flood");
+  Expect(api->destroy(session) == DPTY_STATUS_OK,
+         "output-flood session is destroyed");
+}
+
 }  // namespace
 
 int main(int argc, const char* argv[]) {
@@ -520,6 +697,8 @@ int main(int argc, const char* argv[]) {
   api.create = Lookup<decltype(api.create)>(image, "dpty_session_create");
   api.start = Lookup<decltype(api.start)>(image, "dpty_session_start");
   api.write = Lookup<decltype(api.write)>(image, "dpty_session_write");
+  api.write_tracked = Lookup<decltype(api.write_tracked)>(
+      image, "dpty_session_write_tracked");
   api.ack = Lookup<decltype(api.ack)>(image, "dpty_session_ack_output");
   api.resize = Lookup<decltype(api.resize)>(image, "dpty_session_resize");
   api.send_signal =
@@ -545,6 +724,8 @@ int main(int argc, const char* argv[]) {
   TestForcedClose(&api);
   TestExplicitForceClose(&api);
   TestDirectForceClose(&api);
+  TestTrackedWriteDiagnostics(&api);
+  TestForceCloseFairnessUnderOutputFlood(&api);
   Expect(api.live_count() == 0, "all native sessions are released");
   dlclose(image);
   if (failures != 0) {

@@ -90,6 +90,72 @@ enum PtySignal { interrupt, suspend, quit, hangup, terminate, kill }
 
 enum PtyWriteResult { accepted, backpressured }
 
+final class PtyWriteReceipt {
+  const PtyWriteReceipt({required this.result, required this.requestId});
+
+  final PtyWriteResult result;
+  final int? requestId;
+}
+
+enum PtyDiagnosticStage {
+  writeEnqueued,
+  writeDequeued,
+  writeCompleted,
+  writeError,
+  forceCloseDequeued,
+  signalDelivery,
+  waitpidResult,
+  exitPublished,
+  stateSnapshot,
+  termiosSnapshot,
+  processExitReady,
+}
+
+/// Content-free observation of a native PTY lifecycle boundary.
+///
+/// Fields which do not apply to [stage] are null. No input/output bytes,
+/// commands, environment values, working directories, or terminal text are
+/// included.
+final class PtyDiagnosticEvent {
+  const PtyDiagnosticEvent({
+    required this.stage,
+    this.requestId,
+    this.byteCount,
+    this.queuedBytes,
+    this.foregroundProcessGroup,
+    this.sessionStateFlags,
+    this.terminalLocalFlags,
+    this.terminalEofCharacter,
+    this.signal,
+    this.signalTarget,
+    this.operationResult,
+    this.waitpidResult,
+    this.childStatus,
+    this.exitCode,
+    this.exitSignal,
+    this.childProcessId,
+    this.systemError = 0,
+  });
+
+  final PtyDiagnosticStage stage;
+  final int? requestId;
+  final int? byteCount;
+  final int? queuedBytes;
+  final int? foregroundProcessGroup;
+  final int? sessionStateFlags;
+  final int? terminalLocalFlags;
+  final int? terminalEofCharacter;
+  final int? signal;
+  final int? signalTarget;
+  final int? operationResult;
+  final int? waitpidResult;
+  final int? childStatus;
+  final int? exitCode;
+  final int? exitSignal;
+  final int? childProcessId;
+  final int systemError;
+}
+
 final class PtyExit {
   const PtyExit({required this.exitCode, required this.signal});
 
@@ -124,10 +190,12 @@ final class PtyStats {
 abstract interface class PtyProcess {
   int get pid;
   Stream<Uint8List> get output;
+  Stream<PtyDiagnosticEvent> get diagnostics;
   Future<PtyExit> get exit;
   PtyStats? get finalStats;
 
   PtyWriteResult write(Uint8List bytes);
+  PtyWriteReceipt writeTracked(Uint8List bytes);
   void resize(PtySize size);
   void sendSignal(PtySignal signal);
   void close({Duration gracePeriod = const Duration(seconds: 2)});
@@ -142,5 +210,6 @@ abstract interface class PtyBackend {
     int readHighWaterBytes = 1024 * 1024,
     int readLowWaterBytes = 512 * 1024,
     int writeCapacityBytes = 1024 * 1024,
+    bool enableDiagnostics = false,
   });
 }
