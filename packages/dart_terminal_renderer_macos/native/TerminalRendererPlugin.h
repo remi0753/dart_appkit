@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 4u
+#define DTR_ABI_VERSION 5u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -22,6 +22,16 @@
 #define DTR_MAX_RASTER_GLYPHS 4096u
 #define DTR_MAX_RASTER_DIMENSION 4096u
 #define DTR_MAX_RASTER_OUTPUT_BYTES (64u * 1024u * 1024u)
+#define DTR_METAL_RENDERER_CONFIG_VERSION 1u
+#define DTR_METAL_RENDERER_SUMMARY_VERSION 1u
+#define DTR_METAL_ATLAS_UPLOAD_VERSION 1u
+#define DTR_METAL_FRAME_VERSION 1u
+#define DTR_METAL_FRAME_MAGIC 0x46525444u
+#define DTR_MAX_METAL_DIMENSION 4096u
+#define DTR_MAX_METAL_INSTANCES 131072u
+#define DTR_MAX_METAL_ATLAS_PAGES 16u
+#define DTR_MAX_METAL_ATLAS_BYTES (64u * 1024u * 1024u)
+#define DTR_MAX_METAL_FRAME_BYTES (8u * 1024u * 1024u)
 
 typedef enum DtrStatus {
   DTR_STATUS_OK = 0,
@@ -32,6 +42,7 @@ typedef enum DtrStatus {
   DTR_STATUS_INVALID_HANDLE = 5,
   DTR_STATUS_INTERNAL = 6,
   DTR_STATUS_BUFFER_TOO_SMALL = 7,
+  DTR_STATUS_STALE_GENERATION = 8,
 } DtrStatus;
 
 typedef enum DtrFontStyle {
@@ -229,6 +240,101 @@ typedef struct DtrRasterGlyphV1 {
   uint32_t reserved;
 } DtrRasterGlyphV1;
 
+enum {
+  DTR_METAL_ATLAS_ALPHA8 = 1,
+  DTR_METAL_ATLAS_RGBA8_STRAIGHT = 2,
+};
+
+enum {
+  DTR_METAL_INSTANCE_CELL_BACKGROUND = 1,
+  DTR_METAL_INSTANCE_SELECTION = 2,
+  DTR_METAL_INSTANCE_ALPHA_GLYPH = 3,
+  DTR_METAL_INSTANCE_COLOR_GLYPH = 4,
+  DTR_METAL_INSTANCE_DECORATION = 5,
+  DTR_METAL_INSTANCE_CURSOR = 6,
+};
+
+typedef struct DtrMetalRendererConfigV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t maximum_viewport_width;
+  uint32_t maximum_viewport_height;
+  uint32_t maximum_instances;
+  uint32_t atlas_width;
+  uint32_t atlas_height;
+  uint32_t maximum_alpha_pages;
+  uint32_t maximum_color_pages;
+  uint32_t reserved[3];
+} DtrMetalRendererConfigV1;
+
+typedef struct DtrMetalRendererSummaryV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint64_t handle;
+  uint64_t generation;
+  uint32_t maximum_viewport_width;
+  uint32_t maximum_viewport_height;
+  uint32_t maximum_instances;
+  uint32_t atlas_width;
+  uint32_t atlas_height;
+  uint32_t maximum_alpha_pages;
+  uint32_t maximum_color_pages;
+  uint32_t reserved[3];
+} DtrMetalRendererSummaryV1;
+
+typedef struct DtrMetalAtlasUploadV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint64_t renderer_generation;
+  uint64_t atlas_generation;
+  uint64_t page_generation;
+  uint32_t format;
+  uint32_t page_index;
+  uint32_t x;
+  uint32_t y;
+  uint32_t width;
+  uint32_t height;
+  uint32_t row_stride;
+  uint32_t byte_length;
+  uint32_t reserved[4];
+} DtrMetalAtlasUploadV1;
+
+// Version-one packed frame. Coordinates and sizes are device pixels in a
+// flipped top-left viewport. Instances are contiguous and ordered by terminal
+// layer. Colors are straight-alpha 0xRRGGBBAA.
+typedef struct DtrMetalFrameHeaderV1 {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t header_size;
+  uint32_t total_size;
+  uint64_t renderer_generation;
+  uint64_t frame_generation;
+  uint64_t atlas_generation;
+  uint32_t viewport_width;
+  uint32_t viewport_height;
+  uint32_t scale_16_16;
+  uint32_t background_rgba;
+  uint32_t instance_count;
+  uint32_t instance_stride;
+  uint32_t instances_offset;
+  uint32_t reserved[3];
+} DtrMetalFrameHeaderV1;
+
+typedef struct DtrMetalInstanceV1 {
+  int32_t x;
+  int32_t y;
+  uint32_t width;
+  uint32_t height;
+  uint32_t atlas_x;
+  uint32_t atlas_y;
+  uint32_t atlas_width;
+  uint32_t atlas_height;
+  uint32_t color_rgba;
+  uint32_t kind;
+  uint32_t page_index;
+  uint32_t page_generation;
+} DtrMetalInstanceV1;
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -282,6 +388,39 @@ __attribute__((visibility("default"))) int32_t dtr_font_catalog_rasterize(
 
 __attribute__((visibility("default"))) int32_t
 dtr_debug_live_font_catalog_count(void);
+
+// Creates a generation-owned Metal resource set. Pipeline/library and bounded
+// texture arrays are initialized before success is published. The caller owns
+// exactly one returned handle and must release it once.
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_create(
+    const DtrMetalRendererConfigV1* config,
+    DtrMetalRendererSummaryV1* output);
+
+__attribute__((visibility("default"))) int32_t
+dtr_metal_renderer_release(uint64_t handle);
+
+// NativeFinalizer-compatible fallback. The pointer value is the opaque handle;
+// it is never dereferenced. Explicit release remains the deterministic path.
+__attribute__((visibility("default"))) void
+dtr_metal_renderer_release_finalizer(void* handle);
+
+// Copies one tightly packed dirty rectangle into a bounded atlas texture
+// slice. No pointer is retained. Higher atlas/page generations clear stale
+// texture contents before the new definition is published.
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_upload_atlas(
+    uint64_t handle, const DtrMetalAtlasUploadV1* upload,
+    const uint8_t* pixels);
+
+// Synchronous offscreen correctness/readback path. A null output with zero
+// capacity is a size query. Production drawable submission remains a later
+// ABI; this call retains no input/output pointer and never publishes partial
+// output.
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_render_rgba(
+    uint64_t handle, const uint8_t* frame, uint32_t frame_length,
+    uint8_t* output, uint32_t output_capacity, uint32_t* output_required);
+
+__attribute__((visibility("default"))) int32_t
+dtr_debug_live_metal_renderer_count(void);
 
 #if defined(__cplusplus)
 }

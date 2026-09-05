@@ -11,6 +11,16 @@ _Static_assert(sizeof(DtrShapeGlyphV1) == 48, "shape glyph ABI size");
 _Static_assert(sizeof(DtrRasterRequestV1) == 8, "raster request ABI size");
 _Static_assert(sizeof(DtrRasterHeaderV1) == 64, "raster header ABI size");
 _Static_assert(sizeof(DtrRasterGlyphV1) == 48, "raster glyph ABI size");
+_Static_assert(sizeof(DtrMetalRendererConfigV1) == 48,
+               "Metal renderer config ABI size");
+_Static_assert(sizeof(DtrMetalRendererSummaryV1) == 64,
+               "Metal renderer summary ABI size");
+_Static_assert(sizeof(DtrMetalAtlasUploadV1) == 80,
+               "Metal atlas upload ABI size");
+_Static_assert(sizeof(DtrMetalFrameHeaderV1) == 80,
+               "Metal frame header ABI size");
+_Static_assert(sizeof(DtrMetalInstanceV1) == 48,
+               "Metal instance ABI size");
 
 int main(void) {
   uint32_t (*version)(void) = dtr_abi_version;
@@ -32,8 +42,23 @@ int main(void) {
                                uint32_t, uint32_t*) =
       dtr_font_catalog_rasterize;
   int32_t (*catalog_count)(void) = dtr_debug_live_font_catalog_count;
+  int32_t (*renderer_create)(const DtrMetalRendererConfigV1*,
+                             DtrMetalRendererSummaryV1*) =
+      dtr_metal_renderer_create;
+  int32_t (*renderer_release)(uint64_t) = dtr_metal_renderer_release;
+  void (*renderer_finalizer)(void*) = dtr_metal_renderer_release_finalizer;
+  int32_t (*renderer_upload)(uint64_t, const DtrMetalAtlasUploadV1*,
+                             const uint8_t*) =
+      dtr_metal_renderer_upload_atlas;
+  int32_t (*renderer_render)(uint64_t, const uint8_t*, uint32_t, uint8_t*,
+                             uint32_t, uint32_t*) =
+      dtr_metal_renderer_render_rgba;
+  int32_t (*renderer_count)(void) = dtr_debug_live_metal_renderer_count;
   return version == 0 || initialize == 0 || live_count == 0 ||
          catalog_create == 0 || catalog_release == 0 ||
          catalog_finalizer == 0 || catalog_resolve == 0 ||
-         catalog_shape == 0 || catalog_rasterize == 0 || catalog_count == 0;
+         catalog_shape == 0 || catalog_rasterize == 0 || catalog_count == 0 ||
+         renderer_create == 0 || renderer_release == 0 ||
+         renderer_finalizer == 0 ||
+         renderer_upload == 0 || renderer_render == 0 || renderer_count == 0;
 }

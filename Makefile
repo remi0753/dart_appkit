@@ -114,6 +114,10 @@ TERMINAL_RENDERER_PLUGIN_LIBRARY := \
 	$(NATIVE_BUILD_DIR)/libdart_terminal_renderer_macos.dylib
 TERMINAL_RENDERER_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/terminal_renderer_capability_tests
+TERMINAL_RENDERER_SHADER_SOURCE := \
+	$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalShaders.metal
+TERMINAL_RENDERER_SHADER_LIBRARY := \
+	$(NATIVE_BUILD_DIR)/TerminalShaders.metallib
 DPTY_CHILD_OBJECT := $(NATIVE_BUILD_DIR)/dpty_exec_child.o
 DPTY_SPAWN_OBJECT := $(NATIVE_BUILD_DIR)/dpty_spawn.o
 DPTY_SESSION_OBJECT := $(NATIVE_BUILD_DIR)/dpty_session.o
@@ -400,17 +404,22 @@ terminal-renderer-contract-check:
 		-fsyntax-only \
 		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/test/header_compile.cc
 
-$(TERMINAL_RENDERER_PLUGIN_LIBRARY): \
+$(TERMINAL_RENDERER_SHADER_LIBRARY): $(TERMINAL_RENDERER_SHADER_SOURCE)
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	xcrun -sdk macosx metal -target air64-apple-macos14.0 $< -o $@
+
+$(TERMINAL_RENDERER_PLUGIN_LIBRARY): $(TERMINAL_RENDERER_SHADER_LIBRARY) \
 		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.h \
 		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.m \
 		$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
 		$(PROJECT_ROOT)/native/bridge/include/dart_appkit_native_extension.h
 	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -dynamiclib \
+	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -fblocks -dynamiclib \
 		-I$(PROJECT_ROOT)/native/bridge/include \
 		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
 		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.m \
 		-framework AppKit -framework CoreText -framework Metal -framework MetalKit \
+		-Wl,-sectcreate,__DATA,__dtrlib,$(TERMINAL_RENDERER_SHADER_LIBRARY) \
 		-Wl,-install_name,@rpath/libdart_terminal_renderer_macos.dylib -o $@
 
 $(TERMINAL_RENDERER_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \

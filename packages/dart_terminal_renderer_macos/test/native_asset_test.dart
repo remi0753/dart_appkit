@@ -24,6 +24,13 @@ external int _liveViewCount();
 )
 external int _liveFontCatalogCount();
 
+@Native<Int32 Function()>(
+  symbol: 'dtr_debug_live_metal_renderer_count',
+  assetId:
+      'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart',
+)
+external int _liveMetalRendererCount();
+
 void main() => runNativeAssetTests();
 
 void runNativeAssetTests() {
@@ -47,7 +54,7 @@ void runNativeAssetTests() {
   } on StateError {
     // Expected: the facade must explicitly load the declared capability first.
   }
-  if (_abiVersion() != 4) {
+  if (_abiVersion() != 5) {
     stderr.writeln('unexpected terminal renderer native asset ABI');
     exitCode = 1;
   }
@@ -57,6 +64,10 @@ void runNativeAssetTests() {
   }
   if (_liveFontCatalogCount() != 0) {
     stderr.writeln('terminal renderer asset starts with a live font catalog');
+    exitCode = 1;
+  }
+  if (_liveMetalRendererCount() != 0) {
+    stderr.writeln('terminal renderer asset starts with a live Metal renderer');
     exitCode = 1;
   }
   if (exitCode == 0) {

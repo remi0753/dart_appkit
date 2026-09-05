@@ -41,6 +41,29 @@ Function Lookup(void* image, const char* symbol) {
   return function;
 }
 
+bool PixelNear(const std::vector<uint8_t>& pixels, uint32_t width,
+               uint32_t x, uint32_t y, uint32_t rgba,
+               uint8_t tolerance = 1) {
+  const size_t offset = ((size_t)y * width + x) * 4;
+  const uint8_t expected[4] = {
+      static_cast<uint8_t>((rgba >> 24) & 0xffu),
+      static_cast<uint8_t>((rgba >> 16) & 0xffu),
+      static_cast<uint8_t>((rgba >> 8) & 0xffu),
+      static_cast<uint8_t>(rgba & 0xffu),
+  };
+  if (offset + 4 > pixels.size()) {
+    return false;
+  }
+  for (size_t channel = 0; channel < 4; channel++) {
+    const int difference = static_cast<int>(pixels[offset + channel]) -
+                           static_cast<int>(expected[channel]);
+    if (std::abs(difference) > tolerance) {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 int main(int argc, const char* argv[]) {
@@ -69,6 +92,15 @@ int main(int argc, const char* argv[]) {
     using FontRasterize = int32_t (*)(uint64_t, uint32_t,
                                       const DtrRasterRequestV1*, uint32_t,
                                       uint8_t*, uint32_t, uint32_t*);
+    using MetalCreate = int32_t (*)(const DtrMetalRendererConfigV1*,
+                                    DtrMetalRendererSummaryV1*);
+    using MetalRelease = int32_t (*)(uint64_t);
+    using MetalFinalizer = void (*)(void*);
+    using MetalUpload = int32_t (*)(uint64_t,
+                                    const DtrMetalAtlasUploadV1*,
+                                    const uint8_t*);
+    using MetalRender = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
+                                    uint8_t*, uint32_t, uint32_t*);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
     const Initialize initialize = Lookup<Initialize>(image, "dtr_initialize");
     const LiveCount live_count =
@@ -85,9 +117,21 @@ int main(int argc, const char* argv[]) {
         Lookup<FontRasterize>(image, "dtr_font_catalog_rasterize");
     const LiveCount live_font_count =
         Lookup<LiveCount>(image, "dtr_debug_live_font_catalog_count");
+    const MetalCreate metal_create =
+        Lookup<MetalCreate>(image, "dtr_metal_renderer_create");
+    const MetalRelease metal_release =
+        Lookup<MetalRelease>(image, "dtr_metal_renderer_release");
+    const MetalFinalizer metal_finalizer = Lookup<MetalFinalizer>(
+        image, "dtr_metal_renderer_release_finalizer");
+    const MetalUpload metal_upload =
+        Lookup<MetalUpload>(image, "dtr_metal_renderer_upload_atlas");
+    const MetalRender metal_render =
+        Lookup<MetalRender>(image, "dtr_metal_renderer_render_rgba");
+    const LiveCount live_metal_count =
+        Lookup<LiveCount>(image, "dtr_debug_live_metal_renderer_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 4, "glyph raster requires renderer ABI v4");
+    Expect(DTR_ABI_VERSION == 5, "Metal pipelines require renderer ABI v5");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -746,6 +790,308 @@ int main(int argc, const char* argv[]) {
            "concurrent release yields only retained success or stale handle");
     Expect(live_font_count() == 0,
            "concurrent release returns catalog registry to zero");
+
+    DtrMetalRendererConfigV1 metal_config = {};
+    metal_config.struct_size = sizeof(metal_config);
+    metal_config.version = DTR_METAL_RENDERER_CONFIG_VERSION;
+    metal_config.maximum_viewport_width = 16;
+    metal_config.maximum_viewport_height = 16;
+    metal_config.maximum_instances = 16;
+    metal_config.atlas_width = 8;
+    metal_config.atlas_height = 8;
+    metal_config.maximum_alpha_pages = 2;
+    metal_config.maximum_color_pages = 2;
+    DtrMetalRendererSummaryV1 unsupported_metal_summary = {};
+    unsupported_metal_summary.struct_size = sizeof(unsupported_metal_summary);
+    unsupported_metal_summary.version = 99;
+    Expect(metal_create != nullptr &&
+               metal_create(&metal_config, &unsupported_metal_summary) ==
+                   DTR_STATUS_UNSUPPORTED_VERSION,
+           "Metal summary version is mandatory");
+    DtrMetalRendererConfigV1 invalid_metal_config = metal_config;
+    invalid_metal_config.maximum_viewport_width = 0;
+    DtrMetalRendererSummaryV1 invalid_metal_summary = {};
+    invalid_metal_summary.struct_size = sizeof(invalid_metal_summary);
+    invalid_metal_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    Expect(metal_create(&invalid_metal_config, &invalid_metal_summary) ==
+               DTR_STATUS_INVALID_ARGUMENT &&
+               invalid_metal_summary.handle == 0,
+           "invalid Metal resource bounds are rejected without publication");
+
+    DtrMetalRendererSummaryV1 metal_summary = {};
+    metal_summary.struct_size = sizeof(metal_summary);
+    metal_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    Expect(metal_create(&metal_config, &metal_summary) == DTR_STATUS_OK,
+           "precompiled Metal renderer is created");
+    Expect(metal_summary.handle != 0 && metal_summary.generation != 0 &&
+               metal_summary.maximum_viewport_width == 16 &&
+               metal_summary.maximum_viewport_height == 16 &&
+               metal_summary.maximum_instances == 16 &&
+               metal_summary.atlas_width == 8 &&
+               metal_summary.atlas_height == 8 &&
+               metal_summary.maximum_alpha_pages == 2 &&
+               metal_summary.maximum_color_pages == 2 &&
+               live_metal_count != nullptr && live_metal_count() == 1,
+           "Metal renderer publishes exact bounded resource identity");
+
+    auto atlas_upload = [&](uint32_t format, uint64_t atlas_generation,
+                            uint64_t page_generation, uint32_t x, uint32_t y,
+                            uint32_t width, uint32_t height) {
+      DtrMetalAtlasUploadV1 upload = {};
+      upload.struct_size = sizeof(upload);
+      upload.version = DTR_METAL_ATLAS_UPLOAD_VERSION;
+      upload.renderer_generation = metal_summary.generation;
+      upload.atlas_generation = atlas_generation;
+      upload.page_generation = page_generation;
+      upload.format = format;
+      upload.page_index = 0;
+      upload.x = x;
+      upload.y = y;
+      upload.width = width;
+      upload.height = height;
+      const uint32_t bytes_per_pixel =
+          format == DTR_METAL_ATLAS_ALPHA8 ? 1u : 4u;
+      upload.row_stride = width * bytes_per_pixel;
+      upload.byte_length = upload.row_stride * height;
+      return upload;
+    };
+    const std::vector<uint8_t> alpha_pixels(4, 128);
+    DtrMetalAtlasUploadV1 alpha_upload = atlas_upload(
+        DTR_METAL_ATLAS_ALPHA8, 1, 1, 1, 1, 2, 2);
+    Expect(metal_upload != nullptr &&
+               metal_upload(metal_summary.handle, &alpha_upload,
+                            alpha_pixels.data()) == DTR_STATUS_OK,
+           "alpha atlas dirty rectangle is copied");
+    const std::vector<uint8_t> color_pixels = {
+        0, 255, 0, 128, 0, 255, 0, 128,
+        0, 255, 0, 128, 0, 255, 0, 128,
+    };
+    DtrMetalAtlasUploadV1 color_upload = atlas_upload(
+        DTR_METAL_ATLAS_RGBA8_STRAIGHT, 1, 1, 1, 1, 2, 2);
+    Expect(metal_upload(metal_summary.handle, &color_upload,
+                        color_pixels.data()) == DTR_STATUS_OK,
+           "straight RGBA atlas dirty rectangle is copied");
+    DtrMetalAtlasUploadV1 invalid_upload = alpha_upload;
+    invalid_upload.row_stride = 3;
+    invalid_upload.byte_length = 6;
+    Expect(metal_upload(metal_summary.handle, &invalid_upload,
+                        alpha_pixels.data()) == DTR_STATUS_INVALID_ARGUMENT,
+           "malformed atlas byte layout is rejected before mutation");
+    invalid_upload = alpha_upload;
+    invalid_upload.page_generation = (uint64_t)UINT32_MAX + 1u;
+    Expect(metal_upload(metal_summary.handle, &invalid_upload,
+                        alpha_pixels.data()) == DTR_STATUS_INVALID_ARGUMENT,
+           "atlas page generation fits the packed frame field");
+
+    DtrMetalInstanceV1 cell = {};
+    cell.width = 8;
+    cell.height = 8;
+    cell.color_rgba = 0x202020ff;
+    cell.kind = DTR_METAL_INSTANCE_CELL_BACKGROUND;
+    DtrMetalInstanceV1 selection = {};
+    selection.width = 2;
+    selection.height = 2;
+    selection.color_rgba = 0x0000ff80;
+    selection.kind = DTR_METAL_INSTANCE_SELECTION;
+    DtrMetalInstanceV1 alpha_glyph = {};
+    alpha_glyph.x = 2;
+    alpha_glyph.width = 2;
+    alpha_glyph.height = 2;
+    alpha_glyph.atlas_x = 1;
+    alpha_glyph.atlas_y = 1;
+    alpha_glyph.atlas_width = 2;
+    alpha_glyph.atlas_height = 2;
+    alpha_glyph.color_rgba = 0xff0000ff;
+    alpha_glyph.kind = DTR_METAL_INSTANCE_ALPHA_GLYPH;
+    alpha_glyph.page_generation = 1;
+    DtrMetalInstanceV1 color_glyph = {};
+    color_glyph.x = 4;
+    color_glyph.width = 2;
+    color_glyph.height = 2;
+    color_glyph.atlas_x = 1;
+    color_glyph.atlas_y = 1;
+    color_glyph.atlas_width = 2;
+    color_glyph.atlas_height = 2;
+    color_glyph.color_rgba = 0xffffffff;
+    color_glyph.kind = DTR_METAL_INSTANCE_COLOR_GLYPH;
+    color_glyph.page_generation = 1;
+    DtrMetalInstanceV1 decoration = {};
+    decoration.y = 4;
+    decoration.width = 4;
+    decoration.height = 1;
+    decoration.color_rgba = 0x00ffffff;
+    decoration.kind = DTR_METAL_INSTANCE_DECORATION;
+    DtrMetalInstanceV1 cursor = {};
+    cursor.x = 6;
+    cursor.y = 4;
+    cursor.width = 2;
+    cursor.height = 4;
+    cursor.color_rgba = 0xffffffff;
+    cursor.kind = DTR_METAL_INSTANCE_CURSOR;
+    const std::vector<DtrMetalInstanceV1> instances = {
+        cell, selection, alpha_glyph, color_glyph, decoration, cursor};
+    auto make_frame = [&](const std::vector<DtrMetalInstanceV1>& items,
+                          uint64_t renderer_generation,
+                          uint64_t atlas_generation) {
+      DtrMetalFrameHeaderV1 header = {};
+      header.magic = DTR_METAL_FRAME_MAGIC;
+      header.version = DTR_METAL_FRAME_VERSION;
+      header.header_size = sizeof(header);
+      header.total_size = sizeof(header) +
+                          items.size() * sizeof(DtrMetalInstanceV1);
+      header.renderer_generation = renderer_generation;
+      header.frame_generation = 1;
+      header.atlas_generation = atlas_generation;
+      header.viewport_width = 8;
+      header.viewport_height = 8;
+      header.scale_16_16 = 1u << 16;
+      header.background_rgba = 0x101010ff;
+      header.instance_count = static_cast<uint32_t>(items.size());
+      header.instance_stride = sizeof(DtrMetalInstanceV1);
+      header.instances_offset = sizeof(header);
+      std::vector<uint8_t> frame(header.total_size);
+      memcpy(frame.data(), &header, sizeof(header));
+      if (!items.empty()) {
+        memcpy(frame.data() + sizeof(header), items.data(),
+               items.size() * sizeof(DtrMetalInstanceV1));
+      }
+      return frame;
+    };
+    const std::vector<uint8_t> metal_frame =
+        make_frame(instances, metal_summary.generation, 1);
+    uint32_t metal_required = 0;
+    Expect(metal_render != nullptr &&
+               metal_render(metal_summary.handle, metal_frame.data(),
+                            static_cast<uint32_t>(metal_frame.size()), nullptr,
+                            0, &metal_required) ==
+                   DTR_STATUS_BUFFER_TOO_SMALL &&
+               metal_required == 8u * 8u * 4u,
+           "Metal readback size query is exact");
+    std::vector<uint8_t> metal_undersized(metal_required - 1, 0xa5);
+    Expect(metal_render(metal_summary.handle, metal_frame.data(),
+                        static_cast<uint32_t>(metal_frame.size()),
+                        metal_undersized.data(),
+                        static_cast<uint32_t>(metal_undersized.size()),
+                        &metal_required) == DTR_STATUS_BUFFER_TOO_SMALL,
+           "undersized Metal readback reports retry size");
+    bool metal_undersized_untouched = true;
+    for (uint8_t byte : metal_undersized) {
+      metal_undersized_untouched &= byte == 0xa5;
+    }
+    Expect(metal_undersized_untouched,
+           "undersized Metal readback remains untouched");
+    std::vector<uint8_t> metal_pixels(metal_required, 0xa5);
+    Expect(metal_render(metal_summary.handle, metal_frame.data(),
+                        static_cast<uint32_t>(metal_frame.size()),
+                        metal_pixels.data(),
+                        static_cast<uint32_t>(metal_pixels.size()),
+                        &metal_required) == DTR_STATUS_OK,
+           "packed Metal frame renders to synchronous readback");
+    Expect(PixelNear(metal_pixels, 8, 7, 0, 0x202020ff) &&
+               PixelNear(metal_pixels, 8, 0, 0, 0x101090ff) &&
+               PixelNear(metal_pixels, 8, 2, 0, 0x901010ff) &&
+               PixelNear(metal_pixels, 8, 4, 0, 0x109010ff) &&
+               PixelNear(metal_pixels, 8, 0, 4, 0x00ffffff) &&
+               PixelNear(metal_pixels, 8, 6, 4, 0xffffffff),
+           "six visual kinds preserve top-down order and straight alpha");
+
+    auto mutate_header = [&](std::vector<uint8_t> frame,
+                             void (^mutation)(DtrMetalFrameHeaderV1*)) {
+      DtrMetalFrameHeaderV1 header;
+      memcpy(&header, frame.data(), sizeof(header));
+      mutation(&header);
+      memcpy(frame.data(), &header, sizeof(header));
+      return frame;
+    };
+    auto mutate_instance = [&](std::vector<uint8_t> frame, uint32_t index,
+                               void (^mutation)(DtrMetalInstanceV1*)) {
+      DtrMetalInstanceV1 instance;
+      const size_t offset = sizeof(DtrMetalFrameHeaderV1) +
+                            index * sizeof(DtrMetalInstanceV1);
+      memcpy(&instance, frame.data() + offset, sizeof(instance));
+      mutation(&instance);
+      memcpy(frame.data() + offset, &instance, sizeof(instance));
+      return frame;
+    };
+    std::vector<uint8_t> malformed_frame = mutate_header(
+        metal_frame, ^(DtrMetalFrameHeaderV1* header) {
+          header->reserved[0] = 1;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "reserved frame fields are rejected");
+    malformed_frame = mutate_instance(
+        metal_frame, 0, ^(DtrMetalInstanceV1* instance) {
+          instance->kind = DTR_METAL_INSTANCE_CURSOR;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "out-of-order visual layers are rejected");
+    malformed_frame = mutate_instance(
+        metal_frame, 2, ^(DtrMetalInstanceV1* instance) {
+          instance->page_index = 2;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "out-of-range atlas page is rejected");
+    malformed_frame = mutate_header(
+        metal_frame, ^(DtrMetalFrameHeaderV1* header) {
+          header->atlas_generation = 0;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_STALE_GENERATION,
+           "stale frame atlas generation is rejected");
+    malformed_frame = mutate_instance(
+        metal_frame, 2, ^(DtrMetalInstanceV1* instance) {
+          instance->page_generation = 2;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_STALE_GENERATION,
+           "stale frame page generation is rejected");
+    malformed_frame = mutate_header(
+        metal_frame, ^(DtrMetalFrameHeaderV1* header) {
+          header->renderer_generation = 0;
+        });
+    Expect(metal_render(metal_summary.handle, malformed_frame.data(),
+                        static_cast<uint32_t>(malformed_frame.size()), nullptr,
+                        0, &metal_required) == DTR_STATUS_STALE_GENERATION,
+           "stale renderer generation is rejected");
+    Expect(metal_render(metal_summary.handle, metal_frame.data(),
+                        static_cast<uint32_t>(metal_frame.size() - 1), nullptr,
+                        0, &metal_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "truncated packed frame is rejected");
+
+    DtrMetalAtlasUploadV1 alpha_generation_two = atlas_upload(
+        DTR_METAL_ATLAS_ALPHA8, 2, 2, 1, 1, 2, 2);
+    Expect(metal_upload(metal_summary.handle, &alpha_generation_two,
+                        alpha_pixels.data()) == DTR_STATUS_OK,
+           "new atlas generation atomically replaces old page identities");
+    Expect(metal_upload(metal_summary.handle, &alpha_upload,
+                        alpha_pixels.data()) == DTR_STATUS_STALE_GENERATION,
+           "older atlas upload is rejected");
+    Expect(metal_render(metal_summary.handle, metal_frame.data(),
+                        static_cast<uint32_t>(metal_frame.size()), nullptr, 0,
+                        &metal_required) == DTR_STATUS_STALE_GENERATION,
+           "old packed frame cannot observe a replaced atlas generation");
+
+    const uint64_t released_metal_handle = metal_summary.handle;
+    Expect(metal_release != nullptr &&
+               metal_release(released_metal_handle) == DTR_STATUS_OK,
+           "Metal renderer releases exactly once");
+    Expect(metal_finalizer != nullptr,
+           "Metal renderer exposes a NativeFinalizer fallback");
+    Expect(metal_release(released_metal_handle) == DTR_STATUS_INVALID_HANDLE &&
+               live_metal_count() == 0,
+           "released Metal renderer cannot be reused or leaked");
+    Expect(metal_render(released_metal_handle, metal_frame.data(),
+                        static_cast<uint32_t>(metal_frame.size()), nullptr, 0,
+                        &metal_required) == DTR_STATUS_INVALID_HANDLE,
+           "released Metal renderer rejects packed frames");
 
     da_native_extension_services_v1 incompatible = {};
     incompatible.struct_size = sizeof(incompatible);

@@ -7,17 +7,22 @@ initializes the versioned capability and creates an ordinary `dart_appkit`
 `View` without exposing Objective-C objects or native registry handles.
 
 The capability provides a paused, on-demand, framebuffer-only, flipped
-`MTKView` plus generation-owned CoreText font catalogs. Catalogs resolve actual
+`MTKView`, generation-owned CoreText font catalogs, and a bounded Metal
+pipeline resource set. Catalogs resolve actual
 or explicit synthetic regular/bold/italic/bold-italic styles, ordered CJK and
 color-emoji fallback, terminal cell/decorations metrics, and complete shaped
 runs. The versioned packed shaping result contains copied run/face/glyph data,
 UTF-16 cluster spans, positions, advances, and feature identity. Calls and the
 Dart-owned LRU shaping cache are independently bounded. A coarse glyph-set call
 also copies 16.16-scale CoreText output as top-down alpha8 masks or straight
-RGBA8 color glyphs with baseline-relative bearings. These calls are intended
-for a font/render worker domain rather than an AppKit event handler. Terminal
-grids, atlas retention, draw submission, shaders, input, and application policy
-remain outside this package boundary.
+RGBA8 color glyphs with baseline-relative bearings. The native ABI also copies
+bounded alpha/color atlas dirty rectangles and renders an ordered packed frame
+through a build-time-compiled Metal library. Its synchronous RGBA readback is
+the deterministic correctness path; production frame-slot scheduling and view
+presentation remain a separate boundary. These calls are intended for a
+font/render worker domain rather than an AppKit event handler. Terminal grids,
+atlas allocation policy, input, and application policy remain outside this
+package boundary.
 
 Applications declare the following native capability in their runtime manifest:
 
@@ -26,7 +31,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 4,
+  "abiVersion": 5,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -40,5 +45,5 @@ Font work does not require AppKit initialization. Create a catalog with
 shape complete text units with `shape`, optionally retain repeated results in a
 bounded `TerminalShapingCache`, and call `dispose` from the owning worker
 domain. Use `rasterizeShaped` to batch unique face/glyph keys at the active
-backing scale. No native call retains a Dart pointer, and a disposed catalog
-generation cannot be reused or returned by the cache.
+backing scale. No native call retains a Dart pointer, and disposed resource
+generations cannot be reused.

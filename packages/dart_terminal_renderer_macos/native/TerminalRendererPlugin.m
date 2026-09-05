@@ -10,8 +10,15 @@
 
 static const char kProviderIdentifier[] = "dart_terminal.TerminalMetalView";
 static _Atomic int32_t g_live_view_count = 0;
+static _Atomic int32_t g_live_metal_renderer_count = 0;
 static _Atomic uint64_t g_next_font_catalog_handle = 1;
+static _Atomic uint64_t g_next_metal_renderer_handle = 1;
 static const da_native_extension_services_v1* g_initialized_services = NULL;
+
+extern const uint8_t dtr_metallib_start[]
+    __asm("section$start$__DATA$__dtrlib");
+extern const uint8_t dtr_metallib_end[]
+    __asm("section$end$__DATA$__dtrlib");
 
 @interface DtrFontCatalog : NSObject
 
@@ -398,7 +405,500 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   return result;
 }
 
+@interface DtrMetalPipelineBundle : NSObject
+
+@property(nonatomic, readonly) id<MTLRenderPipelineState> pipeline;
+
+- (instancetype)initWithDevice:(id<MTLDevice>)device;
+
+@end
+
+@implementation DtrMetalPipelineBundle
+
+- (instancetype)initWithDevice:(id<MTLDevice>)device {
+  self = [super init];
+  if (self == nil || device == nil) {
+    return nil;
+  }
+  const size_t library_length =
+      (size_t)(dtr_metallib_end - dtr_metallib_start);
+  if (library_length == 0) {
+    return nil;
+  }
+  void* library_copy = malloc(library_length);
+  if (library_copy == NULL) {
+    return nil;
+  }
+  memcpy(library_copy, dtr_metallib_start, library_length);
+  dispatch_data_t library_data = dispatch_data_create(
+      library_copy, library_length,
+      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
+      DISPATCH_DATA_DESTRUCTOR_FREE);
+  NSError* error = nil;
+  id<MTLLibrary> library =
+      [device newLibraryWithData:library_data error:&error];
+  if (library == nil || error != nil) {
+    return nil;
+  }
+  id<MTLFunction> vertex =
+      [library newFunctionWithName:@"dtr_terminal_vertex"];
+  id<MTLFunction> fragment =
+      [library newFunctionWithName:@"dtr_terminal_fragment"];
+  if (vertex == nil || fragment == nil) {
+    return nil;
+  }
+  MTLRenderPipelineDescriptor* descriptor =
+      [[MTLRenderPipelineDescriptor alloc] init];
+  descriptor.label = @"Dart Terminal packed pipeline";
+  descriptor.vertexFunction = vertex;
+  descriptor.fragmentFunction = fragment;
+  descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatRGBA8Unorm;
+  descriptor.colorAttachments[0].blendingEnabled = YES;
+  descriptor.colorAttachments[0].sourceRGBBlendFactor =
+      MTLBlendFactorSourceAlpha;
+  descriptor.colorAttachments[0].destinationRGBBlendFactor =
+      MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+  descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+  descriptor.colorAttachments[0].destinationAlphaBlendFactor =
+      MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+  _pipeline = [device newRenderPipelineStateWithDescriptor:descriptor
+                                                     error:&error];
+  if (_pipeline == nil || error != nil) {
+    return nil;
+  }
+  return self;
+}
+
+@end
+
+@interface DtrMetalRenderer : NSObject
+
+@property(nonatomic, readonly) uint64_t generation;
+@property(nonatomic, readonly) DtrMetalRendererConfigV1 config;
+
+- (instancetype)initWithConfig:(DtrMetalRendererConfigV1)config
+                     generation:(uint64_t)generation;
+- (int32_t)upload:(DtrMetalAtlasUploadV1)upload
+            pixels:(const uint8_t*)pixels;
+- (int32_t)renderFrame:(const uint8_t*)frame
+                length:(uint32_t)frameLength
+                output:(uint8_t*)output
+              capacity:(uint32_t)outputCapacity
+              required:(uint32_t*)outputRequired;
+
+@end
+
+@implementation DtrMetalRenderer {
+  id<MTLDevice> _device;
+  id<MTLCommandQueue> _commandQueue;
+  DtrMetalPipelineBundle* _pipelines;
+  id<MTLTexture> _alphaAtlas;
+  id<MTLTexture> _colorAtlas;
+  NSData* _alphaZeroPage;
+  NSData* _colorZeroPage;
+  uint64_t* _alphaPageGenerations;
+  uint64_t* _colorPageGenerations;
+  uint64_t _atlasGeneration;
+  NSLock* _lock;
+  BOOL _counted;
+}
+
+- (instancetype)initWithConfig:(DtrMetalRendererConfigV1)config
+                     generation:(uint64_t)generation {
+  self = [super init];
+  if (self == nil) {
+    return nil;
+  }
+  _device = MTLCreateSystemDefaultDevice();
+  _commandQueue = [_device newCommandQueue];
+  _pipelines = [[DtrMetalPipelineBundle alloc] initWithDevice:_device];
+  if (_device == nil || _commandQueue == nil || _pipelines == nil) {
+    return nil;
+  }
+  MTLTextureDescriptor* alpha_descriptor =
+      [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+                                MTLPixelFormatR8Unorm
+                                                         width:config.atlas_width
+                                                        height:config.atlas_height
+                                                     mipmapped:NO];
+  alpha_descriptor.textureType = MTLTextureType2DArray;
+  alpha_descriptor.arrayLength = config.maximum_alpha_pages;
+  alpha_descriptor.storageMode = MTLStorageModeShared;
+  alpha_descriptor.usage = MTLTextureUsageShaderRead;
+  MTLTextureDescriptor* color_descriptor =
+      [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+                                MTLPixelFormatRGBA8Unorm
+                                                         width:config.atlas_width
+                                                        height:config.atlas_height
+                                                     mipmapped:NO];
+  color_descriptor.textureType = MTLTextureType2DArray;
+  color_descriptor.arrayLength = config.maximum_color_pages;
+  color_descriptor.storageMode = MTLStorageModeShared;
+  color_descriptor.usage = MTLTextureUsageShaderRead;
+  _alphaAtlas = [_device newTextureWithDescriptor:alpha_descriptor];
+  _colorAtlas = [_device newTextureWithDescriptor:color_descriptor];
+  _alphaPageGenerations = (uint64_t*)calloc(
+      config.maximum_alpha_pages, sizeof(uint64_t));
+  _colorPageGenerations = (uint64_t*)calloc(
+      config.maximum_color_pages, sizeof(uint64_t));
+  _alphaZeroPage = [NSMutableData
+      dataWithLength:(NSUInteger)config.atlas_width * config.atlas_height];
+  _colorZeroPage = [NSMutableData
+      dataWithLength:(NSUInteger)config.atlas_width * config.atlas_height * 4u];
+  if (_alphaAtlas == nil || _colorAtlas == nil ||
+      _alphaPageGenerations == NULL || _colorPageGenerations == NULL ||
+      _alphaZeroPage == nil || _colorZeroPage == nil) {
+    return nil;
+  }
+  _generation = generation;
+  _config = config;
+  _lock = [[NSLock alloc] init];
+  [self clearAllAtlasTextures];
+  atomic_fetch_add_explicit(&g_live_metal_renderer_count, 1,
+                            memory_order_relaxed);
+  _counted = YES;
+  return self;
+}
+
+- (void)dealloc {
+  free(_alphaPageGenerations);
+  free(_colorPageGenerations);
+  if (_counted) {
+    atomic_fetch_sub_explicit(&g_live_metal_renderer_count, 1,
+                              memory_order_relaxed);
+  }
+}
+
+- (void)clearTexture:(id<MTLTexture>)texture
+              slices:(uint32_t)slices
+       bytesPerPixel:(uint32_t)bytesPerPixel {
+  const NSUInteger row_stride = self.config.atlas_width * bytesPerPixel;
+  NSData* zeros = bytesPerPixel == 1 ? _alphaZeroPage : _colorZeroPage;
+  const MTLRegion region = MTLRegionMake2D(
+      0, 0, self.config.atlas_width, self.config.atlas_height);
+  for (uint32_t slice = 0; slice < slices; slice++) {
+    [texture replaceRegion:region
+               mipmapLevel:0
+                     slice:slice
+                 withBytes:zeros.bytes
+               bytesPerRow:row_stride
+             bytesPerImage:zeros.length];
+  }
+}
+
+- (void)clearAllAtlasTextures {
+  [self clearTexture:_alphaAtlas
+              slices:self.config.maximum_alpha_pages
+       bytesPerPixel:1];
+  [self clearTexture:_colorAtlas
+              slices:self.config.maximum_color_pages
+       bytesPerPixel:4];
+  memset(_alphaPageGenerations, 0,
+         self.config.maximum_alpha_pages * sizeof(uint64_t));
+  memset(_colorPageGenerations, 0,
+         self.config.maximum_color_pages * sizeof(uint64_t));
+}
+
+- (void)clearTextureSlice:(id<MTLTexture>)texture
+                    slice:(uint32_t)slice
+            bytesPerPixel:(uint32_t)bytesPerPixel {
+  const NSUInteger row_stride = self.config.atlas_width * bytesPerPixel;
+  NSData* zeros = bytesPerPixel == 1 ? _alphaZeroPage : _colorZeroPage;
+  [texture replaceRegion:MTLRegionMake2D(
+                             0, 0, self.config.atlas_width,
+                             self.config.atlas_height)
+             mipmapLevel:0
+                   slice:slice
+               withBytes:zeros.bytes
+             bytesPerRow:row_stride
+           bytesPerImage:zeros.length];
+}
+
+- (int32_t)upload:(DtrMetalAtlasUploadV1)upload
+            pixels:(const uint8_t*)pixels {
+  [_lock lock];
+  int32_t result = DTR_STATUS_OK;
+  const BOOL is_alpha = upload.format == DTR_METAL_ATLAS_ALPHA8;
+  const uint32_t page_limit = is_alpha
+                                  ? self.config.maximum_alpha_pages
+                                  : self.config.maximum_color_pages;
+  const uint32_t bytes_per_pixel = is_alpha ? 1u : 4u;
+  uint64_t* page_generations =
+      is_alpha ? _alphaPageGenerations : _colorPageGenerations;
+  id<MTLTexture> texture = is_alpha ? _alphaAtlas : _colorAtlas;
+  if (upload.atlas_generation == 0 || upload.page_generation == 0 ||
+      upload.page_generation > UINT32_MAX || upload.page_index >= page_limit ||
+      upload.width == 0 ||
+      upload.height == 0 || upload.x > self.config.atlas_width ||
+      upload.y > self.config.atlas_height ||
+      upload.width > self.config.atlas_width - upload.x ||
+      upload.height > self.config.atlas_height - upload.y ||
+      upload.width > UINT32_MAX / bytes_per_pixel ||
+      upload.row_stride != upload.width * bytes_per_pixel ||
+      upload.height > UINT32_MAX / upload.row_stride ||
+      upload.byte_length != upload.row_stride * upload.height ||
+      pixels == NULL) {
+    result = DTR_STATUS_INVALID_ARGUMENT;
+  } else if (upload.renderer_generation != self.generation) {
+    result = DTR_STATUS_STALE_GENERATION;
+  } else if (upload.atlas_generation < _atlasGeneration ||
+             (upload.atlas_generation == _atlasGeneration &&
+              page_generations[upload.page_index] > upload.page_generation)) {
+    result = DTR_STATUS_STALE_GENERATION;
+  } else {
+    if (upload.atlas_generation > _atlasGeneration) {
+      [self clearAllAtlasTextures];
+      _atlasGeneration = upload.atlas_generation;
+    }
+    if (result == DTR_STATUS_OK &&
+        page_generations[upload.page_index] < upload.page_generation) {
+      [self clearTextureSlice:texture
+                        slice:upload.page_index
+                bytesPerPixel:bytes_per_pixel];
+      page_generations[upload.page_index] = upload.page_generation;
+    }
+    if (result == DTR_STATUS_OK) {
+      [texture replaceRegion:MTLRegionMake2D(upload.x, upload.y, upload.width,
+                                             upload.height)
+                 mipmapLevel:0
+                       slice:upload.page_index
+                   withBytes:pixels
+                 bytesPerRow:upload.row_stride
+               bytesPerImage:upload.byte_length];
+    }
+  }
+  [_lock unlock];
+  return result;
+}
+
+- (int32_t)validateFrame:(const uint8_t*)frame
+                   length:(uint32_t)frameLength
+                   header:(DtrMetalFrameHeaderV1*)header {
+  if (frame == NULL || header == NULL ||
+      frameLength < sizeof(DtrMetalFrameHeaderV1)) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  memcpy(header, frame, sizeof(*header));
+  if (header->magic != DTR_METAL_FRAME_MAGIC ||
+      header->version != DTR_METAL_FRAME_VERSION ||
+      header->header_size != sizeof(DtrMetalFrameHeaderV1) ||
+      header->total_size != frameLength || header->frame_generation == 0 ||
+      header->viewport_width == 0 ||
+      header->viewport_height == 0 ||
+      header->viewport_width > self.config.maximum_viewport_width ||
+      header->viewport_height > self.config.maximum_viewport_height ||
+      header->scale_16_16 == 0 || header->scale_16_16 > (16u << 16) ||
+      header->instance_count > self.config.maximum_instances ||
+      header->instance_stride != sizeof(DtrMetalInstanceV1) ||
+      header->instances_offset != sizeof(DtrMetalFrameHeaderV1) ||
+      header->reserved[0] != 0 || header->reserved[1] != 0 ||
+      header->reserved[2] != 0 ||
+      header->instance_count >
+          (DTR_MAX_METAL_FRAME_BYTES - sizeof(DtrMetalFrameHeaderV1)) /
+              sizeof(DtrMetalInstanceV1) ||
+      frameLength != sizeof(DtrMetalFrameHeaderV1) +
+                         header->instance_count *
+                             sizeof(DtrMetalInstanceV1)) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  if (header->renderer_generation != self.generation) {
+    return DTR_STATUS_STALE_GENERATION;
+  }
+  uint32_t previous_layer = 0;
+  for (uint32_t index = 0; index < header->instance_count; index++) {
+    DtrMetalInstanceV1 instance;
+    memcpy(&instance,
+           frame + sizeof(DtrMetalFrameHeaderV1) +
+               index * sizeof(DtrMetalInstanceV1),
+           sizeof(instance));
+    const BOOL glyph =
+        instance.kind == DTR_METAL_INSTANCE_ALPHA_GLYPH ||
+        instance.kind == DTR_METAL_INSTANCE_COLOR_GLYPH;
+    const uint32_t layer =
+        instance.kind == DTR_METAL_INSTANCE_COLOR_GLYPH
+            ? DTR_METAL_INSTANCE_ALPHA_GLYPH
+            : instance.kind;
+    const int64_t right = (int64_t)instance.x + instance.width;
+    const int64_t bottom = (int64_t)instance.y + instance.height;
+    if (instance.kind < DTR_METAL_INSTANCE_CELL_BACKGROUND ||
+        instance.kind > DTR_METAL_INSTANCE_CURSOR ||
+        layer < previous_layer || instance.width == 0 ||
+        instance.height == 0 || instance.width > header->viewport_width ||
+        instance.height > header->viewport_height || right <= 0 || bottom <= 0 ||
+        instance.x >= (int32_t)header->viewport_width ||
+        instance.y >= (int32_t)header->viewport_height) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    previous_layer = layer;
+    if (!glyph) {
+      if (instance.atlas_x != 0 || instance.atlas_y != 0 ||
+          instance.atlas_width != 0 || instance.atlas_height != 0 ||
+          instance.page_index != 0 || instance.page_generation != 0) {
+        return DTR_STATUS_INVALID_ARGUMENT;
+      }
+      continue;
+    }
+    const BOOL alpha = instance.kind == DTR_METAL_INSTANCE_ALPHA_GLYPH;
+    const uint32_t page_limit = alpha
+                                    ? self.config.maximum_alpha_pages
+                                    : self.config.maximum_color_pages;
+    const uint64_t* page_generations =
+        alpha ? _alphaPageGenerations : _colorPageGenerations;
+    if (instance.atlas_width == 0 || instance.atlas_height == 0 ||
+        instance.atlas_width != instance.width ||
+        instance.atlas_height != instance.height ||
+        instance.atlas_x > self.config.atlas_width ||
+        instance.atlas_y > self.config.atlas_height ||
+        instance.atlas_width > self.config.atlas_width - instance.atlas_x ||
+        instance.atlas_height > self.config.atlas_height - instance.atlas_y ||
+        instance.page_index >= page_limit || instance.page_generation == 0) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    if (header->atlas_generation != _atlasGeneration ||
+        page_generations[instance.page_index] != instance.page_generation) {
+      return DTR_STATUS_STALE_GENERATION;
+    }
+  }
+  return DTR_STATUS_OK;
+}
+
+- (int32_t)renderFrame:(const uint8_t*)frame
+                length:(uint32_t)frameLength
+                output:(uint8_t*)output
+              capacity:(uint32_t)outputCapacity
+              required:(uint32_t*)outputRequired {
+  if (outputRequired == NULL) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  *outputRequired = 0;
+  [_lock lock];
+  DtrMetalFrameHeaderV1 header;
+  int32_t result = [self validateFrame:frame length:frameLength header:&header];
+  if (result != DTR_STATUS_OK) {
+    [_lock unlock];
+    return result;
+  }
+  const uint64_t required =
+      (uint64_t)header.viewport_width * header.viewport_height * 4u;
+  if (required > UINT32_MAX) {
+    [_lock unlock];
+    return DTR_STATUS_RESOURCE_EXHAUSTED;
+  }
+  *outputRequired = (uint32_t)required;
+  if (output == NULL || outputCapacity < required) {
+    result = output == NULL && outputCapacity != 0
+                 ? DTR_STATUS_INVALID_ARGUMENT
+                 : DTR_STATUS_BUFFER_TOO_SMALL;
+    [_lock unlock];
+    return result;
+  }
+  MTLTextureDescriptor* target_descriptor =
+      [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+                                MTLPixelFormatRGBA8Unorm
+                                                         width:header.viewport_width
+                                                        height:header.viewport_height
+                                                     mipmapped:NO];
+  target_descriptor.storageMode = MTLStorageModeShared;
+  target_descriptor.usage = MTLTextureUsageRenderTarget;
+  id<MTLTexture> target = [_device newTextureWithDescriptor:target_descriptor];
+  id<MTLCommandBuffer> command = [_commandQueue commandBuffer];
+  if (target == nil || command == nil) {
+    [_lock unlock];
+    return DTR_STATUS_RESOURCE_EXHAUSTED;
+  }
+  MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+  pass.colorAttachments[0].texture = target;
+  pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+  pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+  const uint32_t background = header.background_rgba;
+  pass.colorAttachments[0].clearColor = MTLClearColorMake(
+      ((background >> 24) & 0xffu) / 255.0,
+      ((background >> 16) & 0xffu) / 255.0,
+      ((background >> 8) & 0xffu) / 255.0, (background & 0xffu) / 255.0);
+  id<MTLRenderCommandEncoder> encoder =
+      [command renderCommandEncoderWithDescriptor:pass];
+  if (encoder == nil) {
+    [_lock unlock];
+    return DTR_STATUS_INTERNAL;
+  }
+  if (header.instance_count != 0) {
+    const NSUInteger instance_bytes =
+        header.instance_count * sizeof(DtrMetalInstanceV1);
+    id<MTLBuffer> instances = [_device
+        newBufferWithBytes:frame + header.instances_offset
+                    length:instance_bytes
+                   options:MTLResourceStorageModeShared];
+    if (instances == nil) {
+      [encoder endEncoding];
+      [_lock unlock];
+      return DTR_STATUS_RESOURCE_EXHAUSTED;
+    }
+    const float viewport[2] = {(float)header.viewport_width,
+                               (float)header.viewport_height};
+    [encoder setRenderPipelineState:_pipelines.pipeline];
+    [encoder setVertexBuffer:instances offset:0 atIndex:0];
+    [encoder setVertexBytes:viewport length:sizeof(viewport) atIndex:1];
+    [encoder setFragmentTexture:_alphaAtlas atIndex:0];
+    [encoder setFragmentTexture:_colorAtlas atIndex:1];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                vertexStart:0
+                vertexCount:4
+              instanceCount:header.instance_count];
+  }
+  [encoder endEncoding];
+  [command commit];
+  [command waitUntilCompleted];
+  if (command.status != MTLCommandBufferStatusCompleted) {
+    [_lock unlock];
+    return DTR_STATUS_INTERNAL;
+  }
+  [target getBytes:output
+       bytesPerRow:header.viewport_width * 4u
+        fromRegion:MTLRegionMake2D(0, 0, header.viewport_width,
+                                  header.viewport_height)
+       mipmapLevel:0];
+  [_lock unlock];
+  return DTR_STATUS_OK;
+}
+
+@end
+
+static NSLock* MetalRendererRegistryLock(void) {
+  static NSLock* lock;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    lock = [[NSLock alloc] init];
+  });
+  return lock;
+}
+
+static NSMutableDictionary<NSNumber*, DtrMetalRenderer*>*
+MetalRendererRegistry(void) {
+  static NSMutableDictionary<NSNumber*, DtrMetalRenderer*>* registry;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    registry = [[NSMutableDictionary alloc] init];
+  });
+  return registry;
+}
+
+static DtrMetalRenderer* MetalRendererForHandle(uint64_t handle) {
+  if (handle == 0) {
+    return nil;
+  }
+  NSLock* lock = MetalRendererRegistryLock();
+  [lock lock];
+  DtrMetalRenderer* renderer = MetalRendererRegistry()[@(handle)];
+  [lock unlock];
+  return renderer;
+}
+
 @interface DtrTerminalMetalView : MTKView
+
+@property(nonatomic, strong) DtrMetalPipelineBundle* terminalPipelines;
+
 @end
 
 @implementation DtrTerminalMetalView
@@ -410,6 +910,12 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   }
   self = [super initWithFrame:frame device:device];
   if (self != nil) {
+    DtrMetalPipelineBundle* pipelines =
+        [[DtrMetalPipelineBundle alloc] initWithDevice:device];
+    if (pipelines == nil) {
+      return nil;
+    }
+    self.terminalPipelines = pipelines;
     atomic_fetch_add_explicit(&g_live_view_count, 1, memory_order_relaxed);
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     self.autoResizeDrawable = YES;
@@ -1167,6 +1673,156 @@ int32_t dtr_debug_live_font_catalog_count(void) {
     NSLock* lock = FontCatalogRegistryLock();
     [lock lock];
     const NSUInteger count = FontCatalogRegistry().count;
+    [lock unlock];
+    return count > INT32_MAX ? INT32_MAX : (int32_t)count;
+  }
+}
+
+static BOOL MetalConfigValuesAreValid(DtrMetalRendererConfigV1 config) {
+  const uint64_t pixels =
+      (uint64_t)config.atlas_width * config.atlas_height;
+  const uint64_t atlas_bytes =
+      pixels * config.maximum_alpha_pages +
+      pixels * 4u * config.maximum_color_pages;
+  return config.maximum_viewport_width > 0 &&
+         config.maximum_viewport_width <= DTR_MAX_METAL_DIMENSION &&
+         config.maximum_viewport_height > 0 &&
+         config.maximum_viewport_height <= DTR_MAX_METAL_DIMENSION &&
+         config.maximum_instances > 0 &&
+         config.maximum_instances <= DTR_MAX_METAL_INSTANCES &&
+         config.atlas_width > 0 &&
+         config.atlas_width <= DTR_MAX_METAL_DIMENSION &&
+         config.atlas_height > 0 &&
+         config.atlas_height <= DTR_MAX_METAL_DIMENSION &&
+         config.maximum_alpha_pages > 0 &&
+         config.maximum_alpha_pages <= DTR_MAX_METAL_ATLAS_PAGES &&
+         config.maximum_color_pages > 0 &&
+         config.maximum_color_pages <= DTR_MAX_METAL_ATLAS_PAGES &&
+         atlas_bytes <= DTR_MAX_METAL_ATLAS_BYTES &&
+         config.reserved[0] == 0 && config.reserved[1] == 0 &&
+         config.reserved[2] == 0;
+}
+
+int32_t dtr_metal_renderer_create(const DtrMetalRendererConfigV1* config,
+                                  DtrMetalRendererSummaryV1* output) {
+  @autoreleasepool {
+    if (config == NULL || output == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t config_header[2];
+    memcpy(config_header, config, sizeof(config_header));
+    uint32_t output_header[2];
+    memcpy(output_header, output, sizeof(output_header));
+    if (config_header[0] < sizeof(DtrMetalRendererConfigV1) ||
+        config_header[1] != DTR_METAL_RENDERER_CONFIG_VERSION ||
+        output_header[0] < sizeof(DtrMetalRendererSummaryV1) ||
+        output_header[1] != DTR_METAL_RENDERER_SUMMARY_VERSION) {
+      return DTR_STATUS_UNSUPPORTED_VERSION;
+    }
+    DtrMetalRendererConfigV1 copied_config;
+    memcpy(&copied_config, config, sizeof(copied_config));
+    if (!MetalConfigValuesAreValid(copied_config)) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    const uint64_t handle = atomic_fetch_add_explicit(
+        &g_next_metal_renderer_handle, 1, memory_order_relaxed);
+    if (handle == 0 || handle == UINT64_MAX) {
+      return DTR_STATUS_RESOURCE_EXHAUSTED;
+    }
+    DtrMetalRenderer* renderer =
+        [[DtrMetalRenderer alloc] initWithConfig:copied_config
+                                      generation:handle];
+    if (renderer == nil) {
+      return DTR_STATUS_INTERNAL;
+    }
+    NSLock* lock = MetalRendererRegistryLock();
+    [lock lock];
+    MetalRendererRegistry()[@(handle)] = renderer;
+    [lock unlock];
+    DtrMetalRendererSummaryV1 summary = {0};
+    summary.struct_size = sizeof(summary);
+    summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    summary.handle = handle;
+    summary.generation = renderer.generation;
+    summary.maximum_viewport_width = copied_config.maximum_viewport_width;
+    summary.maximum_viewport_height = copied_config.maximum_viewport_height;
+    summary.maximum_instances = copied_config.maximum_instances;
+    summary.atlas_width = copied_config.atlas_width;
+    summary.atlas_height = copied_config.atlas_height;
+    summary.maximum_alpha_pages = copied_config.maximum_alpha_pages;
+    summary.maximum_color_pages = copied_config.maximum_color_pages;
+    memcpy(output, &summary, sizeof(summary));
+    return DTR_STATUS_OK;
+  }
+}
+
+int32_t dtr_metal_renderer_release(uint64_t handle) {
+  @autoreleasepool {
+    if (handle == 0) {
+      return DTR_STATUS_INVALID_HANDLE;
+    }
+    NSLock* lock = MetalRendererRegistryLock();
+    [lock lock];
+    DtrMetalRenderer* renderer = MetalRendererRegistry()[@(handle)];
+    if (renderer != nil) {
+      [MetalRendererRegistry() removeObjectForKey:@(handle)];
+    }
+    [lock unlock];
+    return renderer == nil ? DTR_STATUS_INVALID_HANDLE : DTR_STATUS_OK;
+  }
+}
+
+void dtr_metal_renderer_release_finalizer(void* handle) {
+  (void)dtr_metal_renderer_release((uint64_t)(uintptr_t)handle);
+}
+
+int32_t dtr_metal_renderer_upload_atlas(
+    uint64_t handle, const DtrMetalAtlasUploadV1* upload,
+    const uint8_t* pixels) {
+  @autoreleasepool {
+    if (upload == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t upload_header[2];
+    memcpy(upload_header, upload, sizeof(upload_header));
+    if (upload_header[0] < sizeof(DtrMetalAtlasUploadV1) ||
+        upload_header[1] != DTR_METAL_ATLAS_UPLOAD_VERSION) {
+      return DTR_STATUS_UNSUPPORTED_VERSION;
+    }
+    DtrMetalAtlasUploadV1 copied;
+    memcpy(&copied, upload, sizeof(copied));
+    if ((copied.format != DTR_METAL_ATLAS_ALPHA8 &&
+         copied.format != DTR_METAL_ATLAS_RGBA8_STRAIGHT) ||
+        copied.reserved[0] != 0 || copied.reserved[1] != 0 ||
+        copied.reserved[2] != 0 || copied.reserved[3] != 0) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    DtrMetalRenderer* renderer = MetalRendererForHandle(handle);
+    return renderer == nil ? DTR_STATUS_INVALID_HANDLE
+                           : [renderer upload:copied pixels:pixels];
+  }
+}
+
+int32_t dtr_metal_renderer_render_rgba(
+    uint64_t handle, const uint8_t* frame, uint32_t frame_length,
+    uint8_t* output, uint32_t output_capacity, uint32_t* output_required) {
+  @autoreleasepool {
+    DtrMetalRenderer* renderer = MetalRendererForHandle(handle);
+    return renderer == nil
+               ? DTR_STATUS_INVALID_HANDLE
+               : [renderer renderFrame:frame
+                                 length:frame_length
+                                 output:output
+                               capacity:output_capacity
+                               required:output_required];
+  }
+}
+
+int32_t dtr_debug_live_metal_renderer_count(void) {
+  @autoreleasepool {
+    NSLock* lock = MetalRendererRegistryLock();
+    [lock lock];
+    const NSUInteger count = MetalRendererRegistry().count;
     [lock unlock];
     return count > INT32_MAX ? INT32_MAX : (int32_t)count;
   }

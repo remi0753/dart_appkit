@@ -12,6 +12,11 @@ static_assert(std::is_standard_layout_v<DtrShapeGlyphV1>);
 static_assert(std::is_standard_layout_v<DtrRasterRequestV1>);
 static_assert(std::is_standard_layout_v<DtrRasterHeaderV1>);
 static_assert(std::is_standard_layout_v<DtrRasterGlyphV1>);
+static_assert(std::is_standard_layout_v<DtrMetalRendererConfigV1>);
+static_assert(std::is_standard_layout_v<DtrMetalRendererSummaryV1>);
+static_assert(std::is_standard_layout_v<DtrMetalAtlasUploadV1>);
+static_assert(std::is_standard_layout_v<DtrMetalFrameHeaderV1>);
+static_assert(std::is_standard_layout_v<DtrMetalInstanceV1>);
 static_assert(sizeof(DtrFontCatalogSummaryV1) == 152);
 static_assert(sizeof(DtrResolvedFontV1) == 192);
 static_assert(sizeof(DtrShapeHeaderV1) == 80);
@@ -21,6 +26,11 @@ static_assert(sizeof(DtrShapeGlyphV1) == 48);
 static_assert(sizeof(DtrRasterRequestV1) == 8);
 static_assert(sizeof(DtrRasterHeaderV1) == 64);
 static_assert(sizeof(DtrRasterGlyphV1) == 48);
+static_assert(sizeof(DtrMetalRendererConfigV1) == 48);
+static_assert(sizeof(DtrMetalRendererSummaryV1) == 64);
+static_assert(sizeof(DtrMetalAtlasUploadV1) == 80);
+static_assert(sizeof(DtrMetalFrameHeaderV1) == 80);
+static_assert(sizeof(DtrMetalInstanceV1) == 48);
 
 int main() {
   auto* version = &dtr_abi_version;
@@ -33,9 +43,18 @@ int main() {
   auto* catalog_shape = &dtr_font_catalog_shape;
   auto* catalog_rasterize = &dtr_font_catalog_rasterize;
   auto* catalog_count = &dtr_debug_live_font_catalog_count;
+  auto* renderer_create = &dtr_metal_renderer_create;
+  auto* renderer_release = &dtr_metal_renderer_release;
+  auto* renderer_finalizer = &dtr_metal_renderer_release_finalizer;
+  auto* renderer_upload = &dtr_metal_renderer_upload_atlas;
+  auto* renderer_render = &dtr_metal_renderer_render_rgba;
+  auto* renderer_count = &dtr_debug_live_metal_renderer_count;
   return version == nullptr || initialize == nullptr || live_count == nullptr ||
          catalog_create == nullptr || catalog_release == nullptr ||
          catalog_finalizer == nullptr || catalog_resolve == nullptr ||
          catalog_shape == nullptr || catalog_rasterize == nullptr ||
-         catalog_count == nullptr;
+         catalog_count == nullptr || renderer_create == nullptr ||
+         renderer_release == nullptr || renderer_finalizer == nullptr ||
+         renderer_upload == nullptr ||
+         renderer_render == nullptr || renderer_count == nullptr;
 }
