@@ -63,6 +63,9 @@ int main(int argc, const char* argv[]) {
     using FontRelease = int32_t (*)(uint64_t);
     using FontResolve = int32_t (*)(uint64_t, uint32_t, const uint8_t*,
                                     uint32_t, DtrResolvedFontV1*);
+    using FontShape = int32_t (*)(uint64_t, uint32_t, uint32_t,
+                                  const uint8_t*, uint32_t, uint8_t*,
+                                  uint32_t, uint32_t*);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
     const Initialize initialize = Lookup<Initialize>(image, "dtr_initialize");
     const LiveCount live_count =
@@ -73,11 +76,13 @@ int main(int argc, const char* argv[]) {
         Lookup<FontRelease>(image, "dtr_font_catalog_release");
     const FontResolve font_resolve =
         Lookup<FontResolve>(image, "dtr_font_catalog_resolve");
+    const FontShape font_shape =
+        Lookup<FontShape>(image, "dtr_font_catalog_shape");
     const LiveCount live_font_count =
         Lookup<LiveCount>(image, "dtr_debug_live_font_catalog_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 2, "font catalog requires renderer ABI v2");
+    Expect(DTR_ABI_VERSION == 3, "run shaping requires renderer ABI v3");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -181,6 +186,217 @@ int main(int argc, const char* argv[]) {
                DTR_STATUS_INVALID_ARGUMENT,
            "invalid UTF-8 is rejected");
 
+    auto shape = [&](uint64_t catalog_handle, uint32_t shape_style,
+                     uint32_t features, const uint8_t* bytes,
+                     uint32_t length) {
+      uint32_t required = 0;
+      Expect(font_shape != nullptr &&
+                 font_shape(catalog_handle, shape_style, features, bytes,
+                            length, nullptr, 0, &required) ==
+                     DTR_STATUS_BUFFER_TOO_SMALL,
+             "shape size query reports a required buffer");
+      Expect(required >= sizeof(DtrShapeHeaderV1) &&
+                 required <= DTR_MAX_SHAPE_OUTPUT_BYTES,
+             "shape required size is bounded");
+      std::vector<uint8_t> result(required, 0xa5);
+      uint32_t filled_required = 0;
+      Expect(font_shape(catalog_handle, shape_style, features, bytes, length,
+                        result.data(), static_cast<uint32_t>(result.size()),
+                        &filled_required) == DTR_STATUS_OK &&
+                 filled_required == required,
+             "shape fills exactly the queried buffer");
+      return result;
+    };
+
+    const uint8_t kMixed[] = {
+        0x41,
+        0xe6, 0x97, 0xa5, 0xe6, 0x9c, 0xac, 0xe8, 0xaa, 0x9e,
+        0xf0, 0x9f, 0x91, 0xa9, 0xf0, 0x9f, 0x8f, 0xbd, 0xe2, 0x80, 0x8d,
+        0xf0, 0x9f, 0x92, 0xbb,
+        0x65, 0xcc, 0x81,
+    };
+    const std::vector<uint8_t> mixed_buffer = shape(
+        font_summary.handle, DTR_FONT_STYLE_REGULAR,
+        DTR_SHAPE_FEATURE_LIGATURES, kMixed, sizeof(kMixed));
+    const auto* mixed_header =
+        reinterpret_cast<const DtrShapeHeaderV1*>(mixed_buffer.data());
+    Expect(mixed_header->magic == DTR_SHAPE_BUFFER_MAGIC &&
+               mixed_header->version == DTR_SHAPE_BUFFER_VERSION &&
+               mixed_header->header_size == sizeof(DtrShapeHeaderV1) &&
+               mixed_header->total_size == mixed_buffer.size() &&
+               mixed_header->catalog_generation == font_summary.generation &&
+               mixed_header->requested_style == DTR_FONT_STYLE_REGULAR &&
+               mixed_header->feature_flags == DTR_SHAPE_FEATURE_LIGATURES &&
+               mixed_header->utf8_length == sizeof(kMixed) &&
+               mixed_header->utf16_length == 13 &&
+               mixed_header->unicode_scalar_count == 10 &&
+               mixed_header->run_count >= 3 && mixed_header->face_count >= 3 &&
+               mixed_header->glyph_count > 0,
+           "mixed shaping header preserves counts and fallback structure");
+    Expect(mixed_header->runs_offset == sizeof(DtrShapeHeaderV1) &&
+               mixed_header->faces_offset ==
+                   mixed_header->runs_offset +
+                       mixed_header->run_count * sizeof(DtrShapeRunV1) &&
+               mixed_header->glyphs_offset ==
+                   mixed_header->faces_offset +
+                       mixed_header->face_count * sizeof(DtrShapeFaceV1) &&
+               mixed_header->total_size ==
+                   mixed_header->glyphs_offset +
+                       mixed_header->glyph_count * sizeof(DtrShapeGlyphV1),
+           "packed shaping sections are contiguous and exact");
+    const auto* mixed_runs = reinterpret_cast<const DtrShapeRunV1*>(
+        mixed_buffer.data() + mixed_header->runs_offset);
+    const auto* mixed_faces = reinterpret_cast<const DtrShapeFaceV1*>(
+        mixed_buffer.data() + mixed_header->faces_offset);
+    const auto* mixed_glyphs = reinterpret_cast<const DtrShapeGlyphV1*>(
+        mixed_buffer.data() + mixed_header->glyphs_offset);
+    bool saw_color_face = false;
+    bool saw_cjk_fallback = false;
+    bool saw_emoji_cluster = false;
+    bool saw_combining_cluster = false;
+    uint32_t covered_glyphs = 0;
+    for (uint32_t face = 0; face < mixed_header->face_count; face++) {
+      saw_color_face |=
+          (mixed_faces[face].flags & DTR_SHAPED_RUN_COLOR_GLYPHS) != 0;
+      Expect(mixed_faces[face].face_id != 0 &&
+                 mixed_faces[face].postscript_name_length > 0 &&
+                 mixed_faces[face].postscript_name_length <=
+                     DTR_MAX_POSTSCRIPT_NAME_BYTES &&
+                 mixed_faces[face].postscript_name
+                         [mixed_faces[face].postscript_name_length] == 0,
+             "packed face has stable identity and bounded copied name");
+    }
+    for (uint32_t run = 0; run < mixed_header->run_count; run++) {
+      Expect(mixed_runs[run].first_glyph == covered_glyphs &&
+                 mixed_runs[run].glyph_count > 0 &&
+                 mixed_runs[run].utf16_length > 0 &&
+                 mixed_runs[run].utf16_start + mixed_runs[run].utf16_length <=
+                     mixed_header->utf16_length &&
+                 std::isfinite(mixed_runs[run].typographic_width),
+             "packed run covers a finite bounded range");
+      saw_cjk_fallback |=
+          (mixed_runs[run].flags & DTR_SHAPED_RUN_FALLBACK) != 0 &&
+          (mixed_runs[run].flags & DTR_SHAPED_RUN_COLOR_GLYPHS) == 0;
+      covered_glyphs += mixed_runs[run].glyph_count;
+    }
+    for (uint32_t glyph = 0; glyph < mixed_header->glyph_count; glyph++) {
+      const DtrShapeGlyphV1& item = mixed_glyphs[glyph];
+      Expect(item.run_index < mixed_header->run_count && item.face_id != 0 &&
+                 item.utf16_length > 0 &&
+                 item.utf16_start + item.utf16_length <=
+                     mixed_header->utf16_length &&
+                 std::isfinite(item.position_x) &&
+                 std::isfinite(item.position_y) &&
+                 std::isfinite(item.advance),
+             "packed glyph has a finite position and logical cluster");
+      saw_emoji_cluster |= item.utf16_start == 4 && item.utf16_length == 7;
+      saw_combining_cluster |= item.utf16_start == 11 && item.utf16_length == 2;
+    }
+    Expect(covered_glyphs == mixed_header->glyph_count && saw_color_face &&
+               saw_cjk_fallback && saw_emoji_cluster &&
+               saw_combining_cluster,
+           "mixed shaping preserves CJK, color emoji, and combining clusters");
+
+    const uint8_t kEmojiFlag[] = {
+        0xf0, 0x9f, 0x91, 0xa9, 0xf0, 0x9f, 0x8f, 0xbd, 0xe2, 0x80, 0x8d,
+        0xf0, 0x9f, 0x92, 0xbb, 0xf0, 0x9f, 0x87, 0xaf, 0xf0, 0x9f, 0x87,
+        0xb5,
+    };
+    const std::vector<uint8_t> emoji_flag_buffer = shape(
+        font_summary.handle, DTR_FONT_STYLE_REGULAR,
+        DTR_SHAPE_FEATURE_LIGATURES, kEmojiFlag, sizeof(kEmojiFlag));
+    const auto* emoji_flag_header =
+        reinterpret_cast<const DtrShapeHeaderV1*>(emoji_flag_buffer.data());
+    const auto* emoji_flag_glyphs = reinterpret_cast<const DtrShapeGlyphV1*>(
+        emoji_flag_buffer.data() + emoji_flag_header->glyphs_offset);
+    bool saw_zwj_modifier = false;
+    bool saw_flag = false;
+    for (uint32_t glyph = 0; glyph < emoji_flag_header->glyph_count; glyph++) {
+      saw_zwj_modifier |= emoji_flag_glyphs[glyph].utf16_start == 0 &&
+                          emoji_flag_glyphs[glyph].utf16_length == 7;
+      saw_flag |= emoji_flag_glyphs[glyph].utf16_start == 7 &&
+                  emoji_flag_glyphs[glyph].utf16_length == 4;
+    }
+    Expect(emoji_flag_header->utf16_length == 11 &&
+               emoji_flag_header->unicode_scalar_count == 6 &&
+               saw_zwj_modifier && saw_flag,
+           "emoji ZWJ/modifier and regional-indicator flag clusters survive");
+
+    uint32_t small_required = 0;
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR,
+                      DTR_SHAPE_FEATURE_LIGATURES, kMixed, sizeof(kMixed),
+                      nullptr, 1, &small_required) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "null shaping output cannot claim nonzero capacity");
+    std::vector<uint8_t> undersized(mixed_buffer.size() - 1, 0xa5);
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR,
+                      DTR_SHAPE_FEATURE_LIGATURES, kMixed, sizeof(kMixed),
+                      undersized.data(),
+                      static_cast<uint32_t>(undersized.size()),
+                      &small_required) == DTR_STATUS_BUFFER_TOO_SMALL &&
+               small_required == mixed_buffer.size(),
+           "undersized shaping output reports the exact retry size");
+    bool undersized_untouched = true;
+    for (uint8_t byte : undersized) {
+      undersized_untouched &= byte == 0xa5;
+    }
+    Expect(undersized_untouched,
+           "undersized shaping call never writes a partial record");
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR, 0x80000000,
+                      kMixed, sizeof(kMixed), nullptr, 0, &small_required) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "unknown shaping feature is rejected");
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR, 0,
+                      kInvalidUtf8, sizeof(kInvalidUtf8), nullptr, 0,
+                      &small_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "shaping rejects malformed UTF-8 before allocation");
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR, 0,
+                      reinterpret_cast<const uint8_t*>(kLatin),
+                      DTR_MAX_RESOLVE_TEXT_BYTES + 1, nullptr, 0,
+                      &small_required) == DTR_STATUS_INVALID_ARGUMENT,
+           "shaping rejects an over-limit input before reading it");
+    Expect(font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR, 0,
+                      reinterpret_cast<const uint8_t*>(kLatin),
+                      sizeof(kLatin) - 1, nullptr, 0, nullptr) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "shaping requires an output-size pointer");
+
+    constexpr char kTimes[] = "Times-Roman";
+    DtrFontCatalogSummaryV1 times_summary = {};
+    times_summary.struct_size = sizeof(times_summary);
+    times_summary.version = DTR_FONT_CATALOG_SUMMARY_VERSION;
+    Expect(font_create(reinterpret_cast<const uint8_t*>(kTimes),
+                       sizeof(kTimes) - 1, 16.0,
+                       DTR_FONT_POLICY_ALLOW_SYNTHETIC, &times_summary) ==
+               DTR_STATUS_OK,
+           "ligature test face is created");
+    constexpr char kLigatures[] = "office ffi affluent";
+    const std::vector<uint8_t> ligatures_on = shape(
+        times_summary.handle, DTR_FONT_STYLE_REGULAR,
+        DTR_SHAPE_FEATURE_LIGATURES,
+        reinterpret_cast<const uint8_t*>(kLigatures),
+        sizeof(kLigatures) - 1);
+    const std::vector<uint8_t> ligatures_off = shape(
+        times_summary.handle, DTR_FONT_STYLE_REGULAR, 0,
+        reinterpret_cast<const uint8_t*>(kLigatures),
+        sizeof(kLigatures) - 1);
+    const auto* ligatures_on_header =
+        reinterpret_cast<const DtrShapeHeaderV1*>(ligatures_on.data());
+    const auto* ligatures_off_header =
+        reinterpret_cast<const DtrShapeHeaderV1*>(ligatures_off.data());
+    const auto* ligature_glyphs = reinterpret_cast<const DtrShapeGlyphV1*>(
+        ligatures_on.data() + ligatures_on_header->glyphs_offset);
+    bool saw_ligature_span = false;
+    for (uint32_t glyph = 0; glyph < ligatures_on_header->glyph_count; glyph++) {
+      saw_ligature_span |= ligature_glyphs[glyph].utf16_length > 1;
+    }
+    Expect(ligatures_on_header->glyph_count <
+                   ligatures_off_header->glyph_count &&
+               saw_ligature_span,
+           "ligature feature changes glyph count and cluster span");
+    Expect(font_release(times_summary.handle) == DTR_STATUS_OK,
+           "ligature test catalog releases");
+
     std::atomic<int> concurrent_failures{0};
     std::vector<std::thread> resolvers;
     for (int worker = 0; worker < 4; worker++) {
@@ -203,6 +419,40 @@ int main(int argc, const char* argv[]) {
     }
     Expect(concurrent_failures.load() == 0,
            "concurrent catalog reads retain one valid generation");
+    std::atomic<int> concurrent_shape_failures{0};
+    std::vector<std::thread> shapers;
+    for (int worker = 0; worker < 4; worker++) {
+      shapers.emplace_back([&] {
+        for (int iteration = 0; iteration < 50; iteration++) {
+          uint32_t required = 0;
+          if (font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR,
+                         DTR_SHAPE_FEATURE_LIGATURES, kMixed, sizeof(kMixed),
+                         nullptr, 0, &required) !=
+                  DTR_STATUS_BUFFER_TOO_SMALL ||
+              required < sizeof(DtrShapeHeaderV1) ||
+              required > DTR_MAX_SHAPE_OUTPUT_BYTES) {
+            concurrent_shape_failures.fetch_add(1);
+            continue;
+          }
+          std::vector<uint8_t> bytes(required);
+          uint32_t filled = 0;
+          if (font_shape(font_summary.handle, DTR_FONT_STYLE_REGULAR,
+                         DTR_SHAPE_FEATURE_LIGATURES, kMixed, sizeof(kMixed),
+                         bytes.data(), static_cast<uint32_t>(bytes.size()),
+                         &filled) != DTR_STATUS_OK ||
+              filled != required ||
+              reinterpret_cast<const DtrShapeHeaderV1*>(bytes.data())
+                      ->catalog_generation != font_summary.generation) {
+            concurrent_shape_failures.fetch_add(1);
+          }
+        }
+      });
+    }
+    for (std::thread& shaper : shapers) {
+      shaper.join();
+    }
+    Expect(concurrent_shape_failures.load() == 0,
+           "concurrent whole-run shaping preserves one catalog generation");
     const uint64_t released_font_handle = font_summary.handle;
     Expect(font_release != nullptr &&
                font_release(released_font_handle) == DTR_STATUS_OK,
@@ -217,6 +467,13 @@ int main(int argc, const char* argv[]) {
                         sizeof(kLatin) - 1, &stale) ==
                DTR_STATUS_INVALID_HANDLE,
            "released font catalog generation cannot resolve");
+    uint32_t stale_shape_required = 0;
+    Expect(font_shape(released_font_handle, DTR_FONT_STYLE_REGULAR, 0,
+                      reinterpret_cast<const uint8_t*>(kLatin),
+                      sizeof(kLatin) - 1, nullptr, 0,
+                      &stale_shape_required) == DTR_STATUS_INVALID_HANDLE &&
+               stale_shape_required == 0,
+           "released font catalog generation cannot shape");
     Expect(live_font_count() == 0, "font catalog registry returns to zero");
 
     DtrFontCatalogSummaryV1 racing_summary = {};

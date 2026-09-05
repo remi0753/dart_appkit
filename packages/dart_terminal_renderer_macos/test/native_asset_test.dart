@@ -47,7 +47,7 @@ void runNativeAssetTests() {
   } on StateError {
     // Expected: the facade must explicitly load the declared capability first.
   }
-  if (_abiVersion() != 2) {
+  if (_abiVersion() != 3) {
     stderr.writeln('unexpected terminal renderer native asset ABI');
     exitCode = 1;
   }

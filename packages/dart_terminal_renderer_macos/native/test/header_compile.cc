@@ -5,8 +5,16 @@
 static_assert(std::is_standard_layout_v<da_native_extension_services_v1>);
 static_assert(std::is_standard_layout_v<DtrFontCatalogSummaryV1>);
 static_assert(std::is_standard_layout_v<DtrResolvedFontV1>);
+static_assert(std::is_standard_layout_v<DtrShapeHeaderV1>);
+static_assert(std::is_standard_layout_v<DtrShapeRunV1>);
+static_assert(std::is_standard_layout_v<DtrShapeFaceV1>);
+static_assert(std::is_standard_layout_v<DtrShapeGlyphV1>);
 static_assert(sizeof(DtrFontCatalogSummaryV1) == 152);
 static_assert(sizeof(DtrResolvedFontV1) == 192);
+static_assert(sizeof(DtrShapeHeaderV1) == 80);
+static_assert(sizeof(DtrShapeRunV1) == 40);
+static_assert(sizeof(DtrShapeFaceV1) == 144);
+static_assert(sizeof(DtrShapeGlyphV1) == 48);
 
 int main() {
   auto* version = &dtr_abi_version;
@@ -16,9 +24,10 @@ int main() {
   auto* catalog_release = &dtr_font_catalog_release;
   auto* catalog_finalizer = &dtr_font_catalog_release_finalizer;
   auto* catalog_resolve = &dtr_font_catalog_resolve;
+  auto* catalog_shape = &dtr_font_catalog_shape;
   auto* catalog_count = &dtr_debug_live_font_catalog_count;
   return version == nullptr || initialize == nullptr || live_count == nullptr ||
          catalog_create == nullptr || catalog_release == nullptr ||
          catalog_finalizer == nullptr || catalog_resolve == nullptr ||
-         catalog_count == nullptr;
+         catalog_shape == nullptr || catalog_count == nullptr;
 }

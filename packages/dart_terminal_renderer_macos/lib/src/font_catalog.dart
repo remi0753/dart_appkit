@@ -1,8 +1,11 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
+
+part 'shaping.dart';
 
 const String _assetId =
     'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart';
@@ -106,6 +109,13 @@ final class TerminalFontCatalog implements Finalizable {
     if (!pointSize.isFinite || pointSize < 4 || pointSize > 128) {
       throw RangeError.range(pointSize, 4, 128, 'pointSize');
     }
+    if (family.length > maximumFamilyBytes) {
+      throw ArgumentError.value(
+        family,
+        'family',
+        'must be within $maximumFamilyBytes UTF-16 code units',
+      );
+    }
     final Uint8List familyUtf8 = Uint8List.fromList(utf8.encode(family));
     if (familyUtf8.length > maximumFamilyBytes || familyUtf8.contains(0)) {
       throw ArgumentError.value(
@@ -197,6 +207,13 @@ final class TerminalFontCatalog implements Finalizable {
     TerminalFontStyle style = TerminalFontStyle.regular,
   }) {
     final int handle = _liveHandle();
+    if (text.length > maximumResolveTextBytes) {
+      throw ArgumentError.value(
+        text,
+        'text',
+        'must be within $maximumResolveTextBytes UTF-16 code units',
+      );
+    }
     final Uint8List textUtf8 = Uint8List.fromList(utf8.encode(text));
     if (textUtf8.isEmpty ||
         textUtf8.length > maximumResolveTextBytes ||
