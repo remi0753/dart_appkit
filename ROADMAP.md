@@ -49,17 +49,19 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 旧MVPロードマップの **T0〜T14は完了**している。
 - 旧タスクIDは `docs/WORKLOG.md` と `docs/VERIFICATION.md` の履歴参照用として
   維持し、今後のタスクには再利用しない。
-- 現在進行中の汎用GUIタスクはない。
-- 次に着手する推奨タスクは **G0 — 汎用GUIの公開契約と境界の確定**である。
+- Terminal rendererトラックの次の中心作業は、grid／cell model、atlas allocation、
+  frame構築、cursor／selection、damage trackingを既存pipelineへ統合することである。
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
-  capability loading、PTY、process exit 0である。
+  capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
+  CoreText font／shape／raster、Metal readback／submission、Dart facadeである。
 
 ## 実装済みの基盤
 
-以下は旧T0〜T14と、その過程で追加された実装を機能別に再整理したものである。
-詳細な時系列と判断理由は `docs/WORKLOG.md`、検証結果は
-`docs/VERIFICATION.md` を正とする。
+以下は旧T0〜T14と、その後追加された実装を機能別に再整理したものである。
+旧T0〜T14の詳細な時系列と判断理由は `docs/WORKLOG.md`、検証結果は
+`docs/VERIFICATION.md` を正とし、今回のterminal renderer更新は上記コミットと
+各packageの現行testを根拠とする。
 
 ### [x] B0 — Dart／AppKitホストとイベントループ
 
@@ -110,6 +112,11 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   process-lifetime image retentionを実装。
 - Objective-C pointerをapplication Dartへ公開せず、生成したviewを通常の
   generation-checked handleとして管理。
+- providerが同じprovider製custom Viewに対して1つのopaqueな同期operationを登録できる、
+  size-prefixed service-table拡張を実装。旧table prefixとの互換性を維持している。
+- `View.performCustomOperation(Uint8List)` を実装。main thread、View generation、provider一致を
+  host側で検証し、payloadを同期呼び出し中だけ貸し出す。Objective-C pointerやAppKitの
+  registry handleはDartへ公開しない。
 - AppKitへ登録しない独立native assetのbuild／staging経路も実装。
 
 ### [x] B6 — 再利用可能なmacOS application runtime
@@ -126,13 +133,29 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 ### [x] B7 — ターミナル向け独立機能
 
 - `dart_terminal_renderer_macos` に、paused／on-demand／framebuffer-onlyの
-  `MTKView` shellとnative capability境界を実装。
+  flipped `MTKView` とnative capability境界を実装。
+- CoreText font catalogをgeneration-owned resourceとして実装。regular／bold／italic／
+  bold-italic、明示的なsynthetic style policy、CJK／color emoji fallback、cell／baseline／
+  underline／strike metricsを扱える。
+- complete text unitをrun／face／glyphへ変換するbounded shaping ABIとDart APIを実装。
+  UTF-16 cluster、位置、advance、fallback／RTL／missing glyph、ligature featureを保持し、
+  entry数とbyte数を制限したDart-owned LRU cacheを提供する。
+- backing scaleに応じてunique glyph setを一括rasterizeするAPIを実装。top-down alpha8 maskと
+  straight RGBA8 color glyph、baseline-relative bearingをcopy-owned resultとして返す。
+- build時にMetal shaderをcompileしてdylibへ埋め込み、bounded resource set、alpha／color
+  texture array、atlas dirty-rectangle upload、generation検証、layer順を持つpacked frame、
+  deterministic RGBA readbackを実装。
+- rendererとcustom `MTKView` の安全なbinding、3つの固定slotによるproduction submission、
+  newest-ready選択、即時backpressure、drop／GPU完了後のretirement watermarkを実装。
+- `TerminalMetalRenderer`、config、atlas upload、frame encoder、submission result、stateを
+  型付きDart facadeとして実装し、明示disposeとNativeFinalizer fallbackを提供する。
 - `dart_pty_macos` に、AppKit非依存のPTY生成、非同期read/write、bounded queue、
   backpressure、resize、signal、graceful/forced close、exit/reapを実装。
 - terminal-specific protocol、renderer、recovery policyを汎用hostから分離。
 
-注意: `TerminalMetalView` は現在rendererの入れ物までであり、terminal grid、
-glyph shaping、atlas、shader、draw submissionなどの描画本体はまだ実装済みではない。
+注意: 上記は描画pipelineの低水準基盤である。terminal grid／cell model、atlasの
+allocation／packing／eviction、terminal stateからframeへの変換、cursor／selectionの
+高水準挙動、damage trackingはまだ未実装であり、X0に残る。
 
 ### [x] B8 — Build、検証、サンプル
 
@@ -143,6 +166,9 @@ glyph shaping、atlas、shader、draw submissionなどの描画本体はまだ�
   FFI smoke、Dart analysis/unit testを実装。
 - native handle churn、wrong-thread、stale event、event encoding、capability lifetime、
   PTY integrationを含むregression suiteを実装。
+- terminal rendererについて、C/C++ ABI layout check、native resource／generation／bound check、
+  strict packed-buffer decoder、mixed-script shaping、1x／2x glyph raster、atlas generation、
+  Metal pixel readback、triple-buffer／backpressure、typed Dart facadeのtestを実装。
 
 ## 未実装ロードマップ
 
@@ -157,6 +183,8 @@ glyph shaping、atlas、shader、draw submissionなどの描画本体はまだ�
   完了とする。
 - **G15、G16** は早期に必要なdiagnostics／manifest項目を前倒しできるが、正式な
   完了は汎用GUI APIが安定した後とする。
+- **G1、G9、X0は部分実装済み**である。チェックボックスは各項目の完了条件を
+  すべて満たした場合だけ `[x]` にする。
 
 ### [ ] G0 — 汎用GUIの公開契約と境界の確定
 
@@ -183,17 +211,28 @@ glyph shaping、atlas、shader、draw submissionなどの描画本体はまだ�
 達成目標: 外部packageが、複数の対話的native Viewを型付きDart APIとして安全に
 提供できるようにする。
 
-実装内容:
+進捗: **部分実装**。
+
+実装済み:
+
+- size-prefixed extension service tableへ、provider単位のopaqueな同期custom View operationを
+  後方互換に追加した。
+- hostがmain thread、generation-checked View handle、生成providerの一致を確認してから、
+  callbackの間だけnative Viewとpayloadを貸し出すfail-closedな経路を実装した。
+- Dart側にcopy-in型の `View.performCustomOperation(Uint8List)` を追加し、terminal packageの
+  `bindToView` でprovider固有の型付き操作へ包めることを実証した。
+
+未実装:
 
 - 現在のゼロ引数View factoryを拡張し、生成設定を渡せるversioned capability ABIを
   追加する。
-- host側Viewとcapability側instanceを一対一に対応付ける、安全なopaque identityと
-  lifecycle契約を追加する。
-- instance単位のproperty update、command、state query、event deliveryの共通経路を
-  追加する。
+- custom operationは一方向の同期payloadに限られるため、capability instance共通の
+  identity、ownership、dispose、非同期処理、cancellation、backpressure契約を追加する。
+- instance単位のproperty update、typed command、result／state query、event deliveryの
+  共通経路を追加する。
 - capability eventにprovider namespace、instance source、protocol versionを持たせる。
-- raw Objective-C pointerや任意のregistry handleをDartへ公開せずに操作できるようにする。
-- 外部packageが型付きView wrapperを提供できるDart拡張APIとtest backendを追加する。
+- 外部packageがprivate APIなしで型付きView wrapperを提供できる公開Dart拡張APIと、
+  provider／instance lifecycleを再現するtest backendを追加する。
 
 完了条件:
 
@@ -339,14 +378,27 @@ glyph shaping、atlas、shader、draw submissionなどの描画本体はまだ�
 達成目標: AppKit標準controlでは表現できない画面を、共通の描画・media APIで実装
 できるようにする。
 
-実装内容:
+進捗: **部分実装（terminal専用）**。次の機能は
+`dart_terminal_renderer_macos` 内で実装済みだが、汎用GUI APIではない。
+
+実装済み:
+
+- CoreText font catalog、fallback、metrics、run shaping、glyph rasterization。
+- build-time compiled Metal shader、bounded alpha／color atlas texture、dirty-rectangle upload、
+  ordered instance frame、同期RGBA readback。
+- custom View binding、on-demand presentation、triple-buffer submission、backpressure、
+  GPU completionを含むslot retirement。
+- typed Dart frame encoder／renderer facadeと、generation／容量／layer順の検証。
+
+未実装:
 
 - `Color`、`Font`、`Image`、alignment、transform、clip、pathなどの共通値型を追加する。
 - redraw request、dirty region、backing scale、color space、display-link／frame callbackを
-  扱うrender surface契約を追加する。
-- Core GraphicsまたはMetal capabilityから利用できるdrawing boundaryを定める。
+  扱う汎用render surface契約を追加する。
+- terminal固有ABIに依存しない、Core GraphicsまたはMetal capability向けdrawing boundaryを
+  定める。
 - bundle／memoryからの画像decode、scale variant、cache、native image表示を追加する。
-- text measurement／shaping、layer、opacity、basic animationを追加する。
+- 汎用のtext measurement／shaping、layer、opacity、basic animationを追加する。
 - light/dark appearance、accent、high contrast、reduced motion、locale、RTL変更を
   View／styleへ反映する。
 
@@ -447,7 +499,11 @@ helperへ委譲できるようにする。
 達成目標: application packageがnative GUIを起動せずに大部分をunit testでき、必要な
 箇所だけを実GUI／画像／accessibility testで検証できるようにする。
 
-実装内容:
+進捗: **既存機能向けの内部検証基盤は実装済み、外部向け公開Testing APIは未実装**。
+既存のfake bindings、native contract test、terminal rendererのstrict decoder／readback
+testは、後続の公開test hostを設計する際の基準として利用する。
+
+未実装:
 
 - application、View tree、Control、layout、eventを扱う公開fake/test hostを追加する。
 - pointer、keyboard、focus、IME、menu、window、capability event injectionを追加する。
@@ -534,12 +590,54 @@ notarize、sandbox化して配布できる。
 
 ## 別トラック
 
-### [ ] X0 — Terminal renderer本体
+### [ ] X0 — Terminal renderer本体（部分実装）
 
-`dart_terminal_renderer_macos` 内でterminal grid、CoreText shaping、glyph atlas、
-Metal shader、draw submission、cursor、selection、damage trackingを実装する。
-汎用render surface、IME、accessibilityとの共有部分はG4、G5、G6、G9を利用するが、
-terminal semanticsと描画policyは引き続きterminal packageが所有する。
+達成目標: terminal screen stateをboundedな描画データへ変換し、mixed-script text、
+cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView` へ表示する。
+
+実装済み:
+
+- paused／on-demand／framebuffer-onlyのflipped `MTKView` shell。
+- generation-owned CoreText font catalog、style／fallback解決、terminal cell／decoration
+  metrics。
+- bounded run shaping、UTF-16 cluster mapping、Dart-owned bounded LRU shaping cache。
+- unique glyph batchのalpha8／RGBA8 rasterizationとbacking scale対応。
+- precompiled Metal shader、bounded alpha／color texture array、atlas dirty-rectangle upload、
+  snapshot／page generation検証。
+- background、selection、alpha／color glyph、decoration、cursorをlayer順に表せるpacked
+  instance frameとtyped Dart encoder。
+- deterministic offscreen RGBA readbackと、Viewへbindした3-slot production submission。
+- newest-ready選択、stale frame drop、即時backpressure、GPU完了後のretirement state。
+
+未実装:
+
+- terminal grid／cell／line modelと、PTY／parser側screen snapshotをrenderer入力へ変換する
+  境界を実装する。
+- wide character、combining sequence、ligature、fallback run、RTLをterminal cellへ配置する
+  高水準layoutとclipping policyを実装する。
+- Dart-owned glyph atlas allocator／packer、page reuse、eviction、raster cache、residency／pin
+  管理を実装する。native側のtexture pageとdirty uploadだけではatlasは完成していない。
+- screen差分からdamage regionを計算し、必要なcell、glyph upload、instanceだけを更新する
+  pipelineを実装する。
+- terminal stateから背景、glyph、underline／strike、cursor、selectionのordered instanceを
+  構築するframe builderを実装する。
+- cursor shape／blink／focus、selection range／色／IME marked rangeなどの高水準表示挙動を
+  実装する。
+- resize、backing-scale、font、theme、color-space変更時の再layout／再raster／atlas再構築を
+  実装する。
+- backpressure時の再試行、frame coalescing、retirement watermarkに基づくatlas pin解放を
+  renderer ownerへ統合する。
+- 実PTY sessionを使い、mixed-script、emoji、Retina変更、resize、rapid update、
+  resource boundを検証するend-to-end／performance testとsampleを追加する。
+- 入力、IME、accessibilityはrenderer内部へ持ち込まず、G4、G5、G6との統合として実装する。
+  terminal semanticsと描画policyは引き続きterminal側packageが所有する。
+
+完了条件:
+
+- 実terminal screenをcursor／selection／装飾込みで表示し、resizeと1x／2x切替後もcellと
+  glyphが一致する。
+- 継続的な大量出力でもqueue、atlas、frame slotが設定上限を越えず、入力応答を維持する。
+- stale generation、backpressure、View破棄、renderer破棄から安全に回復できる。
 
 ### [ ] X1 — クロスプラットフォーム化（将来検討）
 
