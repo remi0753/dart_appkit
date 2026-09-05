@@ -8,6 +8,8 @@
 @property(nonatomic, assign) Class viewClass;
 @property(nonatomic, assign) da_custom_view_factory_v1 factory;
 @property(nonatomic, assign) void* context;
+@property(nonatomic, assign) da_custom_view_operation_v1 operation;
+@property(nonatomic, assign) void* operationContext;
 
 @end
 
@@ -19,12 +21,20 @@ namespace {
 
 NSMutableDictionary<NSString*, DaCustomViewProvider*>* g_custom_view_providers =
     nil;
+NSMapTable<NSView*, DaCustomViewProvider*>* g_custom_view_instances = nil;
 
 NSMutableDictionary<NSString*, DaCustomViewProvider*>* CustomViewProviders() {
   if (g_custom_view_providers == nil) {
     g_custom_view_providers = [[NSMutableDictionary alloc] init];
   }
   return g_custom_view_providers;
+}
+
+NSMapTable<NSView*, DaCustomViewProvider*>* CustomViewInstances() {
+  if (g_custom_view_instances == nil) {
+    g_custom_view_instances = [NSMapTable weakToStrongObjectsMapTable];
+  }
+  return g_custom_view_instances;
 }
 
 int32_t RegisterFactoryBytes(const uint8_t* provider_identifier,
@@ -45,10 +55,30 @@ int32_t RegisterFactoryBytes(const uint8_t* provider_identifier,
   return RegisterCustomViewFactory(identifier, factory, context);
 }
 
+int32_t RegisterOperationBytes(const uint8_t* provider_identifier,
+                               size_t provider_identifier_length,
+                               da_custom_view_operation_v1 operation,
+                               void* context) {
+  if (provider_identifier == nullptr || provider_identifier_length == 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "custom view provider identifier must not be empty");
+  }
+  NSString* identifier =
+      [[NSString alloc] initWithBytes:provider_identifier
+                               length:provider_identifier_length
+                             encoding:NSUTF8StringEncoding];
+  if (identifier == nil) {
+    return SetLastError(DA_STATUS_INVALID_UTF8,
+                        "custom view provider identifier is not valid UTF-8");
+  }
+  return RegisterCustomViewOperation(identifier, operation, context);
+}
+
 const da_native_extension_services_v1 kNativeExtensionServices = {
     .struct_size = sizeof(da_native_extension_services_v1),
     .abi_version = DA_NATIVE_EXTENSION_ABI_VERSION,
     .register_custom_view_provider = RegisterFactoryBytes,
+    .register_custom_view_operation = RegisterOperationBytes,
 };
 
 }  // namespace
@@ -116,6 +146,37 @@ int32_t RegisterCustomViewFactory(NSString* provider_identifier,
   return DA_STATUS_OK;
 }
 
+int32_t RegisterCustomViewOperation(NSString* provider_identifier,
+                                    da_custom_view_operation_v1 operation,
+                                    void* context) {
+  ClearLastError();
+  const int32_t thread_status = RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (provider_identifier == nil || provider_identifier.length == 0 ||
+      operation == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "custom view provider operation is incomplete");
+  }
+  DaCustomViewProvider* provider = CustomViewProviders()[provider_identifier];
+  if (provider == nil) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "custom view provider must be registered before its operation");
+  }
+  if (provider.operation != nullptr &&
+      (provider.operation != operation ||
+       provider.operationContext != context)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "custom view provider operation is already registered");
+  }
+  provider.operation = operation;
+  provider.operationContext = context;
+  return DA_STATUS_OK;
+}
+
 NSView* CreateRegisteredCustomView(NSString* provider_identifier,
                                    int32_t* out_status) {
   if (out_status == nullptr) {
@@ -150,12 +211,31 @@ NSView* CreateRegisteredCustomView(NSString* provider_identifier,
                                "custom view provider returned no view");
     return nil;
   }
+  [CustomViewInstances() setObject:provider forKey:view];
   return view;
+}
+
+int32_t PerformRegisteredCustomViewOperation(NSView* view,
+                                             const uint8_t* payload,
+                                             size_t payload_length) {
+  if (view == nil || (payload == nullptr && payload_length != 0)) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "custom view operation input is incomplete");
+  }
+  DaCustomViewProvider* provider = [CustomViewInstances() objectForKey:view];
+  if (provider == nil || provider.operation == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "view has no registered custom operation");
+  }
+  return provider.operation(provider.operationContext, (__bridge void*)view,
+                            payload, payload_length);
 }
 
 void ClearCustomViewClassesForTesting() {
   [g_custom_view_providers removeAllObjects];
   g_custom_view_providers = nil;
+  [g_custom_view_instances removeAllObjects];
+  g_custom_view_instances = nil;
 }
 
 }  // namespace dart_appkit

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -78,6 +79,21 @@ void* CreateRetainedTestCustomView(void* context) {
 void* FailToCreateCustomView(void* context) {
   (void)context;
   return nullptr;
+}
+
+int32_t PerformTestCustomViewOperation(void* context, void* view,
+                                       const uint8_t* payload,
+                                       size_t payload_length) {
+  if (context == nullptr || view == nullptr || payload == nullptr ||
+      payload_length != sizeof(uint32_t)) {
+    return DA_STATUS_INVALID_ARGUMENT;
+  }
+  NSView* native_view = (__bridge NSView*)view;
+  if (![native_view isKindOfClass:DaTestCustomView.class]) {
+    return DA_STATUS_WRONG_HANDLE_TYPE;
+  }
+  memcpy(context, payload, sizeof(uint32_t));
+  return DA_STATUS_OK;
 }
 
 @interface DaReleaseThreadProbe : NSObject {
@@ -810,6 +826,13 @@ void TestNativeExtensionServices() {
             static_cast<size_t>(sizeof(da_native_extension_services_v1)));
   EXPECT_EQ(services->abi_version, DA_NATIVE_EXTENSION_ABI_VERSION);
   EXPECT_TRUE(services->register_custom_view_provider != nullptr);
+  EXPECT_TRUE(services->register_custom_view_operation != nullptr);
+
+  uint32_t operation_value = 0;
+  EXPECT_EQ(services->register_custom_view_operation(
+                reinterpret_cast<const uint8_t*>("test.missing"), 12,
+                PerformTestCustomViewOperation, &operation_value),
+            DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(services->register_custom_view_provider(
                 nullptr, 1, CreateRetainedTestCustomView, nullptr),
@@ -830,6 +853,16 @@ void TestNativeExtensionServices() {
                 reinterpret_cast<const uint8_t*>(kProvider),
                 sizeof(kProvider) - 1, CreateRetainedTestCustomView, context),
             DA_STATUS_OK);
+  EXPECT_EQ(services->register_custom_view_operation(
+                reinterpret_cast<const uint8_t*>(kProvider),
+                sizeof(kProvider) - 1, PerformTestCustomViewOperation,
+                &operation_value),
+            DA_STATUS_OK);
+  EXPECT_EQ(services->register_custom_view_operation(
+                reinterpret_cast<const uint8_t*>(kProvider),
+                sizeof(kProvider) - 1, PerformTestCustomViewOperation,
+                &operation_value),
+            DA_STATUS_OK);
   EXPECT_EQ(services->register_custom_view_provider(
                 reinterpret_cast<const uint8_t*>(kProvider),
                 sizeof(kProvider) - 1, CreateRetainedTestCustomView, context),
@@ -848,7 +881,35 @@ void TestNativeExtensionServices() {
       dart_appkit::ThreadDomain::kAppKitMain, &status);
   EXPECT_EQ(status, DA_STATUS_OK);
   EXPECT_TRUE([object isKindOfClass:DaTestCustomView.class]);
+  const uint32_t operation_payload = 0x10203040;
+  EXPECT_EQ(da_view_perform_custom_operation(
+                handle, reinterpret_cast<const uint8_t*>(&operation_payload),
+                sizeof(operation_payload)),
+            DA_STATUS_OK);
+  EXPECT_EQ(operation_value, operation_payload);
+  EXPECT_EQ(da_view_perform_custom_operation(handle, nullptr, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  std::atomic<int32_t> operation_thread_status{DA_STATUS_OK};
+  std::thread operation_worker([&] {
+    operation_thread_status.store(da_view_perform_custom_operation(
+        handle, reinterpret_cast<const uint8_t*>(&operation_payload),
+        sizeof(operation_payload)));
+  });
+  operation_worker.join();
+  EXPECT_EQ(operation_thread_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+  EXPECT_EQ(da_view_perform_custom_operation(
+                handle, reinterpret_cast<const uint8_t*>(&operation_payload),
+                sizeof(operation_payload)),
+            DA_STATUS_INVALID_HANDLE);
+  DaHandle plain_view = 0;
+  EXPECT_EQ(da_view_create(&plain_view), DA_STATUS_OK);
+  EXPECT_EQ(da_view_perform_custom_operation(
+                plain_view,
+                reinterpret_cast<const uint8_t*>(&operation_payload),
+                sizeof(operation_payload)),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_release(plain_view), DA_STATUS_OK);
 
   constexpr char kFailingProvider[] = "test.factory.failure";
   EXPECT_EQ(services->register_custom_view_provider(

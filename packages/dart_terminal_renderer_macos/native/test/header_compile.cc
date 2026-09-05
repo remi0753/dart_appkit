@@ -17,6 +17,9 @@ static_assert(std::is_standard_layout_v<DtrMetalRendererSummaryV1>);
 static_assert(std::is_standard_layout_v<DtrMetalAtlasUploadV1>);
 static_assert(std::is_standard_layout_v<DtrMetalFrameHeaderV1>);
 static_assert(std::is_standard_layout_v<DtrMetalInstanceV1>);
+static_assert(std::is_standard_layout_v<DtrMetalViewBindingV1>);
+static_assert(std::is_standard_layout_v<DtrMetalSubmissionV1>);
+static_assert(std::is_standard_layout_v<DtrMetalRendererStateV1>);
 static_assert(sizeof(DtrFontCatalogSummaryV1) == 152);
 static_assert(sizeof(DtrResolvedFontV1) == 192);
 static_assert(sizeof(DtrShapeHeaderV1) == 80);
@@ -31,6 +34,9 @@ static_assert(sizeof(DtrMetalRendererSummaryV1) == 64);
 static_assert(sizeof(DtrMetalAtlasUploadV1) == 80);
 static_assert(sizeof(DtrMetalFrameHeaderV1) == 80);
 static_assert(sizeof(DtrMetalInstanceV1) == 48);
+static_assert(sizeof(DtrMetalViewBindingV1) == 32);
+static_assert(sizeof(DtrMetalSubmissionV1) == 40);
+static_assert(sizeof(DtrMetalRendererStateV1) == 96);
 
 int main() {
   auto* version = &dtr_abi_version;
@@ -47,6 +53,8 @@ int main() {
   auto* renderer_release = &dtr_metal_renderer_release;
   auto* renderer_finalizer = &dtr_metal_renderer_release_finalizer;
   auto* renderer_upload = &dtr_metal_renderer_upload_atlas;
+  auto* renderer_submit = &dtr_metal_renderer_submit;
+  auto* renderer_state = &dtr_metal_renderer_state;
   auto* renderer_render = &dtr_metal_renderer_render_rgba;
   auto* renderer_count = &dtr_debug_live_metal_renderer_count;
   return version == nullptr || initialize == nullptr || live_count == nullptr ||
@@ -55,6 +63,7 @@ int main() {
          catalog_shape == nullptr || catalog_rasterize == nullptr ||
          catalog_count == nullptr || renderer_create == nullptr ||
          renderer_release == nullptr || renderer_finalizer == nullptr ||
-         renderer_upload == nullptr ||
-         renderer_render == nullptr || renderer_count == nullptr;
+         renderer_upload == nullptr || renderer_submit == nullptr ||
+         renderer_state == nullptr || renderer_render == nullptr ||
+         renderer_count == nullptr;
 }

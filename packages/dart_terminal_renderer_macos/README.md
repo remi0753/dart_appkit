@@ -18,11 +18,13 @@ also copies 16.16-scale CoreText output as top-down alpha8 masks or straight
 RGBA8 color glyphs with baseline-relative bearings. The native ABI also copies
 bounded alpha/color atlas dirty rectangles and renders an ordered packed frame
 through a build-time-compiled Metal library. Its synchronous RGBA readback is
-the deterministic correctness path; production frame-slot scheduling and view
-presentation remain a separate boundary. These calls are intended for a
-font/render worker domain rather than an AppKit event handler. Terminal grids,
-atlas allocation policy, input, and application policy remain outside this
-package boundary.
+the deterministic correctness path. Production submission copies into one of
+three fixed native slots, returns immediate backpressure when they are busy,
+and lets the bound native view select the newest ready frame; a slot retires
+only after it is dropped before encoding or its GPU command completes. These
+calls are intended for a font/render worker domain rather than an AppKit event
+handler. Terminal grids, atlas allocation policy, input, and application policy
+remain outside this package boundary.
 
 Applications declare the following native capability in their runtime manifest:
 
@@ -31,7 +33,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 5,
+  "abiVersion": 6,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }

@@ -14,6 +14,12 @@ NSView* CreateRegisteredCustomView(NSString* provider_identifier,
 int32_t RegisterCustomViewFactory(NSString* provider_identifier,
                                   da_custom_view_factory_v1 factory,
                                   void* context);
+int32_t RegisterCustomViewOperation(NSString* provider_identifier,
+                                    da_custom_view_operation_v1 operation,
+                                    void* context);
+int32_t PerformRegisteredCustomViewOperation(NSView* view,
+                                             const uint8_t* payload,
+                                             size_t payload_length);
 void ClearCustomViewClassesForTesting();
 
 }  // namespace dart_appkit

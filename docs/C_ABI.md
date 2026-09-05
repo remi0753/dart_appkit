@@ -130,6 +130,17 @@ generation, domain, release, finalizer, and shutdown rules are identical to
 with `DA_STATUS_INTERNAL_ERROR`. Dart receives no class, callback, object
 pointer, or arbitrary-handle adoption capability.
 
+The size-prefixed native-extension service table also permits that same
+provider to register one opaque synchronous view operation. The additive field
+does not change extension ABI version 1: older providers use the original table
+prefix, while providers that require the operation verify the larger
+`struct_size`. `da_view_perform_custom_operation` first validates the AppKit
+main thread, generation-checked view handle, and the exact provider that created
+the instance. Only then does it borrow the provider's `NSView` pointer and the
+caller payload for the duration of the native callback. Neither pointer nor an
+AppKit registry handle is exposed to Dart, and non-provider views, stale
+handles, missing operations, and malformed payloads fail closed.
+
 ## Event envelope
 
 Version 1 remains the legacy fixed-position list:

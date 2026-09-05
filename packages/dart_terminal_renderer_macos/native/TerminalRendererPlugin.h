@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 5u
+#define DTR_ABI_VERSION 6u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -26,6 +26,9 @@
 #define DTR_METAL_RENDERER_SUMMARY_VERSION 1u
 #define DTR_METAL_ATLAS_UPLOAD_VERSION 1u
 #define DTR_METAL_FRAME_VERSION 1u
+#define DTR_METAL_VIEW_BINDING_VERSION 1u
+#define DTR_METAL_SUBMISSION_VERSION 1u
+#define DTR_METAL_RENDERER_STATE_VERSION 1u
 #define DTR_METAL_FRAME_MAGIC 0x46525444u
 #define DTR_MAX_METAL_DIMENSION 4096u
 #define DTR_MAX_METAL_INSTANCES 131072u
@@ -43,6 +46,7 @@ typedef enum DtrStatus {
   DTR_STATUS_INTERNAL = 6,
   DTR_STATUS_BUFFER_TOO_SMALL = 7,
   DTR_STATUS_STALE_GENERATION = 8,
+  DTR_STATUS_BACKPRESSURED = 9,
 } DtrStatus;
 
 typedef enum DtrFontStyle {
@@ -55,6 +59,15 @@ typedef enum DtrFontStyle {
 enum {
   DTR_FONT_POLICY_ALLOW_SYNTHETIC = 1u << 0,
   DTR_FONT_POLICY_KNOWN_MASK = DTR_FONT_POLICY_ALLOW_SYNTHETIC,
+};
+
+enum {
+  DTR_METAL_VIEW_OPERATION_BIND = 1,
+};
+
+enum {
+  DTR_METAL_RENDERER_STATE_BOUND = 1u << 0,
+  DTR_METAL_RENDERER_STATE_ADMITTING = 1u << 1,
 };
 
 enum {
@@ -335,6 +348,48 @@ typedef struct DtrMetalInstanceV1 {
   uint32_t page_generation;
 } DtrMetalInstanceV1;
 
+// Opaque provider operation payload used to associate one renderer generation
+// with the TerminalMetalView that receives the operation. The AppKit view
+// handle and Objective-C object never enter this renderer ABI.
+typedef struct DtrMetalViewBindingV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t reserved;
+  uint64_t renderer_handle;
+  uint64_t renderer_generation;
+} DtrMetalViewBindingV1;
+
+typedef struct DtrMetalSubmissionV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint64_t renderer_generation;
+  uint64_t submission_token;
+  uint64_t frame_generation;
+  uint32_t reserved[2];
+} DtrMetalSubmissionV1;
+
+// A short locked snapshot for completion ownership. Every accepted token at or
+// below retired_through_token is no longer READY or IN_FLIGHT and its Dart
+// atlas pins may be released.
+typedef struct DtrMetalRendererStateV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint64_t renderer_generation;
+  uint64_t last_accepted_frame_generation;
+  uint64_t last_submission_token;
+  uint64_t retired_through_token;
+  uint64_t last_presented_frame_generation;
+  uint64_t accepted_submission_count;
+  uint64_t completed_submission_count;
+  uint64_t stale_ready_drop_count;
+  uint64_t backpressure_count;
+  uint32_t ready_slot_count;
+  uint32_t in_flight_slot_count;
+  uint32_t flags;
+  uint32_t reserved;
+} DtrMetalRendererStateV1;
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -406,15 +461,27 @@ dtr_metal_renderer_release_finalizer(void* handle);
 
 // Copies one tightly packed dirty rectangle into a bounded atlas texture
 // slice. No pointer is retained. Higher atlas/page generations clear stale
-// texture contents before the new definition is published.
+// texture contents before the new definition is published. Any upload is
+// backpressured while a READY/IN_FLIGHT frame owns the texture resource.
 __attribute__((visibility("default"))) int32_t dtr_metal_renderer_upload_atlas(
     uint64_t handle, const DtrMetalAtlasUploadV1* upload,
     const uint8_t* pixels);
 
+// Validates and synchronously copies one packed frame into one of three fixed
+// native slots. Returns immediately after READY publication; drawable access,
+// command encoding, presentation, and GPU completion occur in the native view
+// callback. On backpressure or rejection no caller pointer or partial frame is
+// retained. The caller initializes output struct_size/version.
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_submit(
+    uint64_t handle, const uint8_t* frame, uint32_t frame_length,
+    DtrMetalSubmissionV1* output);
+
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_state(
+    uint64_t handle, DtrMetalRendererStateV1* output);
+
 // Synchronous offscreen correctness/readback path. A null output with zero
-// capacity is a size query. Production drawable submission remains a later
-// ABI; this call retains no input/output pointer and never publishes partial
-// output.
+// capacity is a size query. Production rendering uses submit above; this call
+// retains no input/output pointer and never publishes partial output.
 __attribute__((visibility("default"))) int32_t dtr_metal_renderer_render_rgba(
     uint64_t handle, const uint8_t* frame, uint32_t frame_length,
     uint8_t* output, uint32_t output_capacity, uint32_t* output_required);

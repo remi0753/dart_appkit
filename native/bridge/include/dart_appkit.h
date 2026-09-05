@@ -256,6 +256,14 @@ DA_EXPORT int32_t da_view_create_custom(const char* provider_identifier,
                                         size_t provider_identifier_length,
                                         DaHandle* out_view);
 
+/**
+ * Main thread only. Invokes the opaque operation registered by the native
+ * provider that created this custom view. The payload is borrowed only for the
+ * synchronous call. Generic and specialized non-provider views are rejected.
+ */
+DA_EXPORT int32_t da_view_perform_custom_operation(
+    DaHandle view, const uint8_t* payload, size_t payload_length);
+
 /** Main thread only. */
 DA_EXPORT int32_t da_text_view_create(DaHandle* out_view);
 

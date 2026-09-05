@@ -27,6 +27,8 @@ int da_header_compiles_as_c(void) {
                               uint64_t, DaHandle*) = da_menu_item_create;
   int32_t (*custom_view_create)(const char*, size_t, DaHandle*) =
       da_view_create_custom;
+  int32_t (*custom_view_operation)(DaHandle, const uint8_t*, size_t) =
+      da_view_perform_custom_operation;
   const da_native_extension_services_v1* (*extension_services)(uint32_t) =
       da_native_extension_services;
   return rect.width == 640.0 && versioned_registration != 0 &&
@@ -34,6 +36,7 @@ int da_header_compiles_as_c(void) {
                  key_event_routing != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&
+                 custom_view_operation != 0 &&
                  extension_services != 0 && selected_version == 0
              ? DA_STATUS_OK
              : DA_STATUS_INTERNAL_ERROR;

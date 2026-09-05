@@ -60,7 +60,9 @@ uint32_t daev_abi_version(void) { return DAEV_ABI_VERSION; }
 
 int32_t daev_initialize(const da_native_extension_services_v1* services) {
   if (services == NULL ||
-      services->struct_size < sizeof(da_native_extension_services_v1) ||
+      services->struct_size <
+          offsetof(da_native_extension_services_v1,
+                   register_custom_view_operation) ||
       services->abi_version != DA_NATIVE_EXTENSION_ABI_VERSION ||
       services->register_custom_view_provider == NULL) {
     return DA_STATUS_UNSUPPORTED_VERSION;

@@ -99,6 +99,9 @@ int main(int argc, const char* argv[]) {
     using MetalUpload = int32_t (*)(uint64_t,
                                     const DtrMetalAtlasUploadV1*,
                                     const uint8_t*);
+    using MetalSubmit = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
+                                    DtrMetalSubmissionV1*);
+    using MetalState = int32_t (*)(uint64_t, DtrMetalRendererStateV1*);
     using MetalRender = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
                                     uint8_t*, uint32_t, uint32_t*);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
@@ -125,13 +128,18 @@ int main(int argc, const char* argv[]) {
         image, "dtr_metal_renderer_release_finalizer");
     const MetalUpload metal_upload =
         Lookup<MetalUpload>(image, "dtr_metal_renderer_upload_atlas");
+    const MetalSubmit metal_submit =
+        Lookup<MetalSubmit>(image, "dtr_metal_renderer_submit");
+    const MetalState metal_state =
+        Lookup<MetalState>(image, "dtr_metal_renderer_state");
     const MetalRender metal_render =
         Lookup<MetalRender>(image, "dtr_metal_renderer_render_rgba");
     const LiveCount live_metal_count =
         Lookup<LiveCount>(image, "dtr_debug_live_metal_renderer_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 5, "Metal pipelines require renderer ABI v5");
+    Expect(DTR_ABI_VERSION == 6,
+           "view-bound Metal submission requires renderer ABI v6");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -959,6 +967,27 @@ int main(int argc, const char* argv[]) {
     };
     const std::vector<uint8_t> metal_frame =
         make_frame(instances, metal_summary.generation, 1);
+    DtrMetalSubmissionV1 unbound_submission = {};
+    unbound_submission.struct_size = sizeof(unbound_submission);
+    unbound_submission.version = DTR_METAL_SUBMISSION_VERSION;
+    Expect(metal_submit != nullptr &&
+               metal_submit(metal_summary.handle, metal_frame.data(),
+                            static_cast<uint32_t>(metal_frame.size()),
+                            &unbound_submission) == DTR_STATUS_NOT_FOUND &&
+               unbound_submission.submission_token == 0,
+           "packed submission requires an explicitly bound terminal view");
+    DtrMetalRendererStateV1 unbound_state = {};
+    unbound_state.struct_size = sizeof(unbound_state);
+    unbound_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+    Expect(metal_state != nullptr &&
+               metal_state(metal_summary.handle, &unbound_state) ==
+                   DTR_STATUS_OK &&
+               unbound_state.renderer_generation == metal_summary.generation &&
+               unbound_state.ready_slot_count == 0 &&
+               unbound_state.in_flight_slot_count == 0 &&
+               unbound_state.flags ==
+                   DTR_METAL_RENDERER_STATE_ADMITTING,
+           "unbound renderer state is bounded and observable");
     uint32_t metal_required = 0;
     Expect(metal_render != nullptr &&
                metal_render(metal_summary.handle, metal_frame.data(),
@@ -1138,6 +1167,48 @@ int main(int argc, const char* argv[]) {
       Expect(view.delegate == nil, "view starts without a render delegate");
       Expect(view.isFlipped, "view uses top-left coordinates");
 
+      DtrMetalRendererConfigV1 presentation_config = metal_config;
+      presentation_config.maximum_viewport_width = 4096;
+      presentation_config.maximum_viewport_height = 4096;
+      DtrMetalRendererSummaryV1 presentation_summary = {};
+      presentation_summary.struct_size = sizeof(presentation_summary);
+      presentation_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+      Expect(metal_create(&presentation_config, &presentation_summary) ==
+                     DTR_STATUS_OK &&
+                 live_metal_count() == 1,
+             "view presentation renderer owns three bounded slots");
+      DtrMetalAtlasUploadV1 presentation_alpha = alpha_upload;
+      presentation_alpha.renderer_generation = presentation_summary.generation;
+      DtrMetalAtlasUploadV1 presentation_color = color_upload;
+      presentation_color.renderer_generation = presentation_summary.generation;
+      Expect(metal_upload(presentation_summary.handle, &presentation_alpha,
+                          alpha_pixels.data()) == DTR_STATUS_OK &&
+                 metal_upload(presentation_summary.handle, &presentation_color,
+                              color_pixels.data()) == DTR_STATUS_OK,
+             "presentation renderer receives both atlas formats");
+      DtrMetalViewBindingV1 binding = {};
+      binding.struct_size = sizeof(binding);
+      binding.version = DTR_METAL_VIEW_BINDING_VERSION;
+      binding.operation = DTR_METAL_VIEW_OPERATION_BIND;
+      binding.renderer_handle = presentation_summary.handle;
+      binding.renderer_generation = presentation_summary.generation + 1;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_INVALID_HANDLE,
+             "view binding rejects a stale renderer generation");
+      binding.renderer_generation = presentation_summary.generation;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_OK,
+             "opaque provider operation binds renderer to terminal view");
+      Expect(view.delegate != nil && view.isPaused &&
+                 view.enableSetNeedsDisplay && view.framebufferOnly,
+             "bound view owns native on-demand presentation delegate");
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_INVALID_ARGUMENT,
+             "terminal view and renderer bind at most once");
+
       constexpr char kTitle[] = "Terminal renderer capability";
       DaHandle window_handle = 0;
       Expect(
@@ -1155,6 +1226,182 @@ int main(int argc, const char* argv[]) {
              "window owns the attached renderer view");
       Expect(owner.window.firstResponder == view,
              "attached renderer becomes first responder");
+
+      [owner.window orderFront:nil];
+      CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, false);
+      const uint32_t drawable_width =
+          static_cast<uint32_t>(std::llround(view.drawableSize.width));
+      const uint32_t drawable_height =
+          static_cast<uint32_t>(std::llround(view.drawableSize.height));
+      Expect(drawable_width > 0 && drawable_width <= 4096 &&
+                 drawable_height > 0 && drawable_height <= 4096,
+             "attached terminal view has a bounded drawable");
+      auto presentation_frame = [&](uint64_t frame_generation) {
+        std::vector<uint8_t> frame =
+            make_frame(instances, presentation_summary.generation, 1);
+        return mutate_header(
+            frame, ^(DtrMetalFrameHeaderV1* header) {
+              header->frame_generation = frame_generation;
+              header->viewport_width = drawable_width;
+              header->viewport_height = drawable_height;
+            });
+      };
+      std::vector<std::vector<uint8_t>> presentation_frames;
+      std::vector<DtrMetalSubmissionV1> submissions;
+      for (uint64_t generation = 1; generation <= 3; generation++) {
+        presentation_frames.push_back(presentation_frame(generation));
+        DtrMetalSubmissionV1 submission = {};
+        submission.struct_size = sizeof(submission);
+        submission.version = DTR_METAL_SUBMISSION_VERSION;
+        const std::vector<uint8_t>& frame = presentation_frames.back();
+        Expect(metal_submit(presentation_summary.handle, frame.data(),
+                            static_cast<uint32_t>(frame.size()),
+                            &submission) == DTR_STATUS_OK,
+               "packed frame is copied into a free native slot");
+        submissions.push_back(submission);
+      }
+      Expect(submissions.size() == 3 &&
+                 submissions[0].submission_token == 1 &&
+                 submissions[1].submission_token == 2 &&
+                 submissions[2].submission_token == 3 &&
+                 submissions[2].frame_generation == 3 &&
+                 submissions[2].renderer_generation ==
+                     presentation_summary.generation,
+             "accepted submissions publish monotonic nonzero tokens");
+      std::vector<uint8_t> fourth_frame = presentation_frame(4);
+      DtrMetalSubmissionV1 rejected_submission = {};
+      rejected_submission.struct_size = sizeof(rejected_submission);
+      rejected_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(presentation_summary.handle, fourth_frame.data(),
+                          static_cast<uint32_t>(fourth_frame.size()),
+                          &rejected_submission) ==
+                     DTR_STATUS_BACKPRESSURED &&
+                 rejected_submission.submission_token == 0,
+             "a fourth queued frame is backpressured without publication");
+      DtrMetalSubmissionV1 stale_submission = {};
+      stale_submission.struct_size = sizeof(stale_submission);
+      stale_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(
+                 presentation_summary.handle, presentation_frames.back().data(),
+                 static_cast<uint32_t>(presentation_frames.back().size()),
+                 &stale_submission) == DTR_STATUS_STALE_GENERATION,
+             "duplicate frame generation is rejected before slot selection");
+      DtrMetalAtlasUploadV1 blocked_atlas = alpha_generation_two;
+      blocked_atlas.renderer_generation = presentation_summary.generation;
+      Expect(metal_upload(presentation_summary.handle, &presentation_alpha,
+                          alpha_pixels.data()) == DTR_STATUS_BACKPRESSURED,
+             "same-generation atlas writes cannot race queued GPU reads");
+      Expect(metal_upload(presentation_summary.handle, &blocked_atlas,
+                          alpha_pixels.data()) == DTR_STATUS_BACKPRESSURED,
+             "atlas generation replacement waits for frame retirement");
+      DtrMetalRendererStateV1 queued_state = {};
+      queued_state.struct_size = sizeof(queued_state);
+      queued_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+      Expect(metal_state(presentation_summary.handle, &queued_state) ==
+                     DTR_STATUS_OK &&
+                 queued_state.last_accepted_frame_generation == 3 &&
+                 queued_state.last_submission_token == 3 &&
+                 queued_state.retired_through_token == 0 &&
+                 queued_state.accepted_submission_count == 3 &&
+                 queued_state.backpressure_count == 1 &&
+                 queued_state.ready_slot_count == 3 &&
+                 queued_state.in_flight_slot_count == 0 &&
+                 queued_state.flags ==
+                     (DTR_METAL_RENDERER_STATE_BOUND |
+                      DTR_METAL_RENDERER_STATE_ADMITTING),
+             "three-slot state remains bounded before native draw");
+
+      [view draw];
+      DtrMetalRendererStateV1 completed_state = queued_state;
+      for (int attempt = 0; attempt < 200; attempt++) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, false);
+        completed_state.struct_size = sizeof(completed_state);
+        completed_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+        if (metal_state(presentation_summary.handle, &completed_state) !=
+            DTR_STATUS_OK) {
+          break;
+        }
+        if (completed_state.retired_through_token == 3) {
+          break;
+        }
+        [view draw];
+      }
+      Expect(completed_state.retired_through_token == 3 &&
+                 completed_state.last_presented_frame_generation == 3 &&
+                 completed_state.completed_submission_count == 1 &&
+                 completed_state.stale_ready_drop_count == 2 &&
+                 completed_state.ready_slot_count == 0 &&
+                 completed_state.in_flight_slot_count == 0,
+             "newest ready frame presents and all three tokens retire once");
+      Expect(metal_upload(presentation_summary.handle, &blocked_atlas,
+                          alpha_pixels.data()) == DTR_STATUS_OK,
+             "atlas replacement resumes after GPU completion");
+      const uint64_t presentation_handle = presentation_summary.handle;
+      Expect(metal_release(presentation_handle) == DTR_STATUS_OK,
+             "renderer release succeeds on the AppKit main thread");
+      Expect(view.delegate == nil,
+             "renderer release detaches its view on the AppKit main thread");
+      Expect(live_metal_count() == 0,
+             "main-thread renderer release drops registry ownership");
+      completed_state.struct_size = sizeof(completed_state);
+      completed_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+      Expect(metal_state(presentation_handle, &completed_state) ==
+                 DTR_STATUS_INVALID_HANDLE,
+             "released presentation renderer state is inaccessible");
+
+      DtrMetalRendererSummaryV1 async_summary = {};
+      async_summary.struct_size = sizeof(async_summary);
+      async_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+      Expect(metal_create(&presentation_config, &async_summary) ==
+                 DTR_STATUS_OK,
+             "worker-release renderer is created");
+      presentation_alpha.renderer_generation = async_summary.generation;
+      presentation_alpha.atlas_generation = 1;
+      presentation_alpha.page_generation = 1;
+      presentation_color.renderer_generation = async_summary.generation;
+      Expect(metal_upload(async_summary.handle, &presentation_alpha,
+                          alpha_pixels.data()) == DTR_STATUS_OK &&
+                 metal_upload(async_summary.handle, &presentation_color,
+                              color_pixels.data()) == DTR_STATUS_OK,
+             "worker-release renderer receives atlas definitions");
+      binding.renderer_handle = async_summary.handle;
+      binding.renderer_generation = async_summary.generation;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_OK,
+             "terminal view accepts a new renderer generation after detach");
+      std::vector<uint8_t> async_frame =
+          make_frame(instances, async_summary.generation, 1);
+      async_frame = mutate_header(
+          async_frame, ^(DtrMetalFrameHeaderV1* header) {
+            header->viewport_width = drawable_width;
+            header->viewport_height = drawable_height;
+          });
+      DtrMetalSubmissionV1 async_submission = {};
+      async_submission.struct_size = sizeof(async_submission);
+      async_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(async_summary.handle, async_frame.data(),
+                          static_cast<uint32_t>(async_frame.size()),
+                          &async_submission) == DTR_STATUS_OK,
+             "worker-release frame is accepted");
+      [view draw];
+      std::atomic<int32_t> async_release_status{DTR_STATUS_INTERNAL};
+      std::thread renderer_releaser([&] {
+        async_release_status.store(metal_release(async_summary.handle));
+      });
+      renderer_releaser.join();
+      Expect(async_release_status.load() == DTR_STATUS_OK &&
+                 metal_state(async_summary.handle, &completed_state) ==
+                     DTR_STATUS_INVALID_HANDLE,
+             "worker release invalidates the renderer handle immediately");
+      for (int attempt = 0;
+           attempt < 200 && (view.delegate != nil || live_metal_count() != 0);
+           attempt++) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, false);
+      }
+      Expect(view.delegate == nil, "worker release detaches on main");
+      Expect(live_metal_count() == 0,
+             "worker release drops registry ownership");
 
       Expect(da_release(view_handle) == DA_STATUS_OK,
              "Dart view handle releases independently");

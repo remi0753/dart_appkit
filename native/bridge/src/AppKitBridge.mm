@@ -1173,6 +1173,32 @@ int32_t da_view_create_custom(const char* provider_identifier,
   }
 }
 
+int32_t da_view_perform_custom_operation(DaHandle view_handle,
+                                         const uint8_t* payload,
+                                         size_t payload_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  __unsafe_unretained NSView* view =
+      dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  @try {
+    return dart_appkit::PerformRegisteredCustomViewOperation(
+        view, payload, payload_length);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "custom view operation failed");
+  }
+}
+
 int32_t da_text_view_create(DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {

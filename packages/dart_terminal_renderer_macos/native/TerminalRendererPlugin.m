@@ -473,15 +473,52 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 
 @end
 
-@interface DtrMetalRenderer : NSObject
+@class DtrMetalRenderer;
+
+@interface DtrTerminalMetalView : MTKView
+
+@property(nonatomic, strong) DtrMetalPipelineBundle* terminalPipelines;
+@property(nonatomic, strong) DtrMetalRenderer* terminalRenderer;
+@property(nonatomic) uint64_t terminalRendererGeneration;
+
+@end
+
+enum {
+  DTR_METAL_SLOT_FREE = 0,
+  DTR_METAL_SLOT_READY = 1,
+  DTR_METAL_SLOT_IN_FLIGHT = 2,
+};
+
+@interface DtrMetalFrameSlot : NSObject
+
+@property(nonatomic, strong) id<MTLBuffer> buffer;
+@property(nonatomic) uint32_t state;
+@property(nonatomic) uint64_t token;
+@property(nonatomic) DtrMetalFrameHeaderV1 header;
+
+@end
+
+@implementation DtrMetalFrameSlot
+@end
+
+@interface DtrMetalRenderer : NSObject <MTKViewDelegate>
 
 @property(nonatomic, readonly) uint64_t generation;
 @property(nonatomic, readonly) DtrMetalRendererConfigV1 config;
+@property(nonatomic, readonly) id<MTLDevice> device;
+@property(nonatomic, readonly) DtrMetalPipelineBundle* pipelines;
 
 - (instancetype)initWithConfig:(DtrMetalRendererConfigV1)config
                      generation:(uint64_t)generation;
 - (int32_t)upload:(DtrMetalAtlasUploadV1)upload
             pixels:(const uint8_t*)pixels;
+- (int32_t)bindView:(DtrTerminalMetalView*)view;
+- (int32_t)submitFrame:(const uint8_t*)frame
+                 length:(uint32_t)frameLength
+                 output:(DtrMetalSubmissionV1*)output;
+- (int32_t)copyState:(DtrMetalRendererStateV1*)output;
+- (void)shutdown;
+- (void)viewWillDeallocate:(DtrTerminalMetalView*)view;
 - (int32_t)renderFrame:(const uint8_t*)frame
                 length:(uint32_t)frameLength
                 output:(uint8_t*)output
@@ -501,6 +538,18 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   uint64_t* _alphaPageGenerations;
   uint64_t* _colorPageGenerations;
   uint64_t _atlasGeneration;
+  NSArray<DtrMetalFrameSlot*>* _slots;
+  __weak DtrTerminalMetalView* _view;
+  uint64_t _nextSubmissionToken;
+  uint64_t _lastAcceptedFrameGeneration;
+  uint64_t _lastSubmissionToken;
+  uint64_t _lastPresentedFrameGeneration;
+  uint64_t _acceptedSubmissionCount;
+  uint64_t _completedSubmissionCount;
+  uint64_t _staleReadyDropCount;
+  uint64_t _backpressureCount;
+  BOOL _admitting;
+  BOOL _everBound;
   NSLock* _lock;
   BOOL _counted;
 }
@@ -552,9 +601,26 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
       _alphaZeroPage == nil || _colorZeroPage == nil) {
     return nil;
   }
+  NSMutableArray<DtrMetalFrameSlot*>* slots =
+      [NSMutableArray arrayWithCapacity:3];
+  const NSUInteger slot_bytes =
+      (NSUInteger)config.maximum_instances * sizeof(DtrMetalInstanceV1);
+  for (NSUInteger index = 0; index < 3; index++) {
+    DtrMetalFrameSlot* slot = [[DtrMetalFrameSlot alloc] init];
+    slot.buffer = [_device newBufferWithLength:slot_bytes
+                                       options:MTLResourceStorageModeShared];
+    if (slot.buffer == nil) {
+      return nil;
+    }
+    slot.state = DTR_METAL_SLOT_FREE;
+    [slots addObject:slot];
+  }
+  _slots = [slots copy];
   _generation = generation;
   _config = config;
   _lock = [[NSLock alloc] init];
+  _nextSubmissionToken = 1;
+  _admitting = YES;
   [self clearAllAtlasTextures];
   atomic_fetch_add_explicit(&g_live_metal_renderer_count, 1,
                             memory_order_relaxed);
@@ -569,6 +635,124 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
     atomic_fetch_sub_explicit(&g_live_metal_renderer_count, 1,
                               memory_order_relaxed);
   }
+}
+
+- (id<MTLDevice>)device {
+  return _device;
+}
+
+- (DtrMetalPipelineBundle*)pipelines {
+  return _pipelines;
+}
+
+- (BOOL)hasActiveSlotsLocked {
+  for (DtrMetalFrameSlot* slot in _slots) {
+    if (slot.state != DTR_METAL_SLOT_FREE) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+- (void)requestDraw {
+  [_lock lock];
+  DtrTerminalMetalView* view = _view;
+  BOOL has_ready = NO;
+  for (DtrMetalFrameSlot* slot in _slots) {
+    has_ready |= slot.state == DTR_METAL_SLOT_READY;
+  }
+  const BOOL should_schedule = _admitting && view != nil && has_ready;
+  const uint64_t generation = self.generation;
+  [_lock unlock];
+  if (!should_schedule) {
+    return;
+  }
+  __weak DtrTerminalMetalView* weak_view = view;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    DtrTerminalMetalView* strong_view = weak_view;
+    if (strong_view != nil &&
+        strong_view.terminalRendererGeneration == generation) {
+      [strong_view setNeedsDisplay:YES];
+    }
+  });
+}
+
+- (int32_t)bindView:(DtrTerminalMetalView*)view {
+  if (view == nil || ![view isKindOfClass:DtrTerminalMetalView.class]) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  [_lock lock];
+  if (!_admitting || _everBound || _view != nil ||
+      view.terminalRendererGeneration != 0) {
+    [_lock unlock];
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  _view = view;
+  _everBound = YES;
+  view.device = _device;
+  view.colorPixelFormat = MTLPixelFormatRGBA8Unorm;
+  view.terminalPipelines = _pipelines;
+  view.terminalRenderer = self;
+  view.terminalRendererGeneration = self.generation;
+  view.delegate = self;
+  view.paused = YES;
+  view.enableSetNeedsDisplay = YES;
+  view.framebufferOnly = YES;
+  [_lock unlock];
+  return DTR_STATUS_OK;
+}
+
+- (void)detachOnMainThread {
+  DtrTerminalMetalView* view = _view;
+  if (view != nil &&
+      view.terminalRendererGeneration == self.generation) {
+    view.delegate = nil;
+    view.paused = YES;
+    view.terminalRendererGeneration = 0;
+    view.terminalRenderer = nil;
+  }
+  [_lock lock];
+  if (_view == view) {
+    _view = nil;
+  }
+  [_lock unlock];
+}
+
+- (void)shutdown {
+  [_lock lock];
+  if (!_admitting) {
+    [_lock unlock];
+    return;
+  }
+  _admitting = NO;
+  for (DtrMetalFrameSlot* slot in _slots) {
+    if (slot.state == DTR_METAL_SLOT_READY) {
+      slot.state = DTR_METAL_SLOT_FREE;
+    }
+  }
+  [_lock unlock];
+  if ([NSThread isMainThread]) {
+    [self detachOnMainThread];
+  } else {
+    DtrMetalRenderer* retained_self = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [retained_self detachOnMainThread];
+    });
+  }
+}
+
+- (void)viewWillDeallocate:(DtrTerminalMetalView*)view {
+  [_lock lock];
+  if (_view == view) {
+    _view = nil;
+    _admitting = NO;
+    for (DtrMetalFrameSlot* slot in _slots) {
+      if (slot.state == DTR_METAL_SLOT_READY) {
+        slot.state = DTR_METAL_SLOT_FREE;
+      }
+    }
+  }
+  [_lock unlock];
 }
 
 - (void)clearTexture:(id<MTLTexture>)texture
@@ -628,7 +812,9 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   uint64_t* page_generations =
       is_alpha ? _alphaPageGenerations : _colorPageGenerations;
   id<MTLTexture> texture = is_alpha ? _alphaAtlas : _colorAtlas;
-  if (upload.atlas_generation == 0 || upload.page_generation == 0 ||
+  if (!_admitting) {
+    result = DTR_STATUS_NOT_FOUND;
+  } else if (upload.atlas_generation == 0 || upload.page_generation == 0 ||
       upload.page_generation > UINT32_MAX || upload.page_index >= page_limit ||
       upload.width == 0 ||
       upload.height == 0 || upload.x > self.config.atlas_width ||
@@ -647,6 +833,8 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
              (upload.atlas_generation == _atlasGeneration &&
               page_generations[upload.page_index] > upload.page_generation)) {
     result = DTR_STATUS_STALE_GENERATION;
+  } else if ([self hasActiveSlotsLocked]) {
+    result = DTR_STATUS_BACKPRESSURED;
   } else {
     if (upload.atlas_generation > _atlasGeneration) {
       [self clearAllAtlasTextures];
@@ -762,6 +950,246 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
     }
   }
   return DTR_STATUS_OK;
+}
+
+- (int32_t)submitFrame:(const uint8_t*)frame
+                 length:(uint32_t)frameLength
+                 output:(DtrMetalSubmissionV1*)output {
+  if (output == NULL) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  uint32_t output_header[2];
+  memcpy(output_header, output, sizeof(output_header));
+  if (output_header[0] < sizeof(DtrMetalSubmissionV1) ||
+      output_header[1] != DTR_METAL_SUBMISSION_VERSION) {
+    return DTR_STATUS_UNSUPPORTED_VERSION;
+  }
+  DtrMetalSubmissionV1 empty = {0};
+  empty.struct_size = sizeof(empty);
+  empty.version = DTR_METAL_SUBMISSION_VERSION;
+  memcpy(output, &empty, sizeof(empty));
+
+  [_lock lock];
+  DtrMetalFrameHeaderV1 header;
+  int32_t result = [self validateFrame:frame length:frameLength header:&header];
+  if (result != DTR_STATUS_OK) {
+    [_lock unlock];
+    return result;
+  }
+  if (!_admitting || _view == nil) {
+    [_lock unlock];
+    return DTR_STATUS_NOT_FOUND;
+  }
+  if (header.frame_generation <= _lastAcceptedFrameGeneration) {
+    [_lock unlock];
+    return DTR_STATUS_STALE_GENERATION;
+  }
+  DtrMetalFrameSlot* selected = nil;
+  for (DtrMetalFrameSlot* slot in _slots) {
+    if (slot.state == DTR_METAL_SLOT_FREE) {
+      selected = slot;
+      break;
+    }
+  }
+  if (selected == nil) {
+    ++_backpressureCount;
+    [_lock unlock];
+    return DTR_STATUS_BACKPRESSURED;
+  }
+  if (_nextSubmissionToken == 0 || _nextSubmissionToken == UINT64_MAX) {
+    [_lock unlock];
+    return DTR_STATUS_RESOURCE_EXHAUSTED;
+  }
+  const uint64_t token = _nextSubmissionToken++;
+  const NSUInteger instance_bytes =
+      header.instance_count * sizeof(DtrMetalInstanceV1);
+  if (instance_bytes > 0) {
+    memcpy(selected.buffer.contents, frame + header.instances_offset,
+           instance_bytes);
+  }
+  selected.header = header;
+  selected.token = token;
+  selected.state = DTR_METAL_SLOT_READY;
+  _lastAcceptedFrameGeneration = header.frame_generation;
+  _lastSubmissionToken = token;
+  ++_acceptedSubmissionCount;
+  DtrMetalSubmissionV1 accepted = {0};
+  accepted.struct_size = sizeof(accepted);
+  accepted.version = DTR_METAL_SUBMISSION_VERSION;
+  accepted.renderer_generation = self.generation;
+  accepted.submission_token = token;
+  accepted.frame_generation = header.frame_generation;
+  memcpy(output, &accepted, sizeof(accepted));
+  [_lock unlock];
+  [self requestDraw];
+  return DTR_STATUS_OK;
+}
+
+- (int32_t)copyState:(DtrMetalRendererStateV1*)output {
+  if (output == NULL) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  uint32_t output_header[2];
+  memcpy(output_header, output, sizeof(output_header));
+  if (output_header[0] < sizeof(DtrMetalRendererStateV1) ||
+      output_header[1] != DTR_METAL_RENDERER_STATE_VERSION) {
+    return DTR_STATUS_UNSUPPORTED_VERSION;
+  }
+  [_lock lock];
+  uint32_t ready = 0;
+  uint32_t in_flight = 0;
+  uint64_t first_active_token = UINT64_MAX;
+  for (DtrMetalFrameSlot* slot in _slots) {
+    if (slot.state == DTR_METAL_SLOT_READY) {
+      ++ready;
+    } else if (slot.state == DTR_METAL_SLOT_IN_FLIGHT) {
+      ++in_flight;
+    }
+    if (slot.state != DTR_METAL_SLOT_FREE &&
+        slot.token < first_active_token) {
+      first_active_token = slot.token;
+    }
+  }
+  DtrMetalRendererStateV1 state = {0};
+  state.struct_size = sizeof(state);
+  state.version = DTR_METAL_RENDERER_STATE_VERSION;
+  state.renderer_generation = self.generation;
+  state.last_accepted_frame_generation = _lastAcceptedFrameGeneration;
+  state.last_submission_token = _lastSubmissionToken;
+  state.retired_through_token =
+      first_active_token == UINT64_MAX ? _lastSubmissionToken
+                                       : first_active_token - 1;
+  state.last_presented_frame_generation = _lastPresentedFrameGeneration;
+  state.accepted_submission_count = _acceptedSubmissionCount;
+  state.completed_submission_count = _completedSubmissionCount;
+  state.stale_ready_drop_count = _staleReadyDropCount;
+  state.backpressure_count = _backpressureCount;
+  state.ready_slot_count = ready;
+  state.in_flight_slot_count = in_flight;
+  state.flags = (_view == nil ? 0u : DTR_METAL_RENDERER_STATE_BOUND) |
+                (_admitting ? DTR_METAL_RENDERER_STATE_ADMITTING : 0u);
+  memcpy(output, &state, sizeof(state));
+  [_lock unlock];
+  return DTR_STATUS_OK;
+}
+
+- (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {
+  (void)view;
+  (void)size;
+}
+
+- (void)drawInMTKView:(MTKView*)view {
+  @autoreleasepool {
+    [_lock lock];
+    BOOL has_ready_frame = NO;
+    if (_admitting && _view == view) {
+      for (DtrMetalFrameSlot* slot in _slots) {
+        if (slot.state == DTR_METAL_SLOT_READY) {
+          has_ready_frame = YES;
+          break;
+        }
+      }
+    }
+    [_lock unlock];
+    if (!has_ready_frame) {
+      return;
+    }
+
+    MTLRenderPassDescriptor* pass = view.currentRenderPassDescriptor;
+    id<CAMetalDrawable> drawable = view.currentDrawable;
+    if (pass == nil || drawable == nil) {
+      return;
+    }
+    [_lock lock];
+    if (!_admitting || _view != view) {
+      [_lock unlock];
+      return;
+    }
+    DtrMetalFrameSlot* selected = nil;
+    for (DtrMetalFrameSlot* slot in _slots) {
+      if (slot.state == DTR_METAL_SLOT_READY &&
+          (selected == nil || slot.header.frame_generation >
+                                  selected.header.frame_generation)) {
+        selected = slot;
+      }
+    }
+    if (selected == nil) {
+      [_lock unlock];
+      return;
+    }
+    for (DtrMetalFrameSlot* slot in _slots) {
+      if (slot != selected && slot.state == DTR_METAL_SLOT_READY) {
+        slot.state = DTR_METAL_SLOT_FREE;
+        ++_staleReadyDropCount;
+      }
+    }
+    selected.state = DTR_METAL_SLOT_IN_FLIGHT;
+    const uint64_t selected_token = selected.token;
+    const DtrMetalFrameHeaderV1 header = selected.header;
+    id<MTLBuffer> instance_buffer = selected.buffer;
+    id<MTLTexture> alpha_atlas = _alphaAtlas;
+    id<MTLTexture> color_atlas = _colorAtlas;
+    [_lock unlock];
+
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    const uint32_t background = header.background_rgba;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(
+        ((background >> 24) & 0xffu) / 255.0,
+        ((background >> 16) & 0xffu) / 255.0,
+        ((background >> 8) & 0xffu) / 255.0,
+        (background & 0xffu) / 255.0);
+    id<MTLCommandBuffer> command = [_commandQueue commandBuffer];
+    id<MTLRenderCommandEncoder> encoder =
+        [command renderCommandEncoderWithDescriptor:pass];
+    if (command == nil || encoder == nil) {
+      [_lock lock];
+      if (selected.state == DTR_METAL_SLOT_IN_FLIGHT &&
+          selected.token == selected_token) {
+        selected.state = DTR_METAL_SLOT_FREE;
+      }
+      [_lock unlock];
+      return;
+    }
+    if (header.instance_count != 0) {
+      const float viewport[2] = {(float)header.viewport_width,
+                                 (float)header.viewport_height};
+      [encoder setRenderPipelineState:_pipelines.pipeline];
+      [encoder setVertexBuffer:instance_buffer offset:0 atIndex:0];
+      [encoder setVertexBytes:viewport length:sizeof(viewport) atIndex:1];
+      [encoder setFragmentTexture:alpha_atlas atIndex:0];
+      [encoder setFragmentTexture:color_atlas atIndex:1];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                  vertexStart:0
+                  vertexCount:4
+                instanceCount:header.instance_count];
+    }
+    [encoder endEncoding];
+    [command presentDrawable:drawable];
+    __weak DtrMetalRenderer* weak_self = self;
+    [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+      DtrMetalRenderer* strong_self = weak_self;
+      if (strong_self == nil) {
+        return;
+      }
+      [strong_self->_lock lock];
+      if (selected.state == DTR_METAL_SLOT_IN_FLIGHT &&
+          selected.token == selected_token) {
+        selected.state = DTR_METAL_SLOT_FREE;
+        if (completed.status == MTLCommandBufferStatusCompleted) {
+          ++strong_self->_completedSubmissionCount;
+          if (header.frame_generation >
+              strong_self->_lastPresentedFrameGeneration) {
+            strong_self->_lastPresentedFrameGeneration =
+                header.frame_generation;
+          }
+        }
+      }
+      [strong_self->_lock unlock];
+      [strong_self requestDraw];
+    }];
+    [command commit];
+  }
 }
 
 - (int32_t)renderFrame:(const uint8_t*)frame
@@ -884,22 +1312,17 @@ MetalRendererRegistry(void) {
   return registry;
 }
 
-static DtrMetalRenderer* MetalRendererForHandle(uint64_t handle) {
+static void RetainMetalRendererForHandle(
+    uint64_t handle, DtrMetalRenderer* __strong* output) {
+  *output = nil;
   if (handle == 0) {
-    return nil;
+    return;
   }
   NSLock* lock = MetalRendererRegistryLock();
   [lock lock];
-  DtrMetalRenderer* renderer = MetalRendererRegistry()[@(handle)];
+  *output = MetalRendererRegistry()[@(handle)];
   [lock unlock];
-  return renderer;
 }
-
-@interface DtrTerminalMetalView : MTKView
-
-@property(nonatomic, strong) DtrMetalPipelineBundle* terminalPipelines;
-
-@end
 
 @implementation DtrTerminalMetalView
 
@@ -928,6 +1351,7 @@ static DtrMetalRenderer* MetalRendererForHandle(uint64_t handle) {
 }
 
 - (void)dealloc {
+  [_terminalRenderer viewWillDeallocate:self];
   atomic_fetch_sub_explicit(&g_live_view_count, 1, memory_order_relaxed);
 }
 
@@ -943,13 +1367,48 @@ static void* CreateTerminalMetalView(void* context) {
   return (__bridge_retained void*)view;
 }
 
+static int32_t PerformTerminalMetalViewOperation(
+    void* context, void* opaque_view, const uint8_t* payload,
+    size_t payload_length) {
+  (void)context;
+  if (opaque_view == NULL || payload == NULL ||
+      payload_length != sizeof(DtrMetalViewBindingV1)) {
+    return DA_STATUS_INVALID_ARGUMENT;
+  }
+  DtrMetalViewBindingV1 binding;
+  memcpy(&binding, payload, sizeof(binding));
+  if (binding.struct_size != sizeof(binding) ||
+      binding.version != DTR_METAL_VIEW_BINDING_VERSION ||
+      binding.operation != DTR_METAL_VIEW_OPERATION_BIND ||
+      binding.reserved != 0 || binding.renderer_handle == 0 ||
+      binding.renderer_generation == 0) {
+    return DA_STATUS_INVALID_ARGUMENT;
+  }
+  DtrMetalRenderer* renderer = nil;
+  RetainMetalRendererForHandle(binding.renderer_handle, &renderer);
+  if (renderer == nil || renderer.generation != binding.renderer_generation) {
+    return DA_STATUS_INVALID_HANDLE;
+  }
+  id view = (__bridge id)opaque_view;
+  if (![view isKindOfClass:DtrTerminalMetalView.class]) {
+    return DA_STATUS_WRONG_HANDLE_TYPE;
+  }
+  const int32_t status = [renderer bindView:(DtrTerminalMetalView*)view];
+  if (status == DTR_STATUS_OK) {
+    return DA_STATUS_OK;
+  }
+  return status == DTR_STATUS_INTERNAL ? DA_STATUS_INTERNAL_ERROR
+                                       : DA_STATUS_INVALID_ARGUMENT;
+}
+
 uint32_t dtr_abi_version(void) { return DTR_ABI_VERSION; }
 
 int32_t dtr_initialize(const da_native_extension_services_v1* services) {
   if (services == NULL ||
       services->struct_size < sizeof(da_native_extension_services_v1) ||
       services->abi_version != DA_NATIVE_EXTENSION_ABI_VERSION ||
-      services->register_custom_view_provider == NULL) {
+      services->register_custom_view_provider == NULL ||
+      services->register_custom_view_operation == NULL) {
     return DA_STATUS_UNSUPPORTED_VERSION;
   }
   if (g_initialized_services != NULL) {
@@ -959,10 +1418,16 @@ int32_t dtr_initialize(const da_native_extension_services_v1* services) {
   const int32_t status = services->register_custom_view_provider(
       (const uint8_t*)kProviderIdentifier, strlen(kProviderIdentifier),
       CreateTerminalMetalView, NULL);
-  if (status == DA_STATUS_OK) {
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  const int32_t operation_status = services->register_custom_view_operation(
+      (const uint8_t*)kProviderIdentifier, strlen(kProviderIdentifier),
+      PerformTerminalMetalViewOperation, NULL);
+  if (operation_status == DA_STATUS_OK) {
     g_initialized_services = services;
   }
-  return status;
+  return operation_status;
 }
 
 int32_t dtr_debug_live_view_count(void) {
@@ -1768,6 +2233,7 @@ int32_t dtr_metal_renderer_release(uint64_t handle) {
       [MetalRendererRegistry() removeObjectForKey:@(handle)];
     }
     [lock unlock];
+    [renderer shutdown];
     return renderer == nil ? DTR_STATUS_INVALID_HANDLE : DTR_STATUS_OK;
   }
 }
@@ -1797,9 +2263,58 @@ int32_t dtr_metal_renderer_upload_atlas(
         copied.reserved[2] != 0 || copied.reserved[3] != 0) {
       return DTR_STATUS_INVALID_ARGUMENT;
     }
-    DtrMetalRenderer* renderer = MetalRendererForHandle(handle);
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
     return renderer == nil ? DTR_STATUS_INVALID_HANDLE
                            : [renderer upload:copied pixels:pixels];
+  }
+}
+
+int32_t dtr_metal_renderer_submit(uint64_t handle, const uint8_t* frame,
+                                  uint32_t frame_length,
+                                  DtrMetalSubmissionV1* output) {
+  @autoreleasepool {
+    if (output == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t output_header[2];
+    memcpy(output_header, output, sizeof(output_header));
+    if (output_header[0] < sizeof(DtrMetalSubmissionV1) ||
+        output_header[1] != DTR_METAL_SUBMISSION_VERSION) {
+      return DTR_STATUS_UNSUPPORTED_VERSION;
+    }
+    DtrMetalSubmissionV1 empty = {0};
+    empty.struct_size = sizeof(empty);
+    empty.version = DTR_METAL_SUBMISSION_VERSION;
+    memcpy(output, &empty, sizeof(empty));
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
+    return renderer == nil
+               ? DTR_STATUS_INVALID_HANDLE
+               : [renderer submitFrame:frame length:frame_length output:output];
+  }
+}
+
+int32_t dtr_metal_renderer_state(uint64_t handle,
+                                 DtrMetalRendererStateV1* output) {
+  @autoreleasepool {
+    if (output == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t output_header[2];
+    memcpy(output_header, output, sizeof(output_header));
+    if (output_header[0] < sizeof(DtrMetalRendererStateV1) ||
+        output_header[1] != DTR_METAL_RENDERER_STATE_VERSION) {
+      return DTR_STATUS_UNSUPPORTED_VERSION;
+    }
+    DtrMetalRendererStateV1 empty = {0};
+    empty.struct_size = sizeof(empty);
+    empty.version = DTR_METAL_RENDERER_STATE_VERSION;
+    memcpy(output, &empty, sizeof(empty));
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
+    return renderer == nil ? DTR_STATUS_INVALID_HANDLE
+                           : [renderer copyState:output];
   }
 }
 
@@ -1807,7 +2322,12 @@ int32_t dtr_metal_renderer_render_rgba(
     uint64_t handle, const uint8_t* frame, uint32_t frame_length,
     uint8_t* output, uint32_t output_capacity, uint32_t* output_required) {
   @autoreleasepool {
-    DtrMetalRenderer* renderer = MetalRendererForHandle(handle);
+    if (output_required == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    *output_required = 0;
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
     return renderer == nil
                ? DTR_STATUS_INVALID_HANDLE
                : [renderer renderFrame:frame
