@@ -39,18 +39,37 @@ enum TerminalMetalUploadDisposition { uploaded, stale, backpressured }
 
 enum TerminalMetalSubmissionDisposition { accepted, stale, backpressured }
 
+enum TerminalMetalFailureKind {
+  none(0),
+  deviceUnavailable(1),
+  shaderLibrary(2),
+  shaderFunction(3),
+  pipeline(4),
+  resourceAllocation(5),
+  commandEncoding(6),
+  commandExecution(7),
+  deviceLost(8);
+
+  const TerminalMetalFailureKind(this.nativeValue);
+
+  final int nativeValue;
+}
+
 final class TerminalMetalRendererException implements Exception {
   const TerminalMetalRendererException({
     required this.operation,
     required this.status,
+    this.failure = TerminalMetalFailureKind.none,
   });
 
   final String operation;
   final int status;
+  final TerminalMetalFailureKind failure;
 
   @override
   String toString() =>
-      'TerminalMetalRendererException($operation, status=$status)';
+      'TerminalMetalRendererException('
+      '$operation, status=$status, failure=${failure.name})';
 }
 
 final class TerminalMetalRendererConfig {
@@ -487,6 +506,12 @@ final class TerminalMetalRendererState {
     required this.inFlightSlotCount,
     required this.isBound,
     required this.isAdmitting,
+    required this.isFaulted,
+    required this.failure,
+    required this.failureGeneration,
+    required this.lastFailedFrameGeneration,
+    required this.drawableUnavailableCount,
+    required this.commandFailureCount,
   });
 
   final int rendererGeneration;
@@ -502,6 +527,12 @@ final class TerminalMetalRendererState {
   final int inFlightSlotCount;
   final bool isBound;
   final bool isAdmitting;
+  final bool isFaulted;
+  final TerminalMetalFailureKind failure;
+  final int failureGeneration;
+  final int lastFailedFrameGeneration;
+  final int drawableUnavailableCount;
+  final int commandFailureCount;
 }
 
 /// Generation-owned, bounded native Metal renderer.
@@ -532,14 +563,32 @@ final class TerminalMetalRenderer implements Finalizable {
           arena<_MetalRendererSummaryV1>();
       output.ref
         ..structSize = sizeOf<_MetalRendererSummaryV1>()
-        ..version = 1;
-      _checkMetalStatus(
-        _metalRendererCreate(nativeConfig, output),
-        'Metal renderer create',
-      );
+        ..version = 2;
+      final int status = _metalRendererCreate(nativeConfig, output);
       final _MetalRendererSummaryV1 summary = output.ref;
       if (summary.structSize != sizeOf<_MetalRendererSummaryV1>() ||
-          summary.version != 1 ||
+          summary.version != 2 ||
+          !_reservedZero(summary.reserved, 2)) {
+        if (summary.handle != 0) _metalRendererRelease(summary.handle);
+        throw const FormatException('invalid native Metal renderer summary');
+      }
+      final TerminalMetalFailureKind failure = _metalFailureFromNative(
+        summary.failureKind,
+      );
+      if (status != 0) {
+        if (summary.handle != 0 ||
+            summary.generation != 0 ||
+            failure == TerminalMetalFailureKind.none) {
+          if (summary.handle != 0) _metalRendererRelease(summary.handle);
+          throw const FormatException('invalid failed Metal renderer summary');
+        }
+        throw TerminalMetalRendererException(
+          operation: 'Metal renderer create',
+          status: status,
+          failure: failure,
+        );
+      }
+      if (failure != TerminalMetalFailureKind.none ||
           summary.handle == 0 ||
           summary.generation == 0 ||
           summary.maximumViewportWidth != config.maximumViewportWidth ||
@@ -548,8 +597,7 @@ final class TerminalMetalRenderer implements Finalizable {
           summary.atlasWidth != config.atlasWidth ||
           summary.atlasHeight != config.atlasHeight ||
           summary.maximumAlphaPages != config.maximumAlphaPages ||
-          summary.maximumColorPages != config.maximumColorPages ||
-          !_reservedZero(summary.reserved, 3)) {
+          summary.maximumColorPages != config.maximumColorPages) {
         if (summary.handle != 0) _metalRendererRelease(summary.handle);
         throw const FormatException('invalid native Metal renderer summary');
       }
@@ -594,6 +642,17 @@ final class TerminalMetalRenderer implements Finalizable {
     data.setUint64(16, handle, Endian.little);
     data.setUint64(24, generation, Endian.little);
     view.performCustomOperation(payload);
+  }
+
+  /// Retriggers on-demand presentation of a retained READY frame.
+  ///
+  /// Native never installs an automatic retry loop when a drawable is absent;
+  /// the window visibility/resume owner calls this at its next useful epoch.
+  void requestPresentation() {
+    _checkMetalStatus(
+      _metalRendererRequestDraw(_liveHandle()),
+      'Metal presentation request',
+    );
   }
 
   TerminalMetalUploadDisposition resetAtlas({required int atlasGeneration}) {
@@ -733,21 +792,34 @@ final class TerminalMetalRenderer implements Finalizable {
           arena<_MetalRendererStateV1>();
       output.ref
         ..structSize = sizeOf<_MetalRendererStateV1>()
-        ..version = 1;
+        ..version = 2;
       _checkMetalStatus(
         _metalRendererState(handle, output),
         'Metal renderer state',
       );
       final _MetalRendererStateV1 value = output.ref;
+      final TerminalMetalFailureKind failure = _metalFailureFromNative(
+        value.failureKind,
+      );
+      final bool isFaulted = value.flags & 4 != 0;
       if (value.structSize != sizeOf<_MetalRendererStateV1>() ||
-          value.version != 1 ||
+          value.version != 2 ||
           value.rendererGeneration != generation ||
           value.retiredThroughToken > value.lastSubmissionToken ||
           value.lastAcceptedFrameGeneration <
               value.lastPresentedFrameGeneration ||
           value.readySlotCount + value.inFlightSlotCount > 3 ||
-          value.flags & ~3 != 0 ||
-          value.reserved != 0) {
+          value.flags & ~7 != 0 ||
+          !_reservedZero(value.reserved, 2) ||
+          (isFaulted != (failure != TerminalMetalFailureKind.none)) ||
+          (isFaulted &&
+              (value.failureGeneration == 0 ||
+                  value.lastFailedFrameGeneration == 0 ||
+                  value.commandFailureCount == 0)) ||
+          (!isFaulted &&
+              (value.failureGeneration != 0 ||
+                  value.lastFailedFrameGeneration != 0 ||
+                  value.commandFailureCount != 0))) {
         throw const FormatException('invalid native Metal renderer state');
       }
       return TerminalMetalRendererState(
@@ -764,6 +836,12 @@ final class TerminalMetalRenderer implements Finalizable {
         inFlightSlotCount: value.inFlightSlotCount,
         isBound: value.flags & 1 != 0,
         isAdmitting: value.flags & 2 != 0,
+        isFaulted: isFaulted,
+        failure: failure,
+        failureGeneration: value.failureGeneration,
+        lastFailedFrameGeneration: value.lastFailedFrameGeneration,
+        drawableUnavailableCount: value.drawableUnavailableCount,
+        commandFailureCount: value.commandFailureCount,
       );
     } finally {
       arena.releaseAll();
@@ -888,7 +966,9 @@ final class _MetalRendererSummaryV1 extends Struct {
   external int maximumAlphaPages;
   @Uint32()
   external int maximumColorPages;
-  @Array(3)
+  @Uint32()
+  external int failureKind;
+  @Array(2)
   external Array<Uint32> reserved;
 }
 
@@ -981,7 +1061,17 @@ final class _MetalRendererStateV1 extends Struct {
   @Uint32()
   external int flags;
   @Uint32()
-  external int reserved;
+  external int failureKind;
+  @Uint64()
+  external int failureGeneration;
+  @Uint64()
+  external int lastFailedFrameGeneration;
+  @Uint64()
+  external int drawableUnavailableCount;
+  @Uint64()
+  external int commandFailureCount;
+  @Array(2)
+  external Array<Uint32> reserved;
 }
 
 void _checkMetalLayout() {
@@ -990,9 +1080,17 @@ void _checkMetalLayout() {
       sizeOf<_MetalAtlasResetV1>() != 32 ||
       sizeOf<_MetalAtlasUploadV1>() != 80 ||
       sizeOf<_MetalSubmissionV1>() != 40 ||
-      sizeOf<_MetalRendererStateV1>() != 96) {
+      sizeOf<_MetalRendererStateV1>() != 136) {
     throw StateError('unexpected Dart FFI Metal ABI layout');
   }
+}
+
+TerminalMetalFailureKind _metalFailureFromNative(int value) {
+  for (final TerminalMetalFailureKind failure
+      in TerminalMetalFailureKind.values) {
+    if (failure.nativeValue == value) return failure;
+  }
+  throw const FormatException('unknown native Metal failure kind');
 }
 
 bool _reservedZero(Array<Uint32> values, int length) {
@@ -1090,6 +1188,12 @@ external int _metalRendererState(
   int handle,
   Pointer<_MetalRendererStateV1> output,
 );
+
+@Native<Int32 Function(Uint64)>(
+  symbol: 'dtr_metal_renderer_request_draw',
+  assetId: _metalAssetId,
+)
+external int _metalRendererRequestDraw(int handle);
 
 @Native<
   Int32 Function(

@@ -13,7 +13,16 @@ static _Atomic int32_t g_live_view_count = 0;
 static _Atomic int32_t g_live_metal_renderer_count = 0;
 static _Atomic uint64_t g_next_font_catalog_handle = 1;
 static _Atomic uint64_t g_next_metal_renderer_handle = 1;
+static _Atomic uint32_t g_next_metal_test_failure =
+    DTR_METAL_TEST_FAILURE_NONE;
 static const da_native_extension_services_v1* g_initialized_services = NULL;
+
+static BOOL ConsumeMetalTestFailure(uint32_t failure) {
+  uint32_t expected = failure;
+  return atomic_compare_exchange_strong_explicit(
+      &g_next_metal_test_failure, &expected, DTR_METAL_TEST_FAILURE_NONE,
+      memory_order_relaxed, memory_order_relaxed);
+}
 
 extern const uint8_t dtr_metallib_start[]
     __asm("section$start$__DATA$__dtrlib");
@@ -409,20 +418,27 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 
 @property(nonatomic, readonly) id<MTLRenderPipelineState> pipeline;
 
-- (instancetype)initWithDevice:(id<MTLDevice>)device;
+- (instancetype)initWithDevice:(id<MTLDevice>)device
+                        failure:(uint32_t*)failure;
 
 @end
 
 @implementation DtrMetalPipelineBundle
 
-- (instancetype)initWithDevice:(id<MTLDevice>)device {
+- (instancetype)initWithDevice:(id<MTLDevice>)device
+                        failure:(uint32_t*)failure {
   self = [super init];
+  if (failure == NULL) {
+    return nil;
+  }
+  *failure = DTR_METAL_FAILURE_RESOURCE_ALLOCATION;
   if (self == nil || device == nil) {
     return nil;
   }
   const size_t library_length =
       (size_t)(dtr_metallib_end - dtr_metallib_start);
   if (library_length == 0) {
+    *failure = DTR_METAL_FAILURE_SHADER_LIBRARY;
     return nil;
   }
   void* library_copy = malloc(library_length);
@@ -435,9 +451,13 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0),
       DISPATCH_DATA_DESTRUCTOR_FREE);
   NSError* error = nil;
-  id<MTLLibrary> library =
-      [device newLibraryWithData:library_data error:&error];
+  id<MTLLibrary> library = ConsumeMetalTestFailure(
+                               DTR_METAL_TEST_FAILURE_CREATE_SHADER_LIBRARY)
+                               ? nil
+                               : [device newLibraryWithData:library_data
+                                                      error:&error];
   if (library == nil || error != nil) {
+    *failure = DTR_METAL_FAILURE_SHADER_LIBRARY;
     return nil;
   }
   id<MTLFunction> vertex =
@@ -445,6 +465,7 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   id<MTLFunction> fragment =
       [library newFunctionWithName:@"dtr_terminal_fragment"];
   if (vertex == nil || fragment == nil) {
+    *failure = DTR_METAL_FAILURE_SHADER_FUNCTION;
     return nil;
   }
   MTLRenderPipelineDescriptor* descriptor =
@@ -466,8 +487,10 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   _pipeline = [device newRenderPipelineStateWithDescriptor:descriptor
                                                      error:&error];
   if (_pipeline == nil || error != nil) {
+    *failure = DTR_METAL_FAILURE_PIPELINE;
     return nil;
   }
+  *failure = DTR_METAL_FAILURE_NONE;
   return self;
 }
 
@@ -509,7 +532,8 @@ enum {
 @property(nonatomic, readonly) DtrMetalPipelineBundle* pipelines;
 
 - (instancetype)initWithConfig:(DtrMetalRendererConfigV1)config
-                     generation:(uint64_t)generation;
+                     generation:(uint64_t)generation
+                        failure:(uint32_t*)failure;
 - (int32_t)upload:(DtrMetalAtlasUploadV1)upload
             pixels:(const uint8_t*)pixels;
 - (int32_t)resetAtlas:(DtrMetalAtlasResetV1)reset;
@@ -518,6 +542,9 @@ enum {
                  length:(uint32_t)frameLength
                  output:(DtrMetalSubmissionV1*)output;
 - (int32_t)copyState:(DtrMetalRendererStateV1*)output;
+- (int32_t)requestDraw;
+- (void)recordFaultLocked:(uint32_t)failure
+          frameGeneration:(uint64_t)frameGeneration;
 - (void)shutdown;
 - (void)viewWillDeallocate:(DtrTerminalMetalView*)view;
 - (int32_t)renderFrame:(const uint8_t*)frame
@@ -549,22 +576,43 @@ enum {
   uint64_t _completedSubmissionCount;
   uint64_t _staleReadyDropCount;
   uint64_t _backpressureCount;
+  uint64_t _failureGeneration;
+  uint64_t _lastFailedFrameGeneration;
+  uint64_t _drawableUnavailableCount;
+  uint64_t _commandFailureCount;
+  uint32_t _failureKind;
   BOOL _admitting;
+  BOOL _shuttingDown;
   BOOL _everBound;
   NSLock* _lock;
   BOOL _counted;
 }
 
 - (instancetype)initWithConfig:(DtrMetalRendererConfigV1)config
-                     generation:(uint64_t)generation {
+                     generation:(uint64_t)generation
+                        failure:(uint32_t*)failure {
   self = [super init];
+  if (failure == NULL) {
+    return nil;
+  }
+  *failure = DTR_METAL_FAILURE_RESOURCE_ALLOCATION;
   if (self == nil) {
     return nil;
   }
-  _device = MTLCreateSystemDefaultDevice();
+  _device = ConsumeMetalTestFailure(DTR_METAL_TEST_FAILURE_CREATE_DEVICE)
+                ? nil
+                : MTLCreateSystemDefaultDevice();
+  if (_device == nil) {
+    *failure = DTR_METAL_FAILURE_DEVICE_UNAVAILABLE;
+    return nil;
+  }
   _commandQueue = [_device newCommandQueue];
-  _pipelines = [[DtrMetalPipelineBundle alloc] initWithDevice:_device];
-  if (_device == nil || _commandQueue == nil || _pipelines == nil) {
+  if (_commandQueue == nil) {
+    return nil;
+  }
+  _pipelines = [[DtrMetalPipelineBundle alloc] initWithDevice:_device
+                                                      failure:failure];
+  if (_pipelines == nil) {
     return nil;
   }
   MTLTextureDescriptor* alpha_descriptor =
@@ -626,6 +674,7 @@ enum {
   atomic_fetch_add_explicit(&g_live_metal_renderer_count, 1,
                             memory_order_relaxed);
   _counted = YES;
+  *failure = DTR_METAL_FAILURE_NONE;
   return self;
 }
 
@@ -655,7 +704,7 @@ enum {
   return NO;
 }
 
-- (void)requestDraw {
+- (int32_t)requestDraw {
   [_lock lock];
   DtrTerminalMetalView* view = _view;
   BOOL has_ready = NO;
@@ -663,10 +712,12 @@ enum {
     has_ready |= slot.state == DTR_METAL_SLOT_READY;
   }
   const BOOL should_schedule = _admitting && view != nil && has_ready;
+  const int32_t result = !_admitting || view == nil ? DTR_STATUS_NOT_FOUND
+                                                     : DTR_STATUS_OK;
   const uint64_t generation = self.generation;
   [_lock unlock];
   if (!should_schedule) {
-    return;
+    return result;
   }
   __weak DtrTerminalMetalView* weak_view = view;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -676,6 +727,26 @@ enum {
       [strong_view setNeedsDisplay:YES];
     }
   });
+  return DTR_STATUS_OK;
+}
+
+- (void)recordFaultLocked:(uint32_t)failure
+          frameGeneration:(uint64_t)frameGeneration {
+  if (_failureKind != DTR_METAL_FAILURE_NONE) {
+    return;
+  }
+  _failureKind = failure;
+  _failureGeneration = 1;
+  _lastFailedFrameGeneration = frameGeneration;
+  if (_commandFailureCount != UINT64_MAX) {
+    ++_commandFailureCount;
+  }
+  _admitting = NO;
+  for (DtrMetalFrameSlot* slot in _slots) {
+    if (slot.state == DTR_METAL_SLOT_READY) {
+      slot.state = DTR_METAL_SLOT_FREE;
+    }
+  }
 }
 
 - (int32_t)bindView:(DtrTerminalMetalView*)view {
@@ -721,10 +792,11 @@ enum {
 
 - (void)shutdown {
   [_lock lock];
-  if (!_admitting) {
+  if (_shuttingDown) {
     [_lock unlock];
     return;
   }
+  _shuttingDown = YES;
   _admitting = NO;
   for (DtrMetalFrameSlot* slot in _slots) {
     if (slot.state == DTR_METAL_SLOT_READY) {
@@ -1096,7 +1168,15 @@ enum {
   state.ready_slot_count = ready;
   state.in_flight_slot_count = in_flight;
   state.flags = (_view == nil ? 0u : DTR_METAL_RENDERER_STATE_BOUND) |
-                (_admitting ? DTR_METAL_RENDERER_STATE_ADMITTING : 0u);
+                (_admitting ? DTR_METAL_RENDERER_STATE_ADMITTING : 0u) |
+                (_failureKind == DTR_METAL_FAILURE_NONE
+                     ? 0u
+                     : DTR_METAL_RENDERER_STATE_FAULTED);
+  state.failure_kind = _failureKind;
+  state.failure_generation = _failureGeneration;
+  state.last_failed_frame_generation = _lastFailedFrameGeneration;
+  state.drawable_unavailable_count = _drawableUnavailableCount;
+  state.command_failure_count = _commandFailureCount;
   memcpy(output, &state, sizeof(state));
   [_lock unlock];
   return DTR_STATUS_OK;
@@ -1124,9 +1204,18 @@ enum {
       return;
     }
 
-    MTLRenderPassDescriptor* pass = view.currentRenderPassDescriptor;
-    id<CAMetalDrawable> drawable = view.currentDrawable;
+    const BOOL injected_drawable_failure = ConsumeMetalTestFailure(
+        DTR_METAL_TEST_FAILURE_DRAWABLE_UNAVAILABLE);
+    MTLRenderPassDescriptor* pass =
+        injected_drawable_failure ? nil : view.currentRenderPassDescriptor;
+    id<CAMetalDrawable> drawable =
+        injected_drawable_failure ? nil : view.currentDrawable;
     if (pass == nil || drawable == nil) {
+      [_lock lock];
+      if (_admitting && _view == view && _drawableUnavailableCount != UINT64_MAX) {
+        ++_drawableUnavailableCount;
+      }
+      [_lock unlock];
       return;
     }
     [_lock lock];
@@ -1168,15 +1257,23 @@ enum {
         ((background >> 16) & 0xffu) / 255.0,
         ((background >> 8) & 0xffu) / 255.0,
         (background & 0xffu) / 255.0);
-    id<MTLCommandBuffer> command = [_commandQueue commandBuffer];
-    id<MTLRenderCommandEncoder> encoder =
-        [command renderCommandEncoderWithDescriptor:pass];
+    const BOOL injected_encoding_failure = ConsumeMetalTestFailure(
+        DTR_METAL_TEST_FAILURE_COMMAND_ENCODING);
+    id<MTLCommandBuffer> command =
+        injected_encoding_failure ? nil : [_commandQueue commandBuffer];
+    id<MTLRenderCommandEncoder> encoder = command == nil
+                                                ? nil
+                                                : [command
+                                                      renderCommandEncoderWithDescriptor:
+                                                          pass];
     if (command == nil || encoder == nil) {
       [_lock lock];
       if (selected.state == DTR_METAL_SLOT_IN_FLIGHT &&
           selected.token == selected_token) {
         selected.state = DTR_METAL_SLOT_FREE;
       }
+      [self recordFaultLocked:DTR_METAL_FAILURE_COMMAND_ENCODING
+              frameGeneration:header.frame_generation];
       [_lock unlock];
       return;
     }
@@ -1195,6 +1292,8 @@ enum {
     }
     [encoder endEncoding];
     [command presentDrawable:drawable];
+    const BOOL injected_completion_failure = ConsumeMetalTestFailure(
+        DTR_METAL_TEST_FAILURE_COMMAND_COMPLETION);
     __weak DtrMetalRenderer* weak_self = self;
     [command addCompletedHandler:^(id<MTLCommandBuffer> completed) {
       DtrMetalRenderer* strong_self = weak_self;
@@ -1205,13 +1304,24 @@ enum {
       if (selected.state == DTR_METAL_SLOT_IN_FLIGHT &&
           selected.token == selected_token) {
         selected.state = DTR_METAL_SLOT_FREE;
-        if (completed.status == MTLCommandBufferStatusCompleted) {
+        if (!injected_completion_failure &&
+            completed.status == MTLCommandBufferStatusCompleted) {
           ++strong_self->_completedSubmissionCount;
           if (header.frame_generation >
               strong_self->_lastPresentedFrameGeneration) {
             strong_self->_lastPresentedFrameGeneration =
                 header.frame_generation;
           }
+        } else {
+          uint32_t failure = DTR_METAL_FAILURE_COMMAND_EXECUTION;
+          NSError* error = completed.error;
+          if (error != nil &&
+              [error.domain isEqualToString:MTLCommandBufferErrorDomain] &&
+              error.code == MTLCommandBufferErrorDeviceRemoved) {
+            failure = DTR_METAL_FAILURE_DEVICE_LOST;
+          }
+          [strong_self recordFaultLocked:failure
+                         frameGeneration:header.frame_generation];
         }
       }
       [strong_self->_lock unlock];
@@ -1362,8 +1472,10 @@ static void RetainMetalRendererForHandle(
   }
   self = [super initWithFrame:frame device:device];
   if (self != nil) {
+    uint32_t failure = DTR_METAL_FAILURE_NONE;
     DtrMetalPipelineBundle* pipelines =
-        [[DtrMetalPipelineBundle alloc] initWithDevice:device];
+        [[DtrMetalPipelineBundle alloc] initWithDevice:device
+                                               failure:&failure];
     if (pipelines == nil) {
       return nil;
     }
@@ -2213,6 +2325,10 @@ int32_t dtr_metal_renderer_create(const DtrMetalRendererConfigV1* config,
         output_header[1] != DTR_METAL_RENDERER_SUMMARY_VERSION) {
       return DTR_STATUS_UNSUPPORTED_VERSION;
     }
+    DtrMetalRendererSummaryV1 summary = {0};
+    summary.struct_size = sizeof(summary);
+    summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    memcpy(output, &summary, sizeof(summary));
     DtrMetalRendererConfigV1 copied_config;
     memcpy(&copied_config, config, sizeof(copied_config));
     if (!MetalConfigValuesAreValid(copied_config)) {
@@ -2223,19 +2339,24 @@ int32_t dtr_metal_renderer_create(const DtrMetalRendererConfigV1* config,
     if (handle == 0 || handle == UINT64_MAX) {
       return DTR_STATUS_RESOURCE_EXHAUSTED;
     }
+    uint32_t failure = DTR_METAL_FAILURE_NONE;
     DtrMetalRenderer* renderer =
         [[DtrMetalRenderer alloc] initWithConfig:copied_config
-                                      generation:handle];
+                                      generation:handle
+                                         failure:&failure];
     if (renderer == nil) {
-      return DTR_STATUS_INTERNAL;
+      summary.failure_kind = failure == DTR_METAL_FAILURE_NONE
+                                 ? DTR_METAL_FAILURE_RESOURCE_ALLOCATION
+                                 : failure;
+      memcpy(output, &summary, sizeof(summary));
+      return summary.failure_kind == DTR_METAL_FAILURE_DEVICE_UNAVAILABLE
+                 ? DTR_STATUS_NOT_FOUND
+                 : DTR_STATUS_INTERNAL;
     }
     NSLock* lock = MetalRendererRegistryLock();
     [lock lock];
     MetalRendererRegistry()[@(handle)] = renderer;
     [lock unlock];
-    DtrMetalRendererSummaryV1 summary = {0};
-    summary.struct_size = sizeof(summary);
-    summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
     summary.handle = handle;
     summary.generation = renderer.generation;
     summary.maximum_viewport_width = copied_config.maximum_viewport_width;
@@ -2371,6 +2492,15 @@ int32_t dtr_metal_renderer_state(uint64_t handle,
   }
 }
 
+int32_t dtr_metal_renderer_request_draw(uint64_t handle) {
+  @autoreleasepool {
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
+    return renderer == nil ? DTR_STATUS_INVALID_HANDLE
+                           : [renderer requestDraw];
+  }
+}
+
 int32_t dtr_metal_renderer_render_rgba(
     uint64_t handle, const uint8_t* frame, uint32_t frame_length,
     uint8_t* output, uint32_t output_capacity, uint32_t* output_required) {
@@ -2399,4 +2529,17 @@ int32_t dtr_debug_live_metal_renderer_count(void) {
     [lock unlock];
     return count > INT32_MAX ? INT32_MAX : (int32_t)count;
   }
+}
+
+int32_t dtr_debug_metal_fail_next(uint32_t failure) {
+  if (failure < DTR_METAL_TEST_FAILURE_CREATE_DEVICE ||
+      failure > DTR_METAL_TEST_FAILURE_COMMAND_COMPLETION) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  uint32_t expected = DTR_METAL_TEST_FAILURE_NONE;
+  return atomic_compare_exchange_strong_explicit(
+             &g_next_metal_test_failure, &expected, failure,
+             memory_order_relaxed, memory_order_relaxed)
+             ? DTR_STATUS_OK
+             : DTR_STATUS_BACKPRESSURED;
 }

@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 7u
+#define DTR_ABI_VERSION 8u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -23,13 +23,13 @@
 #define DTR_MAX_RASTER_DIMENSION 4096u
 #define DTR_MAX_RASTER_OUTPUT_BYTES (64u * 1024u * 1024u)
 #define DTR_METAL_RENDERER_CONFIG_VERSION 1u
-#define DTR_METAL_RENDERER_SUMMARY_VERSION 1u
+#define DTR_METAL_RENDERER_SUMMARY_VERSION 2u
 #define DTR_METAL_ATLAS_RESET_VERSION 1u
 #define DTR_METAL_ATLAS_UPLOAD_VERSION 1u
 #define DTR_METAL_FRAME_VERSION 1u
 #define DTR_METAL_VIEW_BINDING_VERSION 1u
 #define DTR_METAL_SUBMISSION_VERSION 1u
-#define DTR_METAL_RENDERER_STATE_VERSION 1u
+#define DTR_METAL_RENDERER_STATE_VERSION 2u
 #define DTR_METAL_FRAME_MAGIC 0x46525444u
 #define DTR_MAX_METAL_DIMENSION 4096u
 #define DTR_MAX_METAL_INSTANCES 131072u
@@ -69,7 +69,31 @@ enum {
 enum {
   DTR_METAL_RENDERER_STATE_BOUND = 1u << 0,
   DTR_METAL_RENDERER_STATE_ADMITTING = 1u << 1,
+  DTR_METAL_RENDERER_STATE_FAULTED = 1u << 2,
 };
+
+typedef enum DtrMetalFailureKind {
+  DTR_METAL_FAILURE_NONE = 0,
+  DTR_METAL_FAILURE_DEVICE_UNAVAILABLE = 1,
+  DTR_METAL_FAILURE_SHADER_LIBRARY = 2,
+  DTR_METAL_FAILURE_SHADER_FUNCTION = 3,
+  DTR_METAL_FAILURE_PIPELINE = 4,
+  DTR_METAL_FAILURE_RESOURCE_ALLOCATION = 5,
+  DTR_METAL_FAILURE_COMMAND_ENCODING = 6,
+  DTR_METAL_FAILURE_COMMAND_EXECUTION = 7,
+  DTR_METAL_FAILURE_DEVICE_LOST = 8,
+} DtrMetalFailureKind;
+
+// One-shot test-only fault points. Production code never calls the debug
+// injection function and no fault setting is retained after it is consumed.
+typedef enum DtrMetalTestFailure {
+  DTR_METAL_TEST_FAILURE_NONE = 0,
+  DTR_METAL_TEST_FAILURE_CREATE_DEVICE = 1,
+  DTR_METAL_TEST_FAILURE_CREATE_SHADER_LIBRARY = 2,
+  DTR_METAL_TEST_FAILURE_DRAWABLE_UNAVAILABLE = 3,
+  DTR_METAL_TEST_FAILURE_COMMAND_ENCODING = 4,
+  DTR_METAL_TEST_FAILURE_COMMAND_COMPLETION = 5,
+} DtrMetalTestFailure;
 
 enum {
   DTR_FONT_STYLE_BIT_REGULAR = 1u << DTR_FONT_STYLE_REGULAR,
@@ -293,7 +317,8 @@ typedef struct DtrMetalRendererSummaryV1 {
   uint32_t atlas_height;
   uint32_t maximum_alpha_pages;
   uint32_t maximum_color_pages;
-  uint32_t reserved[3];
+  uint32_t failure_kind;
+  uint32_t reserved[2];
 } DtrMetalRendererSummaryV1;
 
 typedef struct DtrMetalAtlasUploadV1 {
@@ -396,7 +421,12 @@ typedef struct DtrMetalRendererStateV1 {
   uint32_t ready_slot_count;
   uint32_t in_flight_slot_count;
   uint32_t flags;
-  uint32_t reserved;
+  uint32_t failure_kind;
+  uint64_t failure_generation;
+  uint64_t last_failed_frame_generation;
+  uint64_t drawable_unavailable_count;
+  uint64_t command_failure_count;
+  uint32_t reserved[2];
 } DtrMetalRendererStateV1;
 
 #if defined(__cplusplus)
@@ -495,6 +525,11 @@ __attribute__((visibility("default"))) int32_t dtr_metal_renderer_submit(
 __attribute__((visibility("default"))) int32_t dtr_metal_renderer_state(
     uint64_t handle, DtrMetalRendererStateV1* output);
 
+// Requests another on-demand draw for retained READY work. This does not
+// allocate a frame or retry automatically while a drawable is unavailable.
+__attribute__((visibility("default"))) int32_t
+dtr_metal_renderer_request_draw(uint64_t handle);
+
 // Synchronous offscreen correctness/readback path. A null output with zero
 // capacity is a size query. Production rendering uses submit above; this call
 // retains no input/output pointer and never publishes partial output.
@@ -504,6 +539,11 @@ __attribute__((visibility("default"))) int32_t dtr_metal_renderer_render_rgba(
 
 __attribute__((visibility("default"))) int32_t
 dtr_debug_live_metal_renderer_count(void);
+
+// Installs one deterministic fault for the native test suite. A second fault
+// cannot be queued while one is pending.
+__attribute__((visibility("default"))) int32_t
+dtr_debug_metal_fail_next(uint32_t failure);
 
 #if defined(__cplusplus)
 }

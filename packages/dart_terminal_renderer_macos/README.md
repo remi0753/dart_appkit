@@ -26,6 +26,13 @@ calls are intended for a font/render worker domain rather than an AppKit event
 handler. Terminal grids, atlas allocation policy, input, and application policy
 remain outside this package boundary.
 
+Creation failures classify device, embedded shader/function/pipeline, and
+bounded resource allocation without publishing a handle. Runtime state keeps
+drawable misses transient while exposing a terminal command/device fault for
+the current renderer generation. A missing drawable retains READY work and
+`requestPresentation` explicitly retries it at the next useful visibility
+epoch; native does not install an automatic retry loop.
+
 Atlas generations identify complete Dart-owned snapshots. Incrementally
 advancing a snapshot preserves unchanged native slices so dirty rectangles
 remain sufficient; a newer page generation clears only its reused texture
@@ -39,7 +46,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 7,
+  "abiVersion": 8,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -53,9 +60,9 @@ that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,
 upload typed `TerminalMetalAtlasUpload` rectangles, and build immutable frames
 through `TerminalMetalFrameEncoder`. `submit`
 distinguishes accepted, stale, and backpressured outcomes; `state` exposes the
-bounded retirement watermark. `renderRgba` is the synchronous test/oracle path,
-not the production presentation path. Dispose the renderer explicitly from its
-owner domain.
+bounded retirement watermark, drawable count, and typed fault state.
+`renderRgba` is the synchronous test/oracle path, not the production
+presentation path. Dispose the renderer explicitly from its owner domain.
 
 Font work does not require AppKit initialization. Create a catalog with
 `TerminalFontCatalog.open()`, resolve whole grapheme/text units with `resolve`,

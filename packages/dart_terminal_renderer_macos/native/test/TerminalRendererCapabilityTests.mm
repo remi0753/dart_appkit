@@ -104,8 +104,10 @@ int main(int argc, const char* argv[]) {
     using MetalSubmit = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
                                     DtrMetalSubmissionV1*);
     using MetalState = int32_t (*)(uint64_t, DtrMetalRendererStateV1*);
+    using MetalRequestDraw = int32_t (*)(uint64_t);
     using MetalRender = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
                                     uint8_t*, uint32_t, uint32_t*);
+    using MetalFailNext = int32_t (*)(uint32_t);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
     const Initialize initialize = Lookup<Initialize>(image, "dtr_initialize");
     const LiveCount live_count =
@@ -136,14 +138,18 @@ int main(int argc, const char* argv[]) {
         Lookup<MetalSubmit>(image, "dtr_metal_renderer_submit");
     const MetalState metal_state =
         Lookup<MetalState>(image, "dtr_metal_renderer_state");
+    const MetalRequestDraw metal_request_draw = Lookup<MetalRequestDraw>(
+        image, "dtr_metal_renderer_request_draw");
     const MetalRender metal_render =
         Lookup<MetalRender>(image, "dtr_metal_renderer_render_rgba");
     const LiveCount live_metal_count =
         Lookup<LiveCount>(image, "dtr_debug_live_metal_renderer_count");
+    const MetalFailNext metal_fail_next = Lookup<MetalFailNext>(
+        image, "dtr_debug_metal_fail_next");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 7,
-           "empty full atlas reset requires renderer ABI v7");
+    Expect(DTR_ABI_VERSION == 8,
+           "typed Metal failure state requires renderer ABI v8");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -830,6 +836,38 @@ int main(int argc, const char* argv[]) {
                invalid_metal_summary.handle == 0,
            "invalid Metal resource bounds are rejected without publication");
 
+    Expect(metal_fail_next != nullptr &&
+               metal_fail_next(DTR_METAL_TEST_FAILURE_NONE) ==
+                   DTR_STATUS_INVALID_ARGUMENT,
+           "Metal fault injection rejects an unknown empty fault");
+    DtrMetalRendererSummaryV1 device_failure_summary = {};
+    device_failure_summary.struct_size = sizeof(device_failure_summary);
+    device_failure_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    Expect(metal_fail_next(DTR_METAL_TEST_FAILURE_CREATE_DEVICE) ==
+                   DTR_STATUS_OK &&
+               metal_create(&metal_config, &device_failure_summary) ==
+                   DTR_STATUS_NOT_FOUND &&
+               device_failure_summary.handle == 0 &&
+               device_failure_summary.generation == 0 &&
+               device_failure_summary.failure_kind ==
+                   DTR_METAL_FAILURE_DEVICE_UNAVAILABLE &&
+               live_metal_count() == 0,
+           "device creation failure is typed without handle publication");
+    DtrMetalRendererSummaryV1 shader_failure_summary = {};
+    shader_failure_summary.struct_size = sizeof(shader_failure_summary);
+    shader_failure_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+    Expect(metal_fail_next(
+               DTR_METAL_TEST_FAILURE_CREATE_SHADER_LIBRARY) ==
+                   DTR_STATUS_OK &&
+               metal_create(&metal_config, &shader_failure_summary) ==
+                   DTR_STATUS_INTERNAL &&
+               shader_failure_summary.handle == 0 &&
+               shader_failure_summary.generation == 0 &&
+               shader_failure_summary.failure_kind ==
+                   DTR_METAL_FAILURE_SHADER_LIBRARY &&
+               live_metal_count() == 0,
+           "shader library failure is typed without resource publication");
+
     DtrMetalRendererSummaryV1 metal_summary = {};
     metal_summary.struct_size = sizeof(metal_summary);
     metal_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
@@ -843,6 +881,7 @@ int main(int argc, const char* argv[]) {
                metal_summary.atlas_height == 8 &&
                metal_summary.maximum_alpha_pages == 2 &&
                metal_summary.maximum_color_pages == 2 &&
+               metal_summary.failure_kind == DTR_METAL_FAILURE_NONE &&
                live_metal_count != nullptr && live_metal_count() == 1,
            "Metal renderer publishes exact bounded resource identity");
 
@@ -1012,6 +1051,10 @@ int main(int argc, const char* argv[]) {
                unbound_state.renderer_generation == metal_summary.generation &&
                unbound_state.ready_slot_count == 0 &&
                unbound_state.in_flight_slot_count == 0 &&
+               unbound_state.failure_kind == DTR_METAL_FAILURE_NONE &&
+               unbound_state.failure_generation == 0 &&
+               unbound_state.drawable_unavailable_count == 0 &&
+               unbound_state.command_failure_count == 0 &&
                unbound_state.flags ==
                    DTR_METAL_RENDERER_STATE_ADMITTING,
            "unbound renderer state is bounded and observable");
@@ -1371,11 +1414,33 @@ int main(int argc, const char* argv[]) {
                  queued_state.backpressure_count == 1 &&
                  queued_state.ready_slot_count == 3 &&
                  queued_state.in_flight_slot_count == 0 &&
+                 queued_state.failure_kind == DTR_METAL_FAILURE_NONE &&
+                 queued_state.drawable_unavailable_count == 0 &&
                  queued_state.flags ==
                      (DTR_METAL_RENDERER_STATE_BOUND |
                       DTR_METAL_RENDERER_STATE_ADMITTING),
              "three-slot state remains bounded before native draw");
 
+      Expect(metal_fail_next(DTR_METAL_TEST_FAILURE_DRAWABLE_UNAVAILABLE) ==
+                 DTR_STATUS_OK,
+             "one drawable miss is injected without a retry queue");
+      [view draw];
+      DtrMetalRendererStateV1 drawable_state = {};
+      drawable_state.struct_size = sizeof(drawable_state);
+      drawable_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+      Expect(metal_state(presentation_summary.handle, &drawable_state) ==
+                     DTR_STATUS_OK &&
+                 drawable_state.drawable_unavailable_count == 1 &&
+                 drawable_state.ready_slot_count == 3 &&
+                 drawable_state.in_flight_slot_count == 0 &&
+                 drawable_state.failure_kind == DTR_METAL_FAILURE_NONE &&
+                 (drawable_state.flags &
+                  DTR_METAL_RENDERER_STATE_FAULTED) == 0,
+             "drawable absence keeps newest READY ownership retryable");
+      Expect(metal_request_draw != nullptr &&
+                 metal_request_draw(presentation_summary.handle) ==
+                     DTR_STATUS_OK,
+             "retained READY work accepts an explicit later draw request");
       [view draw];
       DtrMetalRendererStateV1 completed_state = queued_state;
       for (int attempt = 0; attempt < 200; attempt++) {
@@ -1413,6 +1478,166 @@ int main(int argc, const char* argv[]) {
       Expect(metal_state(presentation_handle, &completed_state) ==
                  DTR_STATUS_INVALID_HANDLE,
              "released presentation renderer state is inaccessible");
+
+      DtrMetalRendererSummaryV1 encoding_failure_summary = {};
+      encoding_failure_summary.struct_size =
+          sizeof(encoding_failure_summary);
+      encoding_failure_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+      Expect(metal_create(&presentation_config, &encoding_failure_summary) ==
+                 DTR_STATUS_OK,
+             "command-encoding failure renderer is created");
+      presentation_alpha.renderer_generation =
+          encoding_failure_summary.generation;
+      presentation_alpha.atlas_generation = 1;
+      presentation_color.renderer_generation =
+          encoding_failure_summary.generation;
+      Expect(metal_upload(encoding_failure_summary.handle,
+                          &presentation_alpha, alpha_pixels.data()) ==
+                     DTR_STATUS_OK &&
+                 metal_upload(encoding_failure_summary.handle,
+                              &presentation_color, color_pixels.data()) ==
+                     DTR_STATUS_OK,
+             "command-encoding failure renderer receives atlas definitions");
+      binding.renderer_handle = encoding_failure_summary.handle;
+      binding.renderer_generation = encoding_failure_summary.generation;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_OK,
+             "command-encoding failure renderer binds to the view");
+      std::vector<uint8_t> encoding_failure_frame =
+          make_frame(instances, encoding_failure_summary.generation, 1);
+      encoding_failure_frame = mutate_header(
+          encoding_failure_frame, ^(DtrMetalFrameHeaderV1* header) {
+            header->viewport_width = drawable_width;
+            header->viewport_height = drawable_height;
+          });
+      DtrMetalSubmissionV1 encoding_failure_submission = {};
+      encoding_failure_submission.struct_size =
+          sizeof(encoding_failure_submission);
+      encoding_failure_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(
+                 encoding_failure_summary.handle,
+                 encoding_failure_frame.data(),
+                 static_cast<uint32_t>(encoding_failure_frame.size()),
+                 &encoding_failure_submission) == DTR_STATUS_OK &&
+                 metal_fail_next(DTR_METAL_TEST_FAILURE_COMMAND_ENCODING) ==
+                     DTR_STATUS_OK,
+             "accepted frame reaches the injected encoding failure point");
+      [view draw];
+      DtrMetalRendererStateV1 encoding_failure_state = {};
+      encoding_failure_state.struct_size = sizeof(encoding_failure_state);
+      encoding_failure_state.version = DTR_METAL_RENDERER_STATE_VERSION;
+      Expect(metal_state(encoding_failure_summary.handle,
+                         &encoding_failure_state) == DTR_STATUS_OK &&
+                 encoding_failure_state.failure_kind ==
+                     DTR_METAL_FAILURE_COMMAND_ENCODING &&
+                 encoding_failure_state.failure_generation == 1 &&
+                 encoding_failure_state.last_failed_frame_generation == 1 &&
+                 encoding_failure_state.command_failure_count == 1 &&
+                 encoding_failure_state.retired_through_token == 1 &&
+                 encoding_failure_state.ready_slot_count == 0 &&
+                 encoding_failure_state.in_flight_slot_count == 0 &&
+                 (encoding_failure_state.flags &
+                  DTR_METAL_RENDERER_STATE_FAULTED) != 0 &&
+                 (encoding_failure_state.flags &
+                  DTR_METAL_RENDERER_STATE_ADMITTING) == 0 &&
+                 metal_request_draw(encoding_failure_summary.handle) ==
+                     DTR_STATUS_NOT_FOUND,
+             "encoding failure faults one renderer generation and retires work");
+      std::vector<uint8_t> rejected_fault_frame =
+          make_frame(instances, encoding_failure_summary.generation, 1);
+      rejected_fault_frame = mutate_header(
+          rejected_fault_frame, ^(DtrMetalFrameHeaderV1* header) {
+            header->frame_generation = 2;
+            header->viewport_width = drawable_width;
+            header->viewport_height = drawable_height;
+          });
+      DtrMetalSubmissionV1 rejected_fault_submission = {};
+      rejected_fault_submission.struct_size =
+          sizeof(rejected_fault_submission);
+      rejected_fault_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(
+                 encoding_failure_summary.handle, rejected_fault_frame.data(),
+                 static_cast<uint32_t>(rejected_fault_frame.size()),
+                 &rejected_fault_submission) == DTR_STATUS_NOT_FOUND &&
+                 rejected_fault_submission.submission_token == 0,
+             "faulted renderer rejects later frame admission");
+      Expect(metal_release(encoding_failure_summary.handle) == DTR_STATUS_OK &&
+                 view.delegate == nil,
+             "faulted renderer release detaches the reusable view");
+
+      DtrMetalRendererSummaryV1 completion_failure_summary = {};
+      completion_failure_summary.struct_size =
+          sizeof(completion_failure_summary);
+      completion_failure_summary.version = DTR_METAL_RENDERER_SUMMARY_VERSION;
+      Expect(metal_create(&presentation_config, &completion_failure_summary) ==
+                 DTR_STATUS_OK,
+             "command-completion failure renderer is created");
+      presentation_alpha.renderer_generation =
+          completion_failure_summary.generation;
+      presentation_color.renderer_generation =
+          completion_failure_summary.generation;
+      Expect(metal_upload(completion_failure_summary.handle,
+                          &presentation_alpha, alpha_pixels.data()) ==
+                     DTR_STATUS_OK &&
+                 metal_upload(completion_failure_summary.handle,
+                              &presentation_color, color_pixels.data()) ==
+                     DTR_STATUS_OK,
+             "command-completion failure renderer receives atlas definitions");
+      binding.renderer_handle = completion_failure_summary.handle;
+      binding.renderer_generation = completion_failure_summary.generation;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&binding),
+                 sizeof(binding)) == DA_STATUS_OK,
+             "command-completion failure renderer binds to the view");
+      std::vector<uint8_t> completion_failure_frame =
+          make_frame(instances, completion_failure_summary.generation, 1);
+      completion_failure_frame = mutate_header(
+          completion_failure_frame, ^(DtrMetalFrameHeaderV1* header) {
+            header->viewport_width = drawable_width;
+            header->viewport_height = drawable_height;
+          });
+      DtrMetalSubmissionV1 completion_failure_submission = {};
+      completion_failure_submission.struct_size =
+          sizeof(completion_failure_submission);
+      completion_failure_submission.version = DTR_METAL_SUBMISSION_VERSION;
+      Expect(metal_submit(
+                 completion_failure_summary.handle,
+                 completion_failure_frame.data(),
+                 static_cast<uint32_t>(completion_failure_frame.size()),
+                 &completion_failure_submission) == DTR_STATUS_OK &&
+                 metal_fail_next(
+                     DTR_METAL_TEST_FAILURE_COMMAND_COMPLETION) ==
+                     DTR_STATUS_OK,
+             "accepted frame reaches the injected completion failure point");
+      [view draw];
+      DtrMetalRendererStateV1 completion_failure_state = {};
+      for (int attempt = 0; attempt < 200; attempt++) {
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.01, false);
+        completion_failure_state.struct_size =
+            sizeof(completion_failure_state);
+        completion_failure_state.version =
+            DTR_METAL_RENDERER_STATE_VERSION;
+        if (metal_state(completion_failure_summary.handle,
+                        &completion_failure_state) != DTR_STATUS_OK ||
+            completion_failure_state.failure_generation == 1) {
+          break;
+        }
+      }
+      Expect(completion_failure_state.failure_kind ==
+                     DTR_METAL_FAILURE_COMMAND_EXECUTION &&
+                 completion_failure_state.failure_generation == 1 &&
+                 completion_failure_state.last_failed_frame_generation == 1 &&
+                 completion_failure_state.command_failure_count == 1 &&
+                 completion_failure_state.completed_submission_count == 0 &&
+                 completion_failure_state.retired_through_token == 1 &&
+                 (completion_failure_state.flags &
+                  DTR_METAL_RENDERER_STATE_FAULTED) != 0,
+             "completion failure is retained as a terminal renderer fault");
+      Expect(metal_release(completion_failure_summary.handle) ==
+                     DTR_STATUS_OK &&
+                 view.delegate == nil,
+             "completion-faulted renderer releases without a live slot");
 
       DtrMetalRendererSummaryV1 async_summary = {};
       async_summary.struct_size = sizeof(async_summary);

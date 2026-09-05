@@ -1,13 +1,43 @@
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart';
 
+@Native<Int32 Function(Uint32)>(
+  symbol: 'dtr_debug_metal_fail_next',
+  assetId:
+      'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart',
+)
+external int _failNextMetalOperation(int failure);
+
 void main() => runMetalRendererTests();
 
 void runMetalRendererTests() {
+  _testTypedCreationFailures();
   _testEncoderValidationAndOwnership();
   _testTypedRendererReadback();
+}
+
+void _testTypedCreationFailures() {
+  _expect(
+    _failNextMetalOperation(1) == 0,
+    'device creation failure injection is accepted once',
+  );
+  _expectMetalFailure(
+    TerminalMetalRenderer.open,
+    TerminalMetalFailureKind.deviceUnavailable,
+    'device creation failure is typed',
+  );
+  _expect(
+    _failNextMetalOperation(2) == 0,
+    'shader creation failure injection is accepted once',
+  );
+  _expectMetalFailure(
+    TerminalMetalRenderer.open,
+    TerminalMetalFailureKind.shaderLibrary,
+    'shader creation failure is typed',
+  );
 }
 
 void _testEncoderValidationAndOwnership() {
@@ -231,9 +261,19 @@ void _testTypedRendererReadback() {
     _expect(
       !state.isBound &&
           state.isAdmitting &&
+          !state.isFaulted &&
+          state.failure == TerminalMetalFailureKind.none &&
+          state.failureGeneration == 0 &&
+          state.lastFailedFrameGeneration == 0 &&
+          state.drawableUnavailableCount == 0 &&
+          state.commandFailureCount == 0 &&
           state.readySlotCount == 0 &&
           state.inFlightSlotCount == 0,
       'typed state validates an unbound renderer snapshot',
+    );
+    _expectThrowsType<TerminalMetalRendererException>(
+      renderer.requestPresentation,
+      'unbound renderer cannot request presentation',
     );
     _expectThrowsType<TerminalMetalRendererException>(
       () => renderer.submit(frame),
@@ -260,6 +300,21 @@ void _testTypedRendererReadback() {
     renderer.state,
     'disposed renderer cannot cross the native boundary',
   );
+}
+
+void _expectMetalFailure(
+  TerminalMetalRenderer Function() action,
+  TerminalMetalFailureKind expected,
+  String description,
+) {
+  try {
+    final TerminalMetalRenderer unexpected = action();
+    unexpected.dispose();
+  } on TerminalMetalRendererException catch (error) {
+    _expect(error.failure == expected, description);
+    return;
+  }
+  _expect(false, description);
 }
 
 void _expectPixelNear(Uint8List bytes, int offset, int expected) {

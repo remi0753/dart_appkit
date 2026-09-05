@@ -27,7 +27,7 @@ _Static_assert(sizeof(DtrMetalViewBindingV1) == 32,
                "Metal view binding ABI size");
 _Static_assert(sizeof(DtrMetalSubmissionV1) == 40,
                "Metal submission ABI size");
-_Static_assert(sizeof(DtrMetalRendererStateV1) == 96,
+_Static_assert(sizeof(DtrMetalRendererStateV1) == 136,
                "Metal renderer state ABI size");
 
 int main(void) {
@@ -65,10 +65,13 @@ int main(void) {
       dtr_metal_renderer_submit;
   int32_t (*renderer_state)(uint64_t, DtrMetalRendererStateV1*) =
       dtr_metal_renderer_state;
+  int32_t (*renderer_request_draw)(uint64_t) =
+      dtr_metal_renderer_request_draw;
   int32_t (*renderer_render)(uint64_t, const uint8_t*, uint32_t, uint8_t*,
                              uint32_t, uint32_t*) =
       dtr_metal_renderer_render_rgba;
   int32_t (*renderer_count)(void) = dtr_debug_live_metal_renderer_count;
+  int32_t (*renderer_fail_next)(uint32_t) = dtr_debug_metal_fail_next;
   return version == 0 || initialize == 0 || live_count == 0 ||
          catalog_create == 0 || catalog_release == 0 ||
          catalog_finalizer == 0 || catalog_resolve == 0 ||
@@ -77,5 +80,7 @@ int main(void) {
          renderer_finalizer == 0 ||
          renderer_reset == 0 ||
          renderer_upload == 0 || renderer_submit == 0 ||
-         renderer_state == 0 || renderer_render == 0 || renderer_count == 0;
+         renderer_state == 0 || renderer_request_draw == 0 ||
+         renderer_render == 0 || renderer_count == 0 ||
+         renderer_fail_next == 0;
 }

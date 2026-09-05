@@ -38,7 +38,7 @@ static_assert(sizeof(DtrMetalFrameHeaderV1) == 80);
 static_assert(sizeof(DtrMetalInstanceV1) == 48);
 static_assert(sizeof(DtrMetalViewBindingV1) == 32);
 static_assert(sizeof(DtrMetalSubmissionV1) == 40);
-static_assert(sizeof(DtrMetalRendererStateV1) == 96);
+static_assert(sizeof(DtrMetalRendererStateV1) == 136);
 
 int main() {
   auto* version = &dtr_abi_version;
@@ -58,8 +58,10 @@ int main() {
   auto* renderer_upload = &dtr_metal_renderer_upload_atlas;
   auto* renderer_submit = &dtr_metal_renderer_submit;
   auto* renderer_state = &dtr_metal_renderer_state;
+  auto* renderer_request_draw = &dtr_metal_renderer_request_draw;
   auto* renderer_render = &dtr_metal_renderer_render_rgba;
   auto* renderer_count = &dtr_debug_live_metal_renderer_count;
+  auto* renderer_fail_next = &dtr_debug_metal_fail_next;
   return version == nullptr || initialize == nullptr || live_count == nullptr ||
          catalog_create == nullptr || catalog_release == nullptr ||
          catalog_finalizer == nullptr || catalog_resolve == nullptr ||
@@ -68,6 +70,7 @@ int main() {
          renderer_release == nullptr || renderer_finalizer == nullptr ||
          renderer_reset == nullptr ||
          renderer_upload == nullptr || renderer_submit == nullptr ||
-         renderer_state == nullptr || renderer_render == nullptr ||
-         renderer_count == nullptr;
+         renderer_state == nullptr || renderer_request_draw == nullptr ||
+         renderer_render == nullptr || renderer_count == nullptr ||
+         renderer_fail_next == nullptr;
 }
