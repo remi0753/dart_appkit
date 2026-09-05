@@ -410,7 +410,7 @@ $(TERMINAL_RENDERER_PLUGIN_LIBRARY): \
 		-I$(PROJECT_ROOT)/native/bridge/include \
 		-I$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native \
 		$(PROJECT_ROOT)/packages/dart_terminal_renderer_macos/native/TerminalRendererPlugin.m \
-		-framework AppKit -framework Metal -framework MetalKit \
+		-framework AppKit -framework CoreText -framework Metal -framework MetalKit \
 		-Wl,-install_name,@rpath/libdart_terminal_renderer_macos.dylib -o $@
 
 $(TERMINAL_RENDERER_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
@@ -537,7 +537,7 @@ terminal-renderer-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && dart pub get
 	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && dart analyze
 	@cd $(PROJECT_ROOT)/packages/dart_terminal_renderer_macos && \
-		dart run test/native_asset_test.dart
+		dart run test/run_tests.dart
 
 dpty-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_pty_macos && dart pub get

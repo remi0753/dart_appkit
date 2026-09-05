@@ -12,7 +12,7 @@ Future<void> main(List<String> arguments) async {
       assetName: 'dart_terminal_renderer_macos.dart',
       sources: const <String>['native/TerminalRendererPlugin.m'],
       includes: const <String>['../../native/bridge/include'],
-      frameworks: const <String>['AppKit', 'Metal', 'MetalKit'],
+      frameworks: const <String>['AppKit', 'CoreText', 'Metal', 'MetalKit'],
       flags: const <String>[
         '-fobjc-arc',
         '-fvisibility=hidden',

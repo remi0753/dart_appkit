@@ -17,7 +17,16 @@ external int _abiVersion();
 )
 external int _liveViewCount();
 
-void main() {
+@Native<Int32 Function()>(
+  symbol: 'dtr_debug_live_font_catalog_count',
+  assetId:
+      'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart',
+)
+external int _liveFontCatalogCount();
+
+void main() => runNativeAssetTests();
+
+void runNativeAssetTests() {
   if (terminalRendererMacosCapabilityId != 'dart_terminal_renderer_macos') {
     stderr.writeln('unexpected terminal renderer capability identifier');
     exitCode = 1;
@@ -38,12 +47,16 @@ void main() {
   } on StateError {
     // Expected: the facade must explicitly load the declared capability first.
   }
-  if (_abiVersion() != 1) {
+  if (_abiVersion() != 2) {
     stderr.writeln('unexpected terminal renderer native asset ABI');
     exitCode = 1;
   }
   if (_liveViewCount() != 0) {
     stderr.writeln('terminal renderer asset starts with a live view');
+    exitCode = 1;
+  }
+  if (_liveFontCatalogCount() != 0) {
+    stderr.writeln('terminal renderer asset starts with a live font catalog');
     exitCode = 1;
   }
   if (exitCode == 0) {
