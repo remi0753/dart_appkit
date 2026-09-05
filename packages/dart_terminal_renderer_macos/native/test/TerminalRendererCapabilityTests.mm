@@ -96,6 +96,8 @@ int main(int argc, const char* argv[]) {
                                     DtrMetalRendererSummaryV1*);
     using MetalRelease = int32_t (*)(uint64_t);
     using MetalFinalizer = void (*)(void*);
+    using MetalReset = int32_t (*)(uint64_t,
+                                   const DtrMetalAtlasResetV1*);
     using MetalUpload = int32_t (*)(uint64_t,
                                     const DtrMetalAtlasUploadV1*,
                                     const uint8_t*);
@@ -126,6 +128,8 @@ int main(int argc, const char* argv[]) {
         Lookup<MetalRelease>(image, "dtr_metal_renderer_release");
     const MetalFinalizer metal_finalizer = Lookup<MetalFinalizer>(
         image, "dtr_metal_renderer_release_finalizer");
+    const MetalReset metal_reset =
+        Lookup<MetalReset>(image, "dtr_metal_renderer_reset_atlas");
     const MetalUpload metal_upload =
         Lookup<MetalUpload>(image, "dtr_metal_renderer_upload_atlas");
     const MetalSubmit metal_submit =
@@ -138,8 +142,8 @@ int main(int argc, const char* argv[]) {
         Lookup<LiveCount>(image, "dtr_debug_live_metal_renderer_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 6,
-           "view-bound Metal submission requires renderer ABI v6");
+    Expect(DTR_ABI_VERSION == 7,
+           "empty full atlas reset requires renderer ABI v7");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -842,6 +846,29 @@ int main(int argc, const char* argv[]) {
                live_metal_count != nullptr && live_metal_count() == 1,
            "Metal renderer publishes exact bounded resource identity");
 
+    DtrMetalAtlasResetV1 initial_atlas_reset = {};
+    initial_atlas_reset.struct_size = sizeof(initial_atlas_reset);
+    initial_atlas_reset.version = DTR_METAL_ATLAS_RESET_VERSION;
+    initial_atlas_reset.renderer_generation = metal_summary.generation;
+    initial_atlas_reset.atlas_generation = 1;
+    Expect(metal_reset != nullptr &&
+               metal_reset(metal_summary.handle, &initial_atlas_reset) ==
+                   DTR_STATUS_OK,
+           "empty atlas reset publishes the first complete generation");
+    DtrMetalAtlasResetV1 invalid_atlas_reset = initial_atlas_reset;
+    invalid_atlas_reset.version = 99;
+    Expect(metal_reset(metal_summary.handle, &invalid_atlas_reset) ==
+               DTR_STATUS_UNSUPPORTED_VERSION,
+           "atlas reset version is mandatory");
+    invalid_atlas_reset = initial_atlas_reset;
+    invalid_atlas_reset.reserved[0] = 1;
+    Expect(metal_reset(metal_summary.handle, &invalid_atlas_reset) ==
+               DTR_STATUS_INVALID_ARGUMENT,
+           "atlas reset reserved fields are zero");
+    Expect(metal_reset(metal_summary.handle, &initial_atlas_reset) ==
+               DTR_STATUS_STALE_GENERATION,
+           "an atlas reset generation cannot be reused");
+
     auto atlas_upload = [&](uint32_t format, uint64_t atlas_generation,
                             uint64_t page_generation, uint32_t x, uint32_t y,
                             uint32_t width, uint32_t height) {
@@ -1129,6 +1156,16 @@ int main(int argc, const char* argv[]) {
                         static_cast<uint32_t>(metal_frame.size()), nullptr, 0,
                         &metal_required) == DTR_STATUS_STALE_GENERATION,
            "old packed frame cannot observe a replaced atlas generation");
+    DtrMetalAtlasResetV1 empty_generation_three = initial_atlas_reset;
+    empty_generation_three.atlas_generation = 3;
+    Expect(metal_reset(metal_summary.handle, &empty_generation_three) ==
+               DTR_STATUS_OK,
+           "empty full rebuild advances without a pixel upload");
+    Expect(metal_render(metal_summary.handle, generation_two_frame.data(),
+                        static_cast<uint32_t>(generation_two_frame.size()),
+                        nullptr, 0, &generation_two_required) ==
+               DTR_STATUS_STALE_GENERATION,
+           "full atlas reset invalidates every prior page definition");
 
     const uint64_t released_metal_handle = metal_summary.handle;
     Expect(metal_release != nullptr &&
@@ -1310,12 +1347,18 @@ int main(int argc, const char* argv[]) {
              "duplicate frame generation is rejected before slot selection");
       DtrMetalAtlasUploadV1 blocked_atlas = alpha_generation_two;
       blocked_atlas.renderer_generation = presentation_summary.generation;
+      DtrMetalAtlasResetV1 blocked_reset = initial_atlas_reset;
+      blocked_reset.renderer_generation = presentation_summary.generation;
+      blocked_reset.atlas_generation = 2;
       Expect(metal_upload(presentation_summary.handle, &presentation_alpha,
                           alpha_pixels.data()) == DTR_STATUS_BACKPRESSURED,
              "same-generation atlas writes cannot race queued GPU reads");
       Expect(metal_upload(presentation_summary.handle, &blocked_atlas,
                           alpha_pixels.data()) == DTR_STATUS_BACKPRESSURED,
              "atlas generation replacement waits for frame retirement");
+      Expect(metal_reset(presentation_summary.handle, &blocked_reset) ==
+                 DTR_STATUS_BACKPRESSURED,
+             "empty atlas replacement waits for frame retirement");
       DtrMetalRendererStateV1 queued_state = {};
       queued_state.struct_size = sizeof(queued_state);
       queued_state.version = DTR_METAL_RENDERER_STATE_VERSION;

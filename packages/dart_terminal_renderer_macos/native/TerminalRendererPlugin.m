@@ -512,6 +512,7 @@ enum {
                      generation:(uint64_t)generation;
 - (int32_t)upload:(DtrMetalAtlasUploadV1)upload
             pixels:(const uint8_t*)pixels;
+- (int32_t)resetAtlas:(DtrMetalAtlasResetV1)reset;
 - (int32_t)bindView:(DtrTerminalMetalView*)view;
 - (int32_t)submitFrame:(const uint8_t*)frame
                  length:(uint32_t)frameLength
@@ -855,6 +856,35 @@ enum {
                  bytesPerRow:upload.row_stride
                bytesPerImage:upload.byte_length];
     }
+  }
+  [_lock unlock];
+  return result;
+}
+
+- (int32_t)resetAtlas:(DtrMetalAtlasResetV1)reset {
+  [_lock lock];
+  int32_t result = DTR_STATUS_OK;
+  if (!_admitting) {
+    result = DTR_STATUS_NOT_FOUND;
+  } else if (reset.atlas_generation == 0) {
+    result = DTR_STATUS_INVALID_ARGUMENT;
+  } else if (reset.renderer_generation != self.generation ||
+             reset.atlas_generation <= _atlasGeneration) {
+    result = DTR_STATUS_STALE_GENERATION;
+  } else if ([self hasActiveSlotsLocked]) {
+    result = DTR_STATUS_BACKPRESSURED;
+  } else {
+    for (uint32_t slice = 0; slice < self.config.maximum_alpha_pages;
+         slice++) {
+      [self clearTextureSlice:_alphaAtlas slice:slice bytesPerPixel:1u];
+      _alphaPageGenerations[slice] = 0;
+    }
+    for (uint32_t slice = 0; slice < self.config.maximum_color_pages;
+         slice++) {
+      [self clearTextureSlice:_colorAtlas slice:slice bytesPerPixel:4u];
+      _colorPageGenerations[slice] = 0;
+    }
+    _atlasGeneration = reset.atlas_generation;
   }
   [_lock unlock];
   return result;
@@ -2239,6 +2269,30 @@ int32_t dtr_metal_renderer_release(uint64_t handle) {
 
 void dtr_metal_renderer_release_finalizer(void* handle) {
   (void)dtr_metal_renderer_release((uint64_t)(uintptr_t)handle);
+}
+
+int32_t dtr_metal_renderer_reset_atlas(
+    uint64_t handle, const DtrMetalAtlasResetV1* reset) {
+  @autoreleasepool {
+    if (reset == NULL) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t reset_header[2];
+    memcpy(reset_header, reset, sizeof(reset_header));
+    if (reset_header[0] < sizeof(DtrMetalAtlasResetV1) ||
+        reset_header[1] != DTR_METAL_ATLAS_RESET_VERSION) {
+      return DTR_STATUS_UNSUPPORTED_VERSION;
+    }
+    DtrMetalAtlasResetV1 copied;
+    memcpy(&copied, reset, sizeof(copied));
+    if (copied.reserved[0] != 0 || copied.reserved[1] != 0) {
+      return DTR_STATUS_INVALID_ARGUMENT;
+    }
+    DtrMetalRenderer* renderer = nil;
+    RetainMetalRendererForHandle(handle, &renderer);
+    return renderer == nil ? DTR_STATUS_INVALID_HANDLE
+                           : [renderer resetAtlas:copied];
+  }
 }
 
 int32_t dtr_metal_renderer_upload_atlas(

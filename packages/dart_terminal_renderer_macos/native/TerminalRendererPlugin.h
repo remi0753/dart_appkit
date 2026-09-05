@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 6u
+#define DTR_ABI_VERSION 7u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -24,6 +24,7 @@
 #define DTR_MAX_RASTER_OUTPUT_BYTES (64u * 1024u * 1024u)
 #define DTR_METAL_RENDERER_CONFIG_VERSION 1u
 #define DTR_METAL_RENDERER_SUMMARY_VERSION 1u
+#define DTR_METAL_ATLAS_RESET_VERSION 1u
 #define DTR_METAL_ATLAS_UPLOAD_VERSION 1u
 #define DTR_METAL_FRAME_VERSION 1u
 #define DTR_METAL_VIEW_BINDING_VERSION 1u
@@ -312,6 +313,14 @@ typedef struct DtrMetalAtlasUploadV1 {
   uint32_t reserved[4];
 } DtrMetalAtlasUploadV1;
 
+typedef struct DtrMetalAtlasResetV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint64_t renderer_generation;
+  uint64_t atlas_generation;
+  uint32_t reserved[2];
+} DtrMetalAtlasResetV1;
+
 // Version-one packed frame. Coordinates and sizes are device pixels in a
 // flipped top-left viewport. Instances are contiguous and ordered by terminal
 // layer. Colors are straight-alpha 0xRRGGBBAA.
@@ -458,6 +467,12 @@ dtr_metal_renderer_release(uint64_t handle);
 // it is never dereferenced. Explicit release remains the deterministic path.
 __attribute__((visibility("default"))) void
 dtr_metal_renderer_release_finalizer(void* handle);
+
+// Atomically advances the complete atlas snapshot generation and clears every
+// texture slice/page generation. This supports an empty scale/font rebuild
+// without inventing a glyph upload. Active frame slots return backpressure.
+__attribute__((visibility("default"))) int32_t dtr_metal_renderer_reset_atlas(
+    uint64_t handle, const DtrMetalAtlasResetV1* reset);
 
 // Copies one tightly packed dirty rectangle into a bounded atlas texture
 // slice. No pointer is retained. A higher atlas generation advances the

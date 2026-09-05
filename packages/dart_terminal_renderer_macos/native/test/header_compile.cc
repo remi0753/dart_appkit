@@ -14,6 +14,7 @@ static_assert(std::is_standard_layout_v<DtrRasterHeaderV1>);
 static_assert(std::is_standard_layout_v<DtrRasterGlyphV1>);
 static_assert(std::is_standard_layout_v<DtrMetalRendererConfigV1>);
 static_assert(std::is_standard_layout_v<DtrMetalRendererSummaryV1>);
+static_assert(std::is_standard_layout_v<DtrMetalAtlasResetV1>);
 static_assert(std::is_standard_layout_v<DtrMetalAtlasUploadV1>);
 static_assert(std::is_standard_layout_v<DtrMetalFrameHeaderV1>);
 static_assert(std::is_standard_layout_v<DtrMetalInstanceV1>);
@@ -31,6 +32,7 @@ static_assert(sizeof(DtrRasterHeaderV1) == 64);
 static_assert(sizeof(DtrRasterGlyphV1) == 48);
 static_assert(sizeof(DtrMetalRendererConfigV1) == 48);
 static_assert(sizeof(DtrMetalRendererSummaryV1) == 64);
+static_assert(sizeof(DtrMetalAtlasResetV1) == 32);
 static_assert(sizeof(DtrMetalAtlasUploadV1) == 80);
 static_assert(sizeof(DtrMetalFrameHeaderV1) == 80);
 static_assert(sizeof(DtrMetalInstanceV1) == 48);
@@ -52,6 +54,7 @@ int main() {
   auto* renderer_create = &dtr_metal_renderer_create;
   auto* renderer_release = &dtr_metal_renderer_release;
   auto* renderer_finalizer = &dtr_metal_renderer_release_finalizer;
+  auto* renderer_reset = &dtr_metal_renderer_reset_atlas;
   auto* renderer_upload = &dtr_metal_renderer_upload_atlas;
   auto* renderer_submit = &dtr_metal_renderer_submit;
   auto* renderer_state = &dtr_metal_renderer_state;
@@ -63,6 +66,7 @@ int main() {
          catalog_shape == nullptr || catalog_rasterize == nullptr ||
          catalog_count == nullptr || renderer_create == nullptr ||
          renderer_release == nullptr || renderer_finalizer == nullptr ||
+         renderer_reset == nullptr ||
          renderer_upload == nullptr || renderer_submit == nullptr ||
          renderer_state == nullptr || renderer_render == nullptr ||
          renderer_count == nullptr;

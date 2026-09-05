@@ -140,6 +140,16 @@ void _testTypedRendererReadback() {
     ),
   );
   try {
+    _expect(
+      renderer.resetAtlas(atlasGeneration: 1) ==
+          TerminalMetalUploadDisposition.uploaded,
+      'empty atlas reset publishes a complete generation',
+    );
+    _expect(
+      renderer.resetAtlas(atlasGeneration: 1) ==
+          TerminalMetalUploadDisposition.stale,
+      'atlas reset generations cannot be reused',
+    );
     final Uint8List alpha = Uint8List.fromList(<int>[128]);
     final TerminalMetalAtlasUpload alphaUpload = TerminalMetalAtlasUpload(
       rendererGeneration: renderer.generation,
@@ -232,6 +242,15 @@ void _testTypedRendererReadback() {
     _expect(
       renderer.uploadAtlas(alphaUpload) == TerminalMetalUploadDisposition.stale,
       'older atlas snapshot is surfaced as a typed stale result',
+    );
+    _expect(
+      renderer.resetAtlas(atlasGeneration: 3) ==
+          TerminalMetalUploadDisposition.uploaded,
+      'empty full rebuild advances without a synthetic glyph upload',
+    );
+    _expectThrowsType<TerminalMetalRendererException>(
+      () => renderer.renderRgba(frame),
+      'full reset invalidates all previous page definitions',
     );
   } finally {
     renderer.dispose();

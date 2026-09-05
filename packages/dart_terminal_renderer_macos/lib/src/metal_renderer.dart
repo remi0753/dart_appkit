@@ -596,6 +596,32 @@ final class TerminalMetalRenderer implements Finalizable {
     view.performCustomOperation(payload);
   }
 
+  TerminalMetalUploadDisposition resetAtlas({required int atlasGeneration}) {
+    final int handle = _liveHandle();
+    _requirePositiveInt64(atlasGeneration, 'atlasGeneration');
+    final Arena arena = Arena();
+    try {
+      final Pointer<_MetalAtlasResetV1> reset = arena<_MetalAtlasResetV1>();
+      reset.ref
+        ..structSize = sizeOf<_MetalAtlasResetV1>()
+        ..version = 1
+        ..rendererGeneration = generation
+        ..atlasGeneration = atlasGeneration;
+      final int status = _metalRendererResetAtlas(handle, reset);
+      return switch (status) {
+        0 => TerminalMetalUploadDisposition.uploaded,
+        8 => TerminalMetalUploadDisposition.stale,
+        9 => TerminalMetalUploadDisposition.backpressured,
+        _ => throw TerminalMetalRendererException(
+          operation: 'Metal atlas reset',
+          status: status,
+        ),
+      };
+    } finally {
+      arena.releaseAll();
+    }
+  }
+
   TerminalMetalUploadDisposition uploadAtlas(TerminalMetalAtlasUpload upload) {
     final int handle = _liveHandle();
     if (upload.rendererGeneration != generation ||
@@ -897,6 +923,19 @@ final class _MetalAtlasUploadV1 extends Struct {
   external Array<Uint32> reserved;
 }
 
+final class _MetalAtlasResetV1 extends Struct {
+  @Uint32()
+  external int structSize;
+  @Uint32()
+  external int version;
+  @Uint64()
+  external int rendererGeneration;
+  @Uint64()
+  external int atlasGeneration;
+  @Array(2)
+  external Array<Uint32> reserved;
+}
+
 final class _MetalSubmissionV1 extends Struct {
   @Uint32()
   external int structSize;
@@ -948,6 +987,7 @@ final class _MetalRendererStateV1 extends Struct {
 void _checkMetalLayout() {
   if (sizeOf<_MetalRendererConfigV1>() != 48 ||
       sizeOf<_MetalRendererSummaryV1>() != 64 ||
+      sizeOf<_MetalAtlasResetV1>() != 32 ||
       sizeOf<_MetalAtlasUploadV1>() != 80 ||
       sizeOf<_MetalSubmissionV1>() != 40 ||
       sizeOf<_MetalRendererStateV1>() != 96) {
@@ -1011,6 +1051,15 @@ external void _metalRendererReleaseFinalizer(Pointer<Void> handle);
 
 final NativeFinalizer _metalRendererFinalizer = NativeFinalizer(
   Native.addressOf(_metalRendererReleaseFinalizer),
+);
+
+@Native<Int32 Function(Uint64, Pointer<_MetalAtlasResetV1>)>(
+  symbol: 'dtr_metal_renderer_reset_atlas',
+  assetId: _metalAssetId,
+)
+external int _metalRendererResetAtlas(
+  int handle,
+  Pointer<_MetalAtlasResetV1> reset,
 );
 
 @Native<Int32 Function(Uint64, Pointer<_MetalAtlasUploadV1>, Pointer<Uint8>)>(

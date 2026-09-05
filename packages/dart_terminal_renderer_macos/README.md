@@ -26,9 +26,11 @@ calls are intended for a font/render worker domain rather than an AppKit event
 handler. Terminal grids, atlas allocation policy, input, and application policy
 remain outside this package boundary.
 
-Atlas generations identify complete Dart-owned snapshots. Advancing a snapshot
-preserves unchanged native slices so dirty rectangles remain sufficient; a
-newer page generation clears only its reused texture slice before upload.
+Atlas generations identify complete Dart-owned snapshots. Incrementally
+advancing a snapshot preserves unchanged native slices so dirty rectangles
+remain sufficient; a newer page generation clears only its reused texture
+slice before upload. `resetAtlas` advances an empty or populated full rebuild
+without a synthetic glyph and clears every old slice before new definitions.
 
 Applications declare the following native capability in their runtime manifest:
 
@@ -37,7 +39,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 6,
+  "abiVersion": 7,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -47,8 +49,9 @@ Call `TerminalRendererMacos.initialize()` after attaching the AppKit
 application, then use `TerminalRendererMacos.createView()`.
 
 Create bounded GPU resources with `TerminalMetalRenderer.open()`, bind them to
-that view with `bindToView`, upload typed `TerminalMetalAtlasUpload` rectangles,
-and build immutable frames through `TerminalMetalFrameEncoder`. `submit`
+that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,
+upload typed `TerminalMetalAtlasUpload` rectangles, and build immutable frames
+through `TerminalMetalFrameEncoder`. `submit`
 distinguishes accepted, stale, and backpressured outcomes; `state` exposes the
 bounded retirement watermark. `renderRgba` is the synchronous test/oracle path,
 not the production presentation path. Dispose the renderer explicitly from its
