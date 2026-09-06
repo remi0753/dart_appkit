@@ -2010,3 +2010,7 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   also green: warning-clean C11/C++20 headers, every native capability suite,
   all Dart analysis and tests, launcher/Kernel compilation, real FFI loading,
   and the legacy bridge fallback passed under `make test`.
+- The content-free native acceptance operation used by product integration
+  additionally requires the view to be the focused first responder, observes
+  at least one focused-element notification, and verifies the independently
+  retained cursor line and range frame. The focused native suite remains green.

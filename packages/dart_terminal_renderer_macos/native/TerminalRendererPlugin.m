@@ -2307,18 +2307,30 @@ static NSString* TextInputPlainString(id value) {
           isEqualToString:[self.terminalAccessibilityText
                               substringWithRange:
                                   self.terminalAccessibilitySelection]] ||
+      ![self isAccessibilityFocused] ||
       self.terminalAccessibilityRows == 0 ||
       [self accessibilityLineForIndex:0] != 0 ||
       [self accessibilityRangeForLine:0].location != 0 ||
       self.terminalAccessibilityValueNotificationCount == 0 ||
-      self.terminalAccessibilitySelectionNotificationCount == 0) {
+      self.terminalAccessibilitySelectionNotificationCount == 0 ||
+      self.terminalAccessibilityFocusNotificationCount == 0 ||
+      (self.terminalAccessibilityCursor.location != NSNotFound &&
+       [self accessibilityInsertionPointLineNumber] !=
+           (NSInteger)self.terminalAccessibilityCursorRow)) {
     return NO;
   }
   const NSRect frame =
       [self accessibilityFrameForRange:self.terminalAccessibilitySelection];
+  const NSRect cursor_frame = self.terminalAccessibilityCursor.location ==
+                                      NSNotFound
+                                  ? frame
+                                  : [self accessibilityFrameForRange:
+                                              self.terminalAccessibilityCursor];
   return isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
          isfinite(frame.size.width) && isfinite(frame.size.height) &&
-         frame.size.width > 0 && frame.size.height > 0;
+         frame.size.width > 0 && frame.size.height > 0 &&
+         isfinite(cursor_frame.origin.x) && isfinite(cursor_frame.origin.y) &&
+         cursor_frame.size.width > 0 && cursor_frame.size.height > 0;
 }
 
 - (BOOL)attachTextInputClient:(uint64_t)clientId {
