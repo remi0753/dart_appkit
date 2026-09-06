@@ -32,6 +32,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Per-window key routing and raw-input responder suppression | Native default/exclusive/menu dispatch tests plus Dart state/failure and legacy-symbol tests | Verified |
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
+| Allowlisted external URL opening | Dart typed-policy matrix, native recorder after repeated validation, bound/output/thread guards, FFI and legacy-symbol smoke | Verified |
 | Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |

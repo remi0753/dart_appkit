@@ -212,6 +212,27 @@ final class AppKitApplication {
     );
   }
 
+  /// Opens one prevalidated external URL with its registered macOS handler.
+  ///
+  /// Returns whether Launch Services accepted the request. Only values created
+  /// by [AllowedExternalUrl.parse] or [AllowedExternalUrl.tryParse] can reach
+  /// this boundary, and the native bridge repeats the allowlist validation.
+  bool openExternalUrl(AllowedExternalUrl url) {
+    _ensureRunning();
+    final int opened = _checkValue<int>(
+      _bindings.applicationOpenExternalUrl(url.value),
+      'AppKitApplication.openExternalUrl',
+    );
+    if (opened != 0 && opened != 1) {
+      throw const AppKitNativeException(
+        operation: 'AppKitApplication.openExternalUrl',
+        status: 7,
+        nativeMessage: 'native bridge returned an invalid external URL result',
+      );
+    }
+    return opened == 1;
+  }
+
   int get debugLiveObjectCount {
     _ensureRunning();
     return _checkValue<int>(

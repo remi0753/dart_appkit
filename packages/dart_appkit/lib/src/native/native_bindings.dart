@@ -5,6 +5,7 @@ const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
 const int dartAppKitCurrentEventProtocolVersion = 5;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
+const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -57,6 +58,7 @@ abstract interface class NativeBindings {
     required int operationId,
     required bool allow,
   });
+  NativeValueResult<int> applicationOpenExternalUrl(String url);
 
   NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText();
   NativeValueResult<int> pasteboardWriteText(String text);

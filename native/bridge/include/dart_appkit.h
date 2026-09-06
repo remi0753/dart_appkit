@@ -24,6 +24,9 @@ extern "C" {
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
 
+/** Maximum UTF-8 bytes accepted by the external-URL opening boundary. */
+#define DA_EXTERNAL_URL_MAX_UTF8_BYTES ((size_t)4096u)
+
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
 
@@ -173,6 +176,18 @@ da_application_set_termination_request_deferral(int32_t enabled);
  */
 DA_EXPORT int32_t da_application_reply_to_termination_request(
     int64_t operation_id, int32_t allow);
+
+/**
+ * Main thread only. Opens an absolute http, https, or mailto URL.
+ *
+ * The copied UTF-8 input must be nonempty, no larger than
+ * DA_EXTERNAL_URL_MAX_UTF8_BYTES, free of control/invisible/ambiguous
+ * characters, and structurally valid. Web URLs require a host and reject
+ * credentials. out_opened is initialized to zero and is one only when
+ * NSWorkspace accepted the request.
+ */
+DA_EXPORT int32_t da_application_open_external_url(
+    const char* url, size_t url_length, int32_t* out_opened);
 
 /**
  * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.

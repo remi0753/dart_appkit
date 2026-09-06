@@ -71,6 +71,9 @@ void main(List<String> arguments) {
       bindings.pasteboardGetChangeCount().status != 8) {
     _fail('legacy bridge did not reject additive pasteboard APIs');
   }
+  if (bindings.applicationOpenExternalUrl('https://example.com').status != 8) {
+    _fail('legacy bridge did not reject the additive external URL API');
+  }
   if (bindings.menuCreate('Menu').status != 8 ||
       bindings
               .menuItemCreate(title: 'Item', keyEquivalent: 'i', modifiers: 0)

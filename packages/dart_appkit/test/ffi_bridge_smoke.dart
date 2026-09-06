@@ -52,6 +52,13 @@ void main(List<String> arguments) {
       pasteboardCount.message.isEmpty) {
     _fail('pasteboard symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> externalUrl = bindings
+      .applicationOpenExternalUrl('https://example.com');
+  if (externalUrl.isSuccess ||
+      externalUrl.status != 5 ||
+      externalUrl.message.isEmpty) {
+    _fail('external URL symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> menu = bindings.menuCreate('FFI smoke');
   if (menu.isSuccess || menu.status != 5 || menu.message.isEmpty) {
     _fail('menu symbol did not preserve its main-thread guard');

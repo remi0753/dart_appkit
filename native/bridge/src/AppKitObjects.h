@@ -81,6 +81,12 @@
 
 namespace dart_appkit {
 
+using ExternalUrlOpenFunction = bool (*)(NSURL* url);
+
+int32_t OpenAllowedExternalUrl(NSString* value,
+                               ExternalUrlOpenFunction opener,
+                               int32_t* out_opened);
+
 int32_t ReadPasteboardText(NSPasteboard* pasteboard,
                            DaPasteboardText* out_snapshot);
 int32_t ReadPasteboardTextWithLimit(NSPasteboard* pasteboard,

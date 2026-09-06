@@ -218,6 +218,22 @@ int32_t PerformTestCustomViewOperation(void* context, void* view,
 namespace {
 
 int g_failures = 0;
+std::vector<std::string> g_opened_external_urls;
+
+bool RecordExternalUrl(NSURL* url) {
+  if (url == nil || url.absoluteString.UTF8String == nullptr) {
+    return false;
+  }
+  g_opened_external_urls.emplace_back(url.absoluteString.UTF8String);
+  return true;
+}
+
+bool RefuseExternalUrl(NSURL* url) {
+  if (url != nil && url.absoluteString.UTF8String != nullptr) {
+    g_opened_external_urls.emplace_back(url.absoluteString.UTF8String);
+  }
+  return false;
+}
 
 #define EXPECT_TRUE(condition)                                      \
   do {                                                              \
@@ -671,6 +687,75 @@ void TestPasteboardText() {
             DA_STATUS_INTERNAL_ERROR);
 }
 
+void TestExternalUrlOpening() {
+  dart_appkit::ResetBridgeForTesting();
+  g_opened_external_urls.clear();
+
+  int32_t opened = -1;
+  EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                @"https://example.com/path?query=value#fragment",
+                RecordExternalUrl, &opened),
+            DA_STATUS_OK);
+  EXPECT_EQ(opened, 1);
+  EXPECT_EQ(g_opened_external_urls.size(), static_cast<size_t>(1));
+  EXPECT_EQ(g_opened_external_urls.back(),
+            std::string("https://example.com/path?query=value#fragment"));
+
+  opened = -1;
+  EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                @"mailto:user@example.com?subject=Hello%20there",
+                RefuseExternalUrl, &opened),
+            DA_STATUS_OK);
+  EXPECT_EQ(opened, 0);
+  EXPECT_EQ(g_opened_external_urls.size(), static_cast<size_t>(2));
+
+  NSArray<NSString*>* invalid = @[
+    @"", @"example.com/path", @"file:///tmp/report",
+    @"javascript:alert(1)", @"https://user:password@example.com",
+    @"https:///missing-host", @"http:example.com", @"mailto:",
+    @"mailto://user@example.com", @"https://example.com/line\nbreak",
+    @"https://example.com/back\\slash",
+    @"https://example.com/hidden\u202evalue",
+    @"https://example.com/%0dheader", @"https://example.com/%5cpath",
+    @"https://example.com/%E2%80%AEvalue",
+    @"https://example.com/%zz"
+  ];
+  for (NSString* value in invalid) {
+    const size_t before = g_opened_external_urls.size();
+    opened = -1;
+    EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                  value, RecordExternalUrl, &opened),
+              DA_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(opened, 0);
+    EXPECT_EQ(g_opened_external_urls.size(), before);
+  }
+
+  NSString* oversized = [@"https://example.com/"
+      stringByPaddingToLength:DA_EXTERNAL_URL_MAX_UTF8_BYTES + 1
+                  withString:@"a"
+             startingAtIndex:0];
+  opened = -1;
+  EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                oversized, RecordExternalUrl, &opened),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(opened, 0);
+  EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                @"https://example.com", nullptr, &opened),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::OpenAllowedExternalUrl(
+                @"https://example.com", RecordExternalUrl, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  opened = -1;
+  EXPECT_EQ(da_application_open_external_url(
+                invalid_utf8, sizeof(invalid_utf8), &opened),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(opened, 0);
+  EXPECT_EQ(da_application_open_external_url(nullptr, 0, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+}
+
 void TestMenus() {
   Capture capture;
   ResetWithCurrentCapture(&capture);
@@ -1024,6 +1109,7 @@ void TestThreadGuardAndFinalizer() {
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::atomic<int32_t> worker_is_main{-1};
   std::atomic<int32_t> pasteboard_status{DA_STATUS_OK};
+  std::atomic<int32_t> external_url_status{DA_STATUS_OK};
   std::thread worker([&]() {
     DaHandle handle = 123;
     worker_status.store(da_text_view_create(&handle));
@@ -1041,6 +1127,10 @@ void TestThreadGuardAndFinalizer() {
     EXPECT_EQ(da_pasteboard_write_text(nullptr, 0, &change_count),
               DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(change_count, static_cast<int64_t>(0));
+    int32_t opened = 99;
+    external_url_status.store(da_application_open_external_url(
+        "https://example.com", 19, &opened));
+    EXPECT_EQ(opened, 0);
     change_count = 99;
     EXPECT_EQ(da_pasteboard_clear(&change_count), DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(change_count, static_cast<int64_t>(0));
@@ -1068,6 +1158,7 @@ void TestThreadGuardAndFinalizer() {
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(pasteboard_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(external_url_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(worker_is_main.load(), 0);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 
@@ -1559,6 +1650,7 @@ int main() {
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
     TestPasteboardText();
+    TestExternalUrlOpening();
     TestMenus();
     TestRegistryLifecycleAndTypes();
     TestRegisteredCustomViews();

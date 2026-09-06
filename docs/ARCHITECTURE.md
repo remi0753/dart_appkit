@@ -193,6 +193,15 @@ thread-local UTF-8 storage never escapes into Dart. Tests substitute an
 in-process pasteboard double at the internal helper boundary, while the public
 ABI alone selects the user's general pasteboard.
 
+External URL opening is likewise an application service rather than a native
+registry object. Dart first converts untrusted text into the closed
+`AllowedExternalUrl` value type. The FFI bridge copies that exact UTF-8 value,
+repeats its size, scheme, structure, credential, control, invisible-character,
+and escape checks on the AppKit main thread, then calls `NSWorkspace` without
+shell interpolation. This duplicate policy is intentional: neither a bypass
+of the public Dart type nor a mismatched caller can reach Launch Services with
+an arbitrary scheme.
+
 Menus and menu items are independent registry objects. Native attachment
 relationships borrow handles even though `NSMenu`, `NSMenuItem`, submenus, and
 `NSApplication.mainMenu` establish normal AppKit retains. Dart mirrors the

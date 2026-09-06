@@ -888,6 +888,88 @@ Future<void> _testPasteboardApi() async {
   await raw.close();
 }
 
+Future<void> _testExternalUrlApi() async {
+  final List<String> valid = <String>[
+    'https://example.com/path?query=value#fragment',
+    'HTTP://example.com/%20space',
+    'mailto:user@example.com?subject=Hello%20there',
+  ];
+  for (final String source in valid) {
+    final AllowedExternalUrl? parsed = AllowedExternalUrl.tryParse(source);
+    _expect(parsed != null, 'allowlisted URL parses: $source');
+    _expect(parsed!.value == source, 'validated URL preserves exact text');
+    _expect(
+      parsed.scheme == Uri.parse(source).scheme.toLowerCase(),
+      'validated URL exposes lowercase scheme',
+    );
+  }
+  _expect(
+    AllowedExternalUrl.maximumUtf8Bytes == 4096,
+    'public external URL bound is stable',
+  );
+
+  final List<String> invalid = <String>[
+    '',
+    'example.com/path',
+    '//example.com/path',
+    'file:///tmp/report',
+    'javascript:alert(1)',
+    'data:text/plain,hello',
+    'custom:value',
+    'https://user:password@example.com',
+    'https:///missing-host',
+    'http:example.com',
+    'mailto:',
+    'mailto://user@example.com',
+    'https://example.com/line\nbreak',
+    'https://example.com/back\\slash',
+    'https://example.com/hidden\u202evalue',
+    'https://example.com/%0dheader',
+    'https://example.com/%5cpath',
+    'https://example.com/%E2%80%AEvalue',
+    'https://example.com/%zz',
+    'https://example.com/\uD800',
+    'https://example.com/${'a' * 4096}',
+  ];
+  for (final String source in invalid) {
+    _expect(
+      AllowedExternalUrl.tryParse(source) == null,
+      'unsafe URL is rejected: ${source.length}',
+    );
+  }
+  await _expectThrows<FormatException>(
+    () => AllowedExternalUrl.parse('ssh://example.com'),
+  );
+
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final AllowedExternalUrl target = AllowedExternalUrl.parse(valid.first);
+  _expect(app.openExternalUrl(target), 'accepted workspace open is true');
+  _expect(
+    bindings.openedExternalUrls.length == 1 &&
+        bindings.openedExternalUrls.single == target.value,
+    'only validated exact URL reaches native bindings',
+  );
+  bindings.externalUrlOpenResult = false;
+  _expect(
+    !app.openExternalUrl(AllowedExternalUrl.parse(valid.last)),
+    'workspace refusal is a nonexceptional false result',
+  );
+  bindings.failNextOperation = 'applicationOpenExternalUrl';
+  final AppKitNativeException nativeError =
+      await _expectThrows<AppKitNativeException>(
+        () => app.openExternalUrl(target),
+      );
+  _expect(nativeError.status == 7, 'native URL-open error retained');
+
+  await app.terminate();
+  await _expectThrows<StateError>(() => app.openExternalUrl(target));
+  await raw.close();
+}
+
 Future<void> _testMenuApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -1188,6 +1270,7 @@ Future<void> main() async {
     _testLifecycleRequestEvents,
   );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
+  await _test('allowlisted external URL opening', _testExternalUrlApi);
   await _test('menu ownership and action routing', _testMenuApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);

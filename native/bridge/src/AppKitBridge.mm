@@ -86,6 +86,85 @@ constexpr uint64_t kStableModifierMask =
     DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND | DA_MODIFIER_NUMERIC_PAD |
     DA_MODIFIER_FUNCTION;
 
+bool IsAsciiSchemeCharacter(unichar unit, bool first) {
+  const bool alpha = (unit >= 'A' && unit <= 'Z') ||
+                     (unit >= 'a' && unit <= 'z');
+  if (first) {
+    return alpha;
+  }
+  return alpha || (unit >= '0' && unit <= '9') || unit == '+' || unit == '-' ||
+         unit == '.';
+}
+
+bool IsUnsafeUrlCodeUnit(unichar unit) {
+  return unit <= 0x20 || unit == 0x5c ||
+         (unit >= 0x7f && unit <= 0x9f) || unit == 0xa0 || unit == 0xad ||
+         unit == 0x61c || unit == 0x1680 || unit == 0x180e ||
+         (unit >= 0x2000 && unit <= 0x200f) ||
+         (unit >= 0x2028 && unit <= 0x202f) ||
+         (unit >= 0x205f && unit <= 0x206f) || unit == 0x3000 ||
+         unit == 0xfeff;
+}
+
+bool IsUnsafeDecodedUrlCodeUnit(unichar unit) {
+  return (unit < 0x20) || (unit > 0x20 && IsUnsafeUrlCodeUnit(unit));
+}
+
+int HexValue(unichar unit) {
+  if (unit >= '0' && unit <= '9') {
+    return unit - '0';
+  }
+  if (unit >= 'A' && unit <= 'F') {
+    return unit - 'A' + 10;
+  }
+  if (unit >= 'a' && unit <= 'f') {
+    return unit - 'a' + 10;
+  }
+  return -1;
+}
+
+bool ContainsUnsafeUrlText(NSString* value) {
+  const NSUInteger length = value.length;
+  for (NSUInteger index = 0; index < length; ++index) {
+    const unichar unit = [value characterAtIndex:index];
+    if (IsUnsafeUrlCodeUnit(unit)) {
+      return true;
+    }
+    if (unit != '%') {
+      continue;
+    }
+    if (index + 2 >= length) {
+      return true;
+    }
+    const int high = HexValue([value characterAtIndex:index + 1]);
+    const int low = HexValue([value characterAtIndex:index + 2]);
+    if (high < 0 || low < 0) {
+      return true;
+    }
+    const int byte = (high << 4) | low;
+    if (byte <= 0x1f || byte == 0x5c || byte == 0x7f) {
+      return true;
+    }
+    index += 2;
+  }
+  NSString* decoded = [value stringByRemovingPercentEncoding];
+  if (decoded == nil) {
+    return true;
+  }
+  if (![decoded isEqualToString:value]) {
+    for (NSUInteger index = 0; index < decoded.length; ++index) {
+      if (IsUnsafeDecodedUrlCodeUnit([decoded characterAtIndex:index])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool OpenUrlWithWorkspace(NSURL* url) {
+  return [[NSWorkspace sharedWorkspace] openURL:url];
+}
+
 NSString* CopyUtf8(const char* bytes, size_t length, int32_t* out_status) {
   if (bytes == nullptr && length != 0) {
     *out_status =
@@ -267,6 +346,86 @@ int32_t RequireMainThread() {
         DA_STATUS_WRONG_THREAD,
         "AppKit bridge call must run on the process main thread");
   }
+  return DA_STATUS_OK;
+}
+
+int32_t OpenAllowedExternalUrl(NSString* value,
+                               ExternalUrlOpenFunction opener,
+                               int32_t* out_opened) {
+  if (out_opened == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "out_opened must not be null");
+  }
+  *out_opened = 0;
+  if (value == nil || opener == nullptr) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL and opener must not be null");
+  }
+  NSData* utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
+  if (utf8 == nil) {
+    return SetLastError(DA_STATUS_INVALID_UTF8,
+                        "external URL could not be encoded as UTF-8");
+  }
+  if (utf8.length == 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL must not be empty");
+  }
+  if (utf8.length > DA_EXTERNAL_URL_MAX_UTF8_BYTES) {
+    return SetLastError(DA_STATUS_LIMIT_EXCEEDED,
+                        "external URL exceeds the UTF-8 byte limit");
+  }
+  if (ContainsUnsafeUrlText(value)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "external URL contains unsafe or ambiguous characters");
+  }
+
+  const NSRange colon = [value rangeOfString:@":"];
+  if (colon.location == NSNotFound || colon.location == 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL must contain an absolute scheme");
+  }
+  for (NSUInteger index = 0; index < colon.location; ++index) {
+    if (!IsAsciiSchemeCharacter([value characterAtIndex:index], index == 0)) {
+      return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                          "external URL scheme must be ASCII");
+    }
+  }
+
+  NSURLComponents* components = [NSURLComponents componentsWithString:value];
+  if (components == nil || components.scheme == nil) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL is malformed");
+  }
+  NSString* scheme = components.scheme.lowercaseString;
+  const bool is_web = [scheme isEqualToString:@"http"] ||
+                      [scheme isEqualToString:@"https"];
+  const bool is_mail = [scheme isEqualToString:@"mailto"];
+  if (!is_web && !is_mail) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL scheme is not allowed");
+  }
+  if (is_web) {
+    if (components.host.length == 0) {
+      return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                          "web URL must contain a host");
+    }
+    if (components.user != nil || components.password != nil) {
+      return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                          "web URL credentials are not allowed");
+    }
+  } else if (components.host != nil || components.user != nil ||
+             components.password != nil || components.path.length == 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "mailto URL must contain a non-authority recipient");
+  }
+
+  NSURL* url = components.URL;
+  if (url == nil || url.scheme == nil) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL cannot be represented by NSURL");
+  }
+  *out_opened = opener(url) ? 1 : 0;
   return DA_STATUS_OK;
 }
 
@@ -589,6 +748,37 @@ int32_t da_application_reply_to_termination_request(int64_t operation_id,
   dart_appkit::g_pending_application_termination_operation_id = 0;
   [NSApp replyToApplicationShouldTerminate:allow == 1];
   return DA_STATUS_OK;
+}
+
+int32_t da_application_open_external_url(const char* url, size_t url_length,
+                                         int32_t* out_opened) {
+  dart_appkit::ClearLastError();
+  if (out_opened != nullptr) {
+    *out_opened = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (url_length > DA_EXTERNAL_URL_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "external URL exceeds the UTF-8 byte limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* value = dart_appkit::CopyUtf8(url, url_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    return dart_appkit::OpenAllowedExternalUrl(
+        value, dart_appkit::OpenUrlWithWorkspace, out_opened);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr
+                                      ? exception.reason.UTF8String
+                                      : "external URL open failed");
+  }
 }
 
 int32_t da_pasteboard_read_text(DaPasteboardText* out_snapshot) {

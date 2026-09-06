@@ -32,6 +32,8 @@ final class FakeNativeBindings implements NativeBindings {
   bool applicationTerminationDeferral = false;
   int? applicationTerminationReplyOperationId;
   bool? applicationTerminationReplyAllow;
+  bool externalUrlOpenResult = true;
+  final List<String> openedExternalUrls = <String>[];
   String? pasteboardText;
   int pasteboardChangeCount = 0;
   int? pasteboardTextUtf8LengthOverride;
@@ -147,6 +149,18 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeValueResult<int> applicationOpenExternalUrl(String url) {
+    final NativeValueResult<int> result = _value<int>(
+      'applicationOpenExternalUrl',
+      externalUrlOpenResult ? 1 : 0,
+    );
+    if (result.isSuccess) {
+      openedExternalUrls.add(url);
+    }
+    return result;
+  }
+
+  @override
   NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() {
     final NativeValueResult<NativePasteboardTextSnapshot> result =
         _value<NativePasteboardTextSnapshot>(
@@ -158,7 +172,8 @@ final class FakeNativeBindings implements NativeBindings {
         );
     if (!result.isSuccess) return result;
     final String? text = pasteboardText;
-    final int length = pasteboardTextUtf8LengthOverride ??
+    final int length =
+        pasteboardTextUtf8LengthOverride ??
         (text == null ? 0 : utf8.encode(text).length);
     if (length > dartAppKitPasteboardMaximumTextUtf8Bytes) {
       return const NativeValueResult<NativePasteboardTextSnapshot>.failure(

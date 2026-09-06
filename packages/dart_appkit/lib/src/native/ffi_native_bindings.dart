@@ -63,6 +63,16 @@ typedef _BoolStatusNative = Int32 Function(Int32);
 typedef _BoolStatusDart = int Function(int);
 typedef _OperationReplyNative = Int32 Function(Int64, Int32);
 typedef _OperationReplyDart = int Function(int, int);
+typedef _ExternalUrlOpenNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Int32>,
+);
+typedef _ExternalUrlOpenDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Int32>,
+);
 typedef _PasteboardReadNative = Int32 Function(
   Pointer<_DaPasteboardTextNative>,
 );
@@ -195,6 +205,18 @@ _OperationReplyDart? _lookupApplicationTerminationReply(
   try {
     return library.lookupFunction<_OperationReplyNative, _OperationReplyDart>(
       'da_application_reply_to_termination_request',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_ExternalUrlOpenDart? _lookupApplicationOpenExternalUrl(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<_ExternalUrlOpenNative, _ExternalUrlOpenDart>(
+      'da_application_open_external_url',
     );
   } on ArgumentError {
     return null;
@@ -385,6 +407,7 @@ final class FfiNativeBindings implements NativeBindings {
       _applicationTerminationReply = _lookupApplicationTerminationReply(
         library,
       ),
+      _applicationOpenExternalUrl = _lookupApplicationOpenExternalUrl(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
@@ -473,6 +496,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _NoArgsStatusDart _terminate;
   final _BoolStatusDart? _applicationTerminationDeferral;
   final _OperationReplyDart? _applicationTerminationReply;
+  final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
@@ -659,6 +683,36 @@ final class FfiNativeBindings implements NativeBindings {
       );
     }
     return _callResult(function(operationId, allow ? 1 : 0));
+  }
+
+  @override
+  NativeValueResult<int> applicationOpenExternalUrl(String url) {
+    final _ExternalUrlOpenDart? function = _applicationOpenExternalUrl;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support external URL opening',
+      );
+    }
+    return _withUtf8(url, (Pointer<Uint8> pointer, int length) {
+      final Pointer<Int32> output = _allocate(sizeOf<Int32>()).cast<Int32>();
+      try {
+        output.value = 0;
+        final NativeValueResult<int> result = _valueResult<int>(
+          function(pointer, length, output),
+          output.value,
+        );
+        if (result.isSuccess && result.value != 0 && result.value != 1) {
+          return const NativeValueResult<int>.failure(
+            7,
+            'native bridge returned an invalid external URL result',
+          );
+        }
+        return result;
+      } finally {
+        _free(output.cast<Void>());
+      }
+    });
   }
 
   @override

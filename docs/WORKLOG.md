@@ -1946,3 +1946,29 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   and the real stock-Dart competing-reaper case. Complete repository
   `make test` also passes every bridge, runner, runtime, renderer, PTY, package,
   launcher, Kernel, FFI, and legacy-event regression.
+
+## 2026-09-06 — Allowlisted external URL opening
+
+- Added the closed `AllowedExternalUrl` Dart value type and a 4096-byte policy
+  for absolute `http`, `https`, and `mailto` targets. Web hosts are mandatory;
+  credentials, arbitrary schemes, raw controls/whitespace/backslashes,
+  bidi/invisible characters, malformed escapes, and their unsafe encoded forms
+  are rejected before FFI.
+- Added an optional ABI-v1 symbol that repeats the complete validation on the
+  AppKit main thread before calling `NSWorkspace.openURL`. The integer output
+  distinguishes a refused workspace request from a bridge error and is zeroed
+  on every failure path. Current bindings return unsupported-version status 8
+  against an older image.
+- Native tests inject a recorder only after policy validation, proving accepted
+  targets dispatch exactly once and rejected targets never reach an opener.
+  This avoids launching a browser or mail client. Dart tests cover the public
+  type, exact-value preservation, false/error/lifecycle behavior, FFI thread
+  guard, and legacy fallback.
+- The first Dart test rejected a valid fragment URL because `Uri.isAbsolute`
+  excludes fragment-bearing references; the policy was corrected to require a
+  concrete allowlisted scheme instead. The first full native run then exposed
+  over-rejection of ordinary `%20`; decoded ASCII space is now allowed while
+  encoded control, backslash, bidi, and invisible characters remain blocked.
+- Complete `make test` passed every bridge, runner, runtime, renderer, PTY,
+  package, launcher, Kernel, FFI, and legacy-event regression after the policy
+  corrections.
