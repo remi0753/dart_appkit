@@ -50,11 +50,13 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 旧タスクIDは `docs/WORKLOG.md` と `docs/VERIFICATION.md` の履歴参照用として
   維持し、今後のタスクには再利用しない。
 - Terminal rendererトラックの次の中心作業は、grid／cell model、atlas allocation、
-  frame構築、cursor／selection、damage trackingを既存pipelineへ統合することである。
+  frame構築、cursor／selection、damage tracking、owner側の再試行／障害回復を既存pipelineへ
+  統合することである。
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
   capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
-  CoreText font／shape／raster、Metal readback／submission、Dart facadeである。
+  CoreText font／shape／raster、Metal readback／submission、atlas reset、failure state、
+  renderer metrics、Dart facadeである。Terminal renderer capability ABIはversion 9である。
 
 ## 実装済みの基盤
 
@@ -145,10 +147,21 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - build時にMetal shaderをcompileしてdylibへ埋め込み、bounded resource set、alpha／color
   texture array、atlas dirty-rectangle upload、generation検証、layer順を持つpacked frame、
   deterministic RGBA readbackを実装。
+- active frameがない時にatlas generationを原子的に進め、全texture sliceとpage generationを
+  clearする `resetAtlas` を実装。dummy glyphを作らず空または全再構築を開始できる。
 - rendererとcustom `MTKView` の安全なbinding、3つの固定slotによるproduction submission、
   newest-ready選択、即時backpressure、drop／GPU完了後のretirement watermarkを実装。
+- device、embedded shader、function、pipeline、resource allocationの生成失敗と、command
+  encoding／execution、device lostのruntime faultを型付き状態として公開。runtime faultは
+  そのrenderer instanceをterminal fault状態にして後続frame admissionを停止する。
+- drawableを取得できない場合はfaultにせずREADY frameを保持し、visibility／resume ownerが
+  `requestPresentation` で次の有効な時点に再描画を要求できるようにした。
+- submission／completion／stale drop／backpressure／drawable miss／command failureに加え、
+  成功したGPU処理時間のsample数・合計・最大値と、受理したatlas uploadの件数・byte数を
+  saturating counterとして `TerminalMetalRendererState` に実装。
 - `TerminalMetalRenderer`、config、atlas upload、frame encoder、submission result、stateを
-  型付きDart facadeとして実装し、明示disposeとNativeFinalizer fallbackを提供する。
+  型付きDart facadeとして実装し、atlas reset、presentation retry、failure分類、metrics、
+  明示dispose、NativeFinalizer fallbackを提供する。
 - `dart_pty_macos` に、AppKit非依存のPTY生成、非同期read/write、bounded queue、
   backpressure、resize、signal、graceful/forced close、exit/reapを実装。
 - terminal-specific protocol、renderer、recovery policyを汎用hostから分離。
@@ -169,6 +182,9 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 - terminal rendererについて、C/C++ ABI layout check、native resource／generation／bound check、
   strict packed-buffer decoder、mixed-script shaping、1x／2x glyph raster、atlas generation、
   Metal pixel readback、triple-buffer／backpressure、typed Dart facadeのtestを実装。
+- empty／populated atlas reset、stale／active-slot rejection、生成時failure分類、drawable miss、
+  明示的presentation retry、command encoding／completion fault、fault後のadmission停止、
+  GPU timing／atlas upload metricsをdeterministic fault injection込みで検証。
 
 ## 未実装ロードマップ
 
@@ -183,7 +199,7 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
   完了とする。
 - **G15、G16** は早期に必要なdiagnostics／manifest項目を前倒しできるが、正式な
   完了は汎用GUI APIが安定した後とする。
-- **G1、G9、X0は部分実装済み**である。チェックボックスは各項目の完了条件を
+- **G1、G9、G15、X0は部分実装済み**である。チェックボックスは各項目の完了条件を
   すべて満たした場合だけ `[x]` にする。
 
 ### [ ] G0 — 汎用GUIの公開契約と境界の確定
@@ -385,10 +401,12 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 
 - CoreText font catalog、fallback、metrics、run shaping、glyph rasterization。
 - build-time compiled Metal shader、bounded alpha／color atlas texture、dirty-rectangle upload、
-  ordered instance frame、同期RGBA readback。
+  full-snapshot atlas reset、ordered instance frame、同期RGBA readback。
 - custom View binding、on-demand presentation、triple-buffer submission、backpressure、
   GPU completionを含むslot retirement。
-- typed Dart frame encoder／renderer facadeと、generation／容量／layer順の検証。
+- drawable miss時のREADY保持と明示的presentation retry、生成／runtime failureの型付き状態。
+- typed Dart frame encoder／renderer facade、generation／容量／layer順の検証、GPU timing／
+  atlas uploadを含むbounded metrics。
 
 未実装:
 
@@ -500,8 +518,8 @@ helperへ委譲できるようにする。
 箇所だけを実GUI／画像／accessibility testで検証できるようにする。
 
 進捗: **既存機能向けの内部検証基盤は実装済み、外部向け公開Testing APIは未実装**。
-既存のfake bindings、native contract test、terminal rendererのstrict decoder／readback
-testは、後続の公開test hostを設計する際の基準として利用する。
+既存のfake bindings、native contract test、terminal rendererのstrict decoder／readback／
+one-shot fault injection testは、後続の公開test hostを設計する際の基準として利用する。
 
 未実装:
 
@@ -523,15 +541,25 @@ testは、後続の公開test hostを設計する際の基準として利用す�
 達成目標: 一般的なGUIアプリケーションを短いiterationで開発し、UI停止や描画問題を
 診断できるようにする。
 
-実装内容:
+進捗: **部分実装（terminal renderer専用metrics）**。
+
+実装済み:
+
+- `TerminalMetalRendererState` から、submission／completion／stale drop／backpressure、
+  drawable miss、command failureを取得できる。
+- 成功したGPU処理時間のsample数・合計・最大値と、受理したatlas uploadの件数・byte数を
+  polling可能なsaturating counterとして公開した。
+
+未実装:
 
 - VM Serviceの安全な有効化と接続情報管理を追加する。
 - incremental Kernel compilation、hot restartを追加し、可能な範囲でhot reloadを
   評価・実装する。
 - View tree、layout constraint、focus、semanticsを確認できるdiagnostic inspectorを
   追加する。
-- event latency、message-pump backlog、frame time、dropped/coalesced event、native
-  handle数を計測できるtraceを追加する。
+- terminal専用counterを共通diagnosticsへ統合し、event latency、message-pump backlog、
+  CPU／GPU frame time、percentile、dropped/coalesced event、native handle数を時系列で
+  計測できるtraceを追加する。
 - contributorが巨大なEngine checkoutを毎回保持しなくてよい、検証済みprebuilt
   Engine cache／artifact取得経路を追加する。
 
@@ -603,11 +631,15 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - bounded run shaping、UTF-16 cluster mapping、Dart-owned bounded LRU shaping cache。
 - unique glyph batchのalpha8／RGBA8 rasterizationとbacking scale対応。
 - precompiled Metal shader、bounded alpha／color texture array、atlas dirty-rectangle upload、
-  snapshot／page generation検証。
+  snapshot／page generation検証、全sliceをclearするgeneration-safe `resetAtlas`。
 - background、selection、alpha／color glyph、decoration、cursorをlayer順に表せるpacked
   instance frameとtyped Dart encoder。
 - deterministic offscreen RGBA readbackと、Viewへbindした3-slot production submission。
 - newest-ready選択、stale frame drop、即時backpressure、GPU完了後のretirement state。
+- typed creation／runtime failure state、fault後のadmission停止、drawable miss時のREADY保持と
+  明示的 `requestPresentation`。
+- GPU timing、atlas upload量、submission、drop、backpressure、drawable miss、command
+  failureを取得できるbounded renderer metrics。
 
 未実装:
 
@@ -624,11 +656,18 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - cursor shape／blink／focus、selection range／色／IME marked rangeなどの高水準表示挙動を
   実装する。
 - resize、backing-scale、font、theme、color-space変更時の再layout／再raster／atlas再構築を
-  実装する。
+  実装し、必要な時に既存 `resetAtlas` でfull snapshotを開始して再populateする。
+- Windowのvisibility／occlusion／resume eventを `requestPresentation` に接続し、drawable
+  miss後にREADY frameを再提示する時点と重複要求の抑制policyを実装する。
 - backpressure時の再試行、frame coalescing、retirement watermarkに基づくatlas pin解放を
   renderer ownerへ統合する。
+- typed faultを監視し、rendererの破棄・再生成・Viewへの再binding・atlas／frame再送を行う
+  recovery controllerと、回復不能時にapplicationへ通知するpolicyを実装する。
+- renderer metricsを定期収集し、許容frame time、drop、backpressure、upload量の基準と
+  diagnostics出力を定める。
 - 実PTY sessionを使い、mixed-script、emoji、Retina変更、resize、rapid update、
-  resource boundを検証するend-to-end／performance testとsampleを追加する。
+  drawable miss、command failure、resource boundを検証するend-to-end／performance testと
+  sampleを追加する。
 - 入力、IME、accessibilityはrenderer内部へ持ち込まず、G4、G5、G6との統合として実装する。
   terminal semanticsと描画policyは引き続きterminal側packageが所有する。
 
@@ -637,7 +676,8 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - 実terminal screenをcursor／selection／装飾込みで表示し、resizeと1x／2x切替後もcellと
   glyphが一致する。
 - 継続的な大量出力でもqueue、atlas、frame slotが設定上限を越えず、入力応答を維持する。
-- stale generation、backpressure、View破棄、renderer破棄から安全に回復できる。
+- stale generation、backpressure、drawable miss、Metal command／device fault、View破棄、
+  renderer破棄から安全に回復できる。
 
 ### [ ] X1 — クロスプラットフォーム化（将来検討）
 
