@@ -374,8 +374,8 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   const uint32_t row_stride = (uint32_t)width * bytes_per_pixel;
   const size_t byte_length = (size_t)row_stride * (size_t)height;
   NSMutableData* drawing = [NSMutableData dataWithLength:byte_length];
-  NSMutableData* top_down = [NSMutableData dataWithLength:byte_length];
-  if (drawing == nil || top_down == nil) {
+  NSMutableData* published = [NSMutableData dataWithLength:byte_length];
+  if (drawing == nil || published == nil) {
     *status = DTR_STATUS_RESOURCE_EXHAUSTED;
     return nil;
   }
@@ -409,10 +409,9 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   CGContextRelease(context);
 
   const uint8_t* source = (const uint8_t*)drawing.bytes;
-  uint8_t* destination = (uint8_t*)top_down.mutableBytes;
+  uint8_t* destination = (uint8_t*)published.mutableBytes;
   for (uint32_t y = 0; y < (uint32_t)height; y++) {
-    const uint8_t* source_row =
-        source + ((uint32_t)height - 1u - y) * row_stride;
+    const uint8_t* source_row = source + y * row_stride;
     uint8_t* destination_row = destination + y * row_stride;
     if (!color) {
       memcpy(destination_row, source_row, row_stride);
@@ -437,7 +436,7 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   result.width = (uint32_t)width;
   result.height = (uint32_t)height;
   result.rowStride = row_stride;
-  result.pixels = top_down;
+  result.pixels = published;
   *status = DTR_STATUS_OK;
   return result;
 }

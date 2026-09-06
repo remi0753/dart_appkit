@@ -5,6 +5,7 @@ import 'package:dart_terminal_renderer_macos/dart_terminal_renderer_macos.dart';
 void runRasterTests() {
   _testPackedRasterDecoder();
   _testLiveRasterization();
+  _testLiveRasterOrientation();
   _testRasterValidationAndGeneration();
 }
 
@@ -190,6 +191,37 @@ void _testLiveRasterization() {
     );
   } finally {
     ligatureCatalog.dispose();
+  }
+}
+
+void _testLiveRasterOrientation() {
+  final TerminalFontCatalog catalog = TerminalFontCatalog.open();
+  try {
+    final TerminalRasterizedGlyph glyph = catalog
+        .rasterizeShaped(catalog.shape('L'), scale: 2)
+        .glyphs
+        .single;
+    final Uint8List pixels = glyph.copyPixels();
+    final int bandHeight = glyph.height ~/ 3;
+    var topCoverage = 0;
+    var bottomCoverage = 0;
+    for (int y = 0; y < bandHeight; y++) {
+      final int top = y * glyph.rowStride;
+      final int bottom = (glyph.height - 1 - y) * glyph.rowStride;
+      for (int x = 0; x < glyph.width; x++) {
+        topCoverage += pixels[top + x];
+        bottomCoverage += pixels[bottom + x];
+      }
+    }
+    _expect(
+      !glyph.isColor &&
+          !glyph.isEmpty &&
+          bandHeight > 0 &&
+          bottomCoverage > topCoverage,
+      'top-down capital L raster keeps its horizontal foot at the bottom',
+    );
+  } finally {
+    catalog.dispose();
   }
 }
 
