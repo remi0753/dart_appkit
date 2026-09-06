@@ -2072,6 +2072,22 @@ static NSString* TextInputPlainString(id value) {
   return [self hasMarkedText] ? self.terminalMarkedSelection.location : 0;
 }
 
+- (BOOL)acceptanceCandidateGeometryIsCurrent {
+  NSRange actual = NSMakeRange(NSNotFound, 0);
+  NSRect screen =
+      [self firstRectForCharacterRange:NSMakeRange(0, self.markedRange.length)
+                           actualRange:&actual];
+  NSRect window = [self.window convertRectFromScreen:screen];
+  NSRect local = [self convertRect:window fromView:nil];
+  return NSEqualRanges(actual, self.markedRange) &&
+         isfinite(screen.origin.x) && isfinite(screen.origin.y) &&
+         screen.size.width > 0 && screen.size.height > 0 &&
+         fabs(local.origin.x - self.terminalCaretRect.origin.x) < 0.01 &&
+         fabs(local.origin.y - self.terminalCaretRect.origin.y) < 0.01 &&
+         fabs(local.size.width - self.terminalCaretRect.size.width) < 0.01 &&
+         fabs(local.size.height - self.terminalCaretRect.size.height) < 0.01;
+}
+
 - (BOOL)runTextInputAcceptanceStage:(uint32_t)stage {
   if (self.textInputClientId == 0 || self.textInputQueue == nil ||
       self.window == nil || self.window.firstResponder != self ||
@@ -2104,25 +2120,12 @@ static NSString* TextInputPlainString(id value) {
       [input setMarkedText:@"にほんご"
              selectedRange:NSMakeRange(4, 0)
            replacementRange:NSMakeRange(NSNotFound, 0)];
-      NSRange actual = NSMakeRange(NSNotFound, 0);
-      NSRect screen =
-          [input firstRectForCharacterRange:NSMakeRange(0, 4)
-                                actualRange:&actual];
-      NSRect window = [self.window convertRectFromScreen:screen];
-      NSRect local = [self convertRect:window fromView:nil];
-      return NSEqualRanges(actual, NSMakeRange(0, 4)) &&
-             isfinite(screen.origin.x) && isfinite(screen.origin.y) &&
-             screen.size.width > 0 && screen.size.height > 0 &&
-             fabs(local.origin.x - self.terminalCaretRect.origin.x) < 0.01 &&
-             fabs(local.origin.y - self.terminalCaretRect.origin.y) < 0.01 &&
-             fabs(local.size.width - self.terminalCaretRect.size.width) <
-                 0.01 &&
-             fabs(local.size.height - self.terminalCaretRect.size.height) <
-                 0.01;
+      return [self acceptanceCandidateGeometryIsCurrent];
     }
     case 2: {
       if (![[self.terminalMarkedText string] isEqualToString:@"にほんご"])
         return NO;
+      if (![self acceptanceCandidateGeometryIsCurrent]) return NO;
       [input insertText:@"日本語"
           replacementRange:NSMakeRange(NSNotFound, 0)];
       [input setMarkedText:@"かな"
