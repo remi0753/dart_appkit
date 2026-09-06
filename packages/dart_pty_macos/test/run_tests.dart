@@ -53,7 +53,25 @@ T _expectThrows<T extends Object>(void Function() body) {
   throw StateError('expected $T but no error was thrown');
 }
 
-Future<void> main() async {
+Future<void> main(List<String> arguments) async {
+  if (arguments.length == 1 &&
+      arguments.single == '--closed-stdin-pty-helper') {
+    await stdin.drain<void>();
+    final PtyProcess process = await startPty(
+      PtyCommand(executable: '/usr/bin/tty', includeParentEnvironment: false),
+    );
+    final Future<List<int>> output = process.output
+        .expand<int>((Uint8List bytes) => bytes)
+        .toList();
+    final PtyExit exit = await process.exit.timeout(const Duration(seconds: 3));
+    final String text = utf8.decode(await output);
+    await process.dispose();
+    if (exit.exitCode != 0 || !text.startsWith('/dev/ttys')) {
+      throw StateError('closed-stdin PTY is not a controlling terminal');
+    }
+    stdout.writeln('CLOSED_STDIN_PTY_PASS');
+    return;
+  }
   await _test('public command and queue validation', () async {
     _expectThrows<ArgumentError>(() => PtyCommand(executable: 'zsh'));
     _expectThrows<ArgumentError>(
@@ -187,6 +205,32 @@ Future<void> main() async {
     _expect(process.finalStats?.hasExited ?? false, 'real stats finalized');
     await process.dispose();
     _expect(_liveSessionCount() == 0, 'real native session is released');
+  });
+
+  await _test('closed parent stdin cannot alias child PTY stdin', () async {
+    final Process helper = await Process.start(
+      Platform.resolvedExecutable,
+      <String>[
+        'run',
+        File.fromUri(Platform.script).path,
+        '--closed-stdin-pty-helper',
+      ],
+      workingDirectory: Directory.current.path,
+      runInShell: false,
+    );
+    await helper.stdin.close();
+    final Future<String> output = utf8.decoder.bind(helper.stdout).join();
+    final Future<String> diagnostics = utf8.decoder.bind(helper.stderr).join();
+    final int status = await helper.exitCode.timeout(
+      const Duration(seconds: 20),
+    );
+    final String stdoutText = await output;
+    final String stderrText = await diagnostics;
+    _expect(
+      status == 0 && stdoutText.contains('CLOSED_STDIN_PTY_PASS'),
+      'closed-stdin helper preserves PTY fd 0: status=$status '
+      'stderr=$stderrText',
+    );
   });
 
   await _test(

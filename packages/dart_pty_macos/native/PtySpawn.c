@@ -17,6 +17,19 @@ static int set_close_on_exec(int fd) {
   return fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
 }
 
+static int move_above_standard_descriptors(int* fd) {
+  if (*fd > STDERR_FILENO) {
+    return 0;
+  }
+  const int moved = fcntl(*fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+  if (moved < 0) {
+    return -1;
+  }
+  (void)close(*fd);
+  *fd = moved;
+  return 0;
+}
+
 int32_t dpty_spawn_prepared(const DptyPreparedSpawnConfig* config,
                             DptyPreparedSpawnResult* result,
                             int32_t* out_error_number) {
@@ -36,7 +49,12 @@ int32_t dpty_spawn_prepared(const DptyPreparedSpawnConfig* config,
   *out_error_number = 0;
 
   int exec_error_pipe[2] = {-1, -1};
-  if (pipe(exec_error_pipe) != 0 ||
+  if (pipe(exec_error_pipe) != 0) {
+    *out_error_number = errno;
+    return DPTY_STATUS_SYSTEM_ERROR;
+  }
+  if (move_above_standard_descriptors(&exec_error_pipe[0]) != 0 ||
+      move_above_standard_descriptors(&exec_error_pipe[1]) != 0 ||
       set_close_on_exec(exec_error_pipe[0]) != 0 ||
       set_close_on_exec(exec_error_pipe[1]) != 0) {
     const int saved_errno = errno;
