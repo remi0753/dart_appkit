@@ -2072,6 +2072,86 @@ static NSString* TextInputPlainString(id value) {
   return [self hasMarkedText] ? self.terminalMarkedSelection.location : 0;
 }
 
+- (BOOL)runTextInputAcceptanceStage:(uint32_t)stage {
+  if (self.textInputClientId == 0 || self.textInputQueue == nil ||
+      self.window == nil || self.window.firstResponder != self ||
+      self.textInputGeometryGeneration == 0) {
+    return NO;
+  }
+  id<NSTextInputClient> input = (id<NSTextInputClient>)self;
+  switch (stage) {
+    case 1: {
+      if ([self hasMarkedText]) return NO;
+      NSEvent* navigation =
+          [NSEvent keyEventWithType:NSEventTypeKeyDown
+                           location:NSZeroPoint
+                      modifierFlags:NSEventModifierFlagFunction
+                          timestamp:NSProcessInfo.processInfo.systemUptime
+                       windowNumber:self.window.windowNumber
+                            context:nil
+                         characters:@"\uf700"
+        charactersIgnoringModifiers:@"\uf700"
+                          isARepeat:NO
+                            keyCode:126];
+      self.terminalActiveKeyEvent = navigation;
+      self.terminalRawKeyPosted = NO;
+      [self doCommandBySelector:@selector(moveUp:)];
+      self.terminalActiveKeyEvent = nil;
+      self.terminalRawKeyPosted = NO;
+      [input setMarkedText:@"にほん"
+             selectedRange:NSMakeRange(3, 0)
+           replacementRange:NSMakeRange(NSNotFound, 0)];
+      [input setMarkedText:@"にほんご"
+             selectedRange:NSMakeRange(4, 0)
+           replacementRange:NSMakeRange(NSNotFound, 0)];
+      NSRange actual = NSMakeRange(NSNotFound, 0);
+      NSRect screen =
+          [input firstRectForCharacterRange:NSMakeRange(0, 4)
+                                actualRange:&actual];
+      NSRect window = [self.window convertRectFromScreen:screen];
+      NSRect local = [self convertRect:window fromView:nil];
+      return NSEqualRanges(actual, NSMakeRange(0, 4)) &&
+             isfinite(screen.origin.x) && isfinite(screen.origin.y) &&
+             screen.size.width > 0 && screen.size.height > 0 &&
+             fabs(local.origin.x - self.terminalCaretRect.origin.x) < 0.01 &&
+             fabs(local.origin.y - self.terminalCaretRect.origin.y) < 0.01 &&
+             fabs(local.size.width - self.terminalCaretRect.size.width) <
+                 0.01 &&
+             fabs(local.size.height - self.terminalCaretRect.size.height) <
+                 0.01;
+    }
+    case 2: {
+      if (![[self.terminalMarkedText string] isEqualToString:@"にほんご"])
+        return NO;
+      [input insertText:@"日本語"
+          replacementRange:NSMakeRange(NSNotFound, 0)];
+      [input setMarkedText:@"かな"
+             selectedRange:NSMakeRange(2, 0)
+           replacementRange:NSMakeRange(NSNotFound, 0)];
+      NSEvent* suppressed =
+          [NSEvent keyEventWithType:NSEventTypeKeyUp
+                           location:NSZeroPoint
+                      modifierFlags:NSEventModifierFlagControl
+                          timestamp:NSProcessInfo.processInfo.systemUptime
+                       windowNumber:self.window.windowNumber
+                            context:nil
+                         characters:@"\x03"
+        charactersIgnoringModifiers:@"c"
+                          isARepeat:YES
+                            keyCode:8];
+      [self keyUp:suppressed];
+      return [self hasMarkedText];
+    }
+    case 3:
+      if (![[self.terminalMarkedText string] isEqualToString:@"かな"])
+        return NO;
+      [input unmarkText];
+      return ![self hasMarkedText];
+    default:
+      return NO;
+  }
+}
+
 @end
 
 static void* CreateTerminalMetalView(void* context) {
@@ -2155,6 +2235,25 @@ static int32_t PerformTerminalMetalViewOperation(
       return [terminal_view updateTextInputGeometry:geometry]
                  ? DA_STATUS_OK
                  : DA_STATUS_INVALID_ARGUMENT;
+    }
+    case DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ACCEPTANCE: {
+      if (payload_length != sizeof(DtrTextInputAcceptanceV1)) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrTextInputAcceptanceV1 acceptance;
+      memcpy(&acceptance, payload, sizeof(acceptance));
+      if (acceptance.struct_size != sizeof(acceptance) ||
+          acceptance.version != DTR_TEXT_INPUT_CLIENT_VERSION ||
+          acceptance.operation !=
+              DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ACCEPTANCE ||
+          acceptance.client_id != terminal_view.textInputClientId ||
+          acceptance.reserved != 0 || acceptance.stage < 1 ||
+          acceptance.stage > 3) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      return [terminal_view runTextInputAcceptanceStage:acceptance.stage]
+                 ? DA_STATUS_OK
+                 : DA_STATUS_INTERNAL_ERROR;
     }
     default:
       return DA_STATUS_INVALID_ARGUMENT;

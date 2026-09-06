@@ -341,10 +341,12 @@ final class TerminalTextInputClient {
   static const int _eventMagic = 0x49545444;
   static const int _clientPayloadBytes = 24;
   static const int _geometryPayloadBytes = 64;
+  static const int _acceptancePayloadBytes = 32;
   static const int _eventHeaderBytes = 96;
   static const int _operationAttach = 2;
   static const int _operationGeometry = 3;
   static const int _operationDetach = 4;
+  static const int _operationAcceptance = 5;
   static const int _statusOk = 0;
   static const int _statusNotFound = 3;
   static const int _statusBufferTooSmall = 7;
@@ -397,6 +399,26 @@ final class TerminalTextInputClient {
       ..setFloat64(40, y, Endian.little)
       ..setFloat64(48, width, Endian.little)
       ..setFloat64(56, height, Endian.little);
+    view.performCustomOperation(payload);
+  }
+
+  /// Drives one deterministic stage through the attached native
+  /// `NSTextInputClient` for bundled product acceptance only.
+  ///
+  /// Stage 1 emits a raw navigation command and leaves Japanese marked text
+  /// active after verifying candidate geometry. Stage 2 commits that text once
+  /// and leaves a second marked value active while proving raw suppression.
+  /// Stage 3 cancels the second composition.
+  void debugRunAcceptanceStage(int stage) {
+    _requireLive();
+    RangeError.checkValueInInterval(stage, 1, 3, 'stage');
+    final Uint8List payload = Uint8List(_acceptancePayloadBytes);
+    ByteData.sublistView(payload)
+      ..setUint32(0, _acceptancePayloadBytes, Endian.little)
+      ..setUint32(4, _clientVersion, Endian.little)
+      ..setUint32(8, _operationAcceptance, Endian.little)
+      ..setUint32(12, stage, Endian.little)
+      ..setUint64(16, clientId, Endian.little);
     view.performCustomOperation(payload);
   }
 

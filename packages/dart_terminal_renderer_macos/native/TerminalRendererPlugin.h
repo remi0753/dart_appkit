@@ -74,6 +74,7 @@ enum {
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH = 2,
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_GEOMETRY = 3,
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH = 4,
+  DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ACCEPTANCE = 5,
 };
 
 typedef enum DtrTextInputEventKind {
@@ -437,6 +438,18 @@ typedef struct DtrTextInputGeometryV1 {
   double width;
   double height;
 } DtrTextInputGeometryV1;
+
+// Test-gated staged operation that drives the registered product view through
+// its real NSTextInputClient methods. No text or Objective-C object crosses
+// this ABI.
+typedef struct DtrTextInputAcceptanceV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t stage;
+  uint64_t client_id;
+  uint64_t reserved;
+} DtrTextInputAcceptanceV1;
 
 // Immutable copied event. Range locations use UTF-16 code units and UINT32_MAX
 // for NSNotFound. Text regions are validated UTF-8 within this same packet.

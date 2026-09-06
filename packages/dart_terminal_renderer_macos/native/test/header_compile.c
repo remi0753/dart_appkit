@@ -25,6 +25,14 @@ _Static_assert(sizeof(DtrMetalInstanceV1) == 48,
                "Metal instance ABI size");
 _Static_assert(sizeof(DtrMetalViewBindingV1) == 32,
                "Metal view binding ABI size");
+_Static_assert(sizeof(DtrTextInputClientV1) == 24,
+               "text input client ABI size");
+_Static_assert(sizeof(DtrTextInputGeometryV1) == 64,
+               "text input geometry ABI size");
+_Static_assert(sizeof(DtrTextInputAcceptanceV1) == 32,
+               "text input acceptance ABI size");
+_Static_assert(sizeof(DtrTextInputEventHeaderV1) == 96,
+               "text input event ABI size");
 _Static_assert(sizeof(DtrMetalSubmissionV1) == 40,
                "Metal submission ABI size");
 _Static_assert(sizeof(DtrMetalRendererStateV1) == 176,

@@ -1588,6 +1588,104 @@ int main(int argc, const char* argv[]) {
                                  &no_event_required) == DTR_STATUS_NOT_FOUND,
              "text-input detach drops queued ownership without leaking");
 
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH;
+      text_client.client_id = 78;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK,
+             "acceptance client reattaches to the product view");
+      text_geometry.client_id = text_client.client_id;
+      text_geometry.generation = 1;
+      text_geometry.x = 91;
+      text_geometry.y = 73;
+      text_geometry.width = 9;
+      text_geometry.height = 20;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_geometry),
+                 sizeof(text_geometry)) == DA_STATUS_OK,
+             "acceptance client receives current product caret geometry");
+      DtrTextInputAcceptanceV1 acceptance = {};
+      acceptance.struct_size = sizeof(acceptance);
+      acceptance.version = DTR_TEXT_INPUT_CLIENT_VERSION;
+      acceptance.operation =
+          DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ACCEPTANCE;
+      acceptance.client_id = text_client.client_id;
+      acceptance.stage = 1;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&acceptance),
+                 sizeof(acceptance)) == DA_STATUS_OK,
+             "acceptance stage drives raw, marked, and candidate methods");
+      std::vector<uint8_t> acceptance_raw =
+          take_text_input_event(text_client.client_id);
+      std::vector<uint8_t> acceptance_preedit =
+          take_text_input_event(text_client.client_id);
+      DtrTextInputEventHeaderV1 acceptance_raw_header =
+          text_input_header(acceptance_raw);
+      DtrTextInputEventHeaderV1 acceptance_preedit_header =
+          text_input_header(acceptance_preedit);
+      Expect(acceptance_raw_header.kind ==
+                     DTR_TEXT_INPUT_EVENT_RAW_KEY_DOWN &&
+                 acceptance_raw_header.event_generation == 1 &&
+                 acceptance_raw_header.key_code == 126 &&
+                 acceptance_preedit_header.kind ==
+                     DTR_TEXT_INPUT_EVENT_PREEDIT &&
+                 acceptance_preedit_header.event_generation == 3 &&
+                 packet_string(acceptance_preedit,
+                               acceptance_preedit_header.text_offset,
+                               acceptance_preedit_header.text_length) ==
+                     "にほんご",
+             "staged acceptance retains raw and newest marked events");
+      acceptance.stage = 2;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&acceptance),
+                 sizeof(acceptance)) == DA_STATUS_OK,
+             "acceptance stage commits and begins cancellable preedit");
+      std::vector<uint8_t> acceptance_commit =
+          take_text_input_event(text_client.client_id);
+      std::vector<uint8_t> acceptance_cancel_preedit =
+          take_text_input_event(text_client.client_id);
+      DtrTextInputEventHeaderV1 acceptance_commit_header =
+          text_input_header(acceptance_commit);
+      DtrTextInputEventHeaderV1 acceptance_cancel_preedit_header =
+          text_input_header(acceptance_cancel_preedit);
+      Expect(acceptance_commit_header.kind ==
+                     DTR_TEXT_INPUT_EVENT_COMMIT &&
+                 acceptance_commit_header.event_generation == 4 &&
+                 packet_string(acceptance_commit,
+                               acceptance_commit_header.text_offset,
+                               acceptance_commit_header.text_length) ==
+                     "日本語" &&
+                 acceptance_cancel_preedit_header.kind ==
+                     DTR_TEXT_INPUT_EVENT_PREEDIT &&
+                 acceptance_cancel_preedit_header.event_generation == 5 &&
+                 text_input_take(text_client.client_id, nullptr, 0,
+                                 &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "marked raw key is suppressed while commit is delivered once");
+      acceptance.stage = 3;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&acceptance),
+                 sizeof(acceptance)) == DA_STATUS_OK,
+             "acceptance stage cancels without committing");
+      std::vector<uint8_t> acceptance_cancel =
+          take_text_input_event(text_client.client_id);
+      Expect(text_input_header(acceptance_cancel).kind ==
+                     DTR_TEXT_INPUT_EVENT_CANCEL &&
+                 text_input_take(text_client.client_id, nullptr, 0,
+                                 &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "cancel leaves no raw or commit event behind");
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK &&
+                 live_text_input_count() == 0,
+             "acceptance client detaches without leaking");
+
       auto presentation_frame = [&](uint64_t frame_generation) {
         std::vector<uint8_t> frame =
             make_frame(instances, presentation_summary.generation, 1);
