@@ -2155,6 +2155,40 @@ static NSString* TextInputPlainString(id value) {
   }
 }
 
+- (BOOL)runTextInputAcceptanceMatrix {
+  if (self.textInputClientId == 0 || self.textInputQueue == nil ||
+      self.window == nil || self.window.firstResponder != self ||
+      [self hasMarkedText]) {
+    return NO;
+  }
+  id<NSTextInputClient> input = (id<NSTextInputClient>)self;
+  NSArray<NSString*>* commits = @[
+    @"a", @"A", @"¥", @"_", @"é", @"中文", @"日本語", @"한글", @"👩‍💻", @"⌘"
+  ];
+  for (NSString* text in commits) {
+    [input insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+  }
+  for (NSUInteger index = 0; index < 3; index++) {
+    NSEvent* navigation =
+        [NSEvent keyEventWithType:NSEventTypeKeyDown
+                         location:NSZeroPoint
+                    modifierFlags:NSEventModifierFlagFunction
+                        timestamp:NSProcessInfo.processInfo.systemUptime
+                     windowNumber:self.window.windowNumber
+                          context:nil
+                       characters:@"\uf703"
+      charactersIgnoringModifiers:@"\uf703"
+                        isARepeat:index > 0
+                          keyCode:124];
+    self.terminalActiveKeyEvent = navigation;
+    self.terminalRawKeyPosted = NO;
+    [self doCommandBySelector:@selector(moveRight:)];
+    self.terminalActiveKeyEvent = nil;
+    self.terminalRawKeyPosted = NO;
+  }
+  return ![self hasMarkedText];
+}
+
 @end
 
 static void* CreateTerminalMetalView(void* context) {
@@ -2255,6 +2289,19 @@ static int32_t PerformTerminalMetalViewOperation(
         return DA_STATUS_INVALID_ARGUMENT;
       }
       return [terminal_view runTextInputAcceptanceStage:acceptance.stage]
+                 ? DA_STATUS_OK
+                 : DA_STATUS_INTERNAL_ERROR;
+    }
+    case DTR_METAL_VIEW_OPERATION_TEXT_INPUT_MATRIX: {
+      if (payload_length != sizeof(DtrTextInputClientV1) ||
+          common.struct_size != sizeof(DtrTextInputClientV1) ||
+          common.version != DTR_TEXT_INPUT_CLIENT_VERSION ||
+          common.operation != DTR_METAL_VIEW_OPERATION_TEXT_INPUT_MATRIX ||
+          common.client_id != terminal_view.textInputClientId ||
+          common.reserved != 0) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      return [terminal_view runTextInputAcceptanceMatrix]
                  ? DA_STATUS_OK
                  : DA_STATUS_INTERNAL_ERROR;
     }

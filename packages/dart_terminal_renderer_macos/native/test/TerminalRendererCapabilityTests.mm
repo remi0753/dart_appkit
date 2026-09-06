@@ -1686,6 +1686,61 @@ int main(int argc, const char* argv[]) {
                  live_text_input_count() == 0,
              "acceptance client detaches without leaking");
 
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH;
+      text_client.client_id = 79;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK,
+             "matrix client reattaches to the product view");
+      DtrTextInputClientV1 matrix = text_client;
+      matrix.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_MATRIX;
+      Expect(da_view_perform_custom_operation(
+                 view_handle, reinterpret_cast<const uint8_t*>(&matrix),
+                 sizeof(matrix)) == DA_STATUS_OK,
+             "input-source matrix drives the native text client");
+      const std::vector<std::string> matrix_commits = {
+          "a", "A", "¥", "_", "é", "中文", "日本語", "한글", "👩‍💻", "⌘"};
+      for (size_t index = 0; index < matrix_commits.size(); index++) {
+        std::vector<uint8_t> packet =
+            take_text_input_event(text_client.client_id);
+        DtrTextInputEventHeaderV1 header = text_input_header(packet);
+        Expect(header.kind == DTR_TEXT_INPUT_EVENT_COMMIT &&
+                   header.event_generation == index + 1 &&
+                   header.flags == 0 && header.key_code == 0 &&
+                   header.modifiers == 0 &&
+                   packet_string(packet, header.text_offset,
+                                 header.text_length) == matrix_commits[index],
+               "matrix commit retains exact order and UTF-8");
+      }
+      for (uint64_t index = 0; index < 3; index++) {
+        std::vector<uint8_t> packet =
+            take_text_input_event(text_client.client_id);
+        DtrTextInputEventHeaderV1 header = text_input_header(packet);
+        Expect(header.kind == DTR_TEXT_INPUT_EVENT_RAW_KEY_DOWN &&
+                   header.event_generation == 11 + index &&
+                   header.key_code == 124 &&
+                   header.flags ==
+                       (index == 0 ? 0 : DTR_TEXT_INPUT_EVENT_REPEAT) &&
+                   header.modifiers == (1u << 6) &&
+                   packet_string(packet, header.text_offset,
+                                 header.text_length) == "\xef\x9c\x83" &&
+                   packet_string(packet, header.unmodified_text_offset,
+                                 header.unmodified_text_length) ==
+                       "\xef\x9c\x83",
+               "matrix repeat retains initial/repeated native key identity");
+      }
+      Expect(text_input_take(text_client.client_id, nullptr, 0,
+                             &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "input-source matrix leaves no queued event");
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK &&
+                 live_text_input_count() == 0,
+             "matrix client detaches without leaking");
+
       auto presentation_frame = [&](uint64_t frame_generation) {
         std::vector<uint8_t> frame =
             make_frame(instances, presentation_summary.generation, 1);

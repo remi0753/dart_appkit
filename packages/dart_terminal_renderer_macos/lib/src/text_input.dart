@@ -347,6 +347,7 @@ final class TerminalTextInputClient {
   static const int _operationGeometry = 3;
   static const int _operationDetach = 4;
   static const int _operationAcceptance = 5;
+  static const int _operationMatrix = 6;
   static const int _statusOk = 0;
   static const int _statusNotFound = 3;
   static const int _statusBufferTooSmall = 7;
@@ -418,6 +419,19 @@ final class TerminalTextInputClient {
       ..setUint32(4, _clientVersion, Endian.little)
       ..setUint32(8, _operationAcceptance, Endian.little)
       ..setUint32(12, stage, Endian.little)
+      ..setUint64(16, clientId, Endian.little);
+    view.performCustomOperation(payload);
+  }
+
+  /// Drives the fixed input-source and key-repeat corpus through the attached
+  /// native `NSTextInputClient` for bundled product acceptance only.
+  void debugRunAcceptanceMatrix() {
+    _requireLive();
+    final Uint8List payload = Uint8List(_clientPayloadBytes);
+    ByteData.sublistView(payload)
+      ..setUint32(0, _clientPayloadBytes, Endian.little)
+      ..setUint32(4, _clientVersion, Endian.little)
+      ..setUint32(8, _operationMatrix, Endian.little)
       ..setUint64(16, clientId, Endian.little);
     view.performCustomOperation(payload);
   }
