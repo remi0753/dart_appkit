@@ -14,6 +14,8 @@ export 'src/api.dart'
         AppKitKeyEventKind,
         AppKitMouseEvent,
         AppKitMouseEventKind,
+        AppKitScrollEvent,
+        AppKitScrollPhase,
         AppKitNativeException,
         AppKitScreen,
         KeyEventRouting,

@@ -70,6 +70,59 @@
 
 @end
 
+@interface DaScrollProbeEvent : NSEvent
+
+@property(nonatomic, assign) NSPoint probeLocation;
+@property(nonatomic, assign) NSEventModifierFlags probeModifiers;
+@property(nonatomic, assign) CGFloat probeDeltaX;
+@property(nonatomic, assign) CGFloat probeDeltaY;
+@property(nonatomic, assign) BOOL probePrecise;
+@property(nonatomic, assign) NSEventPhase probePhase;
+@property(nonatomic, assign) NSEventPhase probeMomentumPhase;
+@property(nonatomic, assign) BOOL probeDirectionInverted;
+
+@end
+
+@implementation DaScrollProbeEvent
+
+- (NSEventType)type {
+  return NSEventTypeScrollWheel;
+}
+
+- (NSPoint)locationInWindow {
+  return _probeLocation;
+}
+
+- (NSEventModifierFlags)modifierFlags {
+  return _probeModifiers;
+}
+
+- (CGFloat)scrollingDeltaX {
+  return _probeDeltaX;
+}
+
+- (CGFloat)scrollingDeltaY {
+  return _probeDeltaY;
+}
+
+- (BOOL)hasPreciseScrollingDeltas {
+  return _probePrecise;
+}
+
+- (NSEventPhase)phase {
+  return _probePhase;
+}
+
+- (NSEventPhase)momentumPhase {
+  return _probeMomentumPhase;
+}
+
+- (BOOL)isDirectionInvertedFromDevice {
+  return _probeDirectionInverted;
+}
+
+@end
+
 void* CreateRetainedTestCustomView(void* context) {
   Class view_class = (__bridge Class)context;
   NSView* view = [[view_class alloc] initWithFrame:NSZeroRect];
@@ -378,6 +431,20 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(4));
 
+  event.type = DA_EVENT_SCROLL_WHEEL;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  const size_t before_version_five_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_five_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 5, 5, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(5));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(5));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 3, &selected_version),
@@ -411,7 +478,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 5, 5, &selected_version),
+      da_application_set_event_port_versioned(4242, 6, 6, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -421,7 +488,7 @@ void TestEventProtocolNegotiation() {
       da_application_set_event_port_versioned(4242, 2, 1, &selected_version),
       DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
-  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 4, nullptr),
+  EXPECT_EQ(da_application_set_event_port_versioned(4242, 1, 5, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
@@ -1184,7 +1251,8 @@ void TestWindowStateEvents() {
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
             static_cast<size_t>(1));
   for (size_t index = 0; index < capture.events.size(); ++index) {
-    EXPECT_EQ(capture.protocol_versions[index], static_cast<uint32_t>(4));
+    EXPECT_EQ(capture.protocol_versions[index],
+              static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
     EXPECT_EQ(capture.events[index].window, window_handle);
     EXPECT_TRUE(capture.events[index].monotonic_nanos > 0);
   }
@@ -1325,6 +1393,44 @@ void TestInputEvents() {
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
 }
 
+void TestScrollInputEvent() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+  owner.window.contentView.frame = NSMakeRect(0.0, 0.0, 320.0, 200.0);
+
+  DaScrollProbeEvent* scroll = [[DaScrollProbeEvent alloc] init];
+  scroll.probeLocation = NSMakePoint(12.5, 20.0);
+  scroll.probeModifiers = NSEventModifierFlagShift | NSEventModifierFlagOption;
+  scroll.probeDeltaX = -1.5;
+  scroll.probeDeltaY = 8.75;
+  scroll.probePrecise = YES;
+  scroll.probePhase = NSEventPhaseChanged;
+  scroll.probeMomentumPhase = NSEventPhaseBegan;
+  scroll.probeDirectionInverted = YES;
+  [owner.window daPostInputEvent:scroll];
+
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(5));
+  const dart_appkit::NativeEvent& event = capture.events[0];
+  EXPECT_EQ(event.type, DA_EVENT_SCROLL_WHEEL);
+  EXPECT_TRUE(std::abs(event.x - 12.5) < 0.001);
+  EXPECT_TRUE(std::abs(event.y - 180.0) < 0.001);
+  EXPECT_TRUE(std::abs(event.scrolling_delta_x + 1.5) < 0.001);
+  EXPECT_TRUE(std::abs(event.scrolling_delta_y - 8.75) < 0.001);
+  EXPECT_TRUE(event.has_precise_scrolling_deltas);
+  EXPECT_EQ(event.scroll_phase,
+            static_cast<int64_t>(DA_SCROLL_PHASE_CHANGED));
+  EXPECT_EQ(event.momentum_phase,
+            static_cast<int64_t>(DA_SCROLL_PHASE_BEGAN));
+  EXPECT_TRUE(event.direction_inverted_from_device);
+  EXPECT_TRUE((event.modifiers & DA_MODIFIER_SHIFT) != 0);
+  EXPECT_TRUE((event.modifiers & DA_MODIFIER_OPTION) != 0);
+
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+}
+
 void TestKeyEventRouting() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -1453,6 +1559,7 @@ int main() {
     TestWindowStateEvents();
     TestWindowEvents();
     TestInputEvents();
+    TestScrollInputEvent();
     TestKeyEventRouting();
     dart_appkit::ResetBridgeForTesting();
   }

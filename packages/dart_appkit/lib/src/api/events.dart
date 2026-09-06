@@ -236,6 +236,46 @@ final class AppKitMouseEvent extends WindowEvent {
   final int clickCount;
 }
 
+enum AppKitScrollPhase {
+  none,
+  began,
+  stationary,
+  changed,
+  ended,
+  cancelled,
+  mayBegin,
+}
+
+final class AppKitScrollEvent extends WindowEvent {
+  const AppKitScrollEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion = 5,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.x,
+    required this.y,
+    required this.scrollingDeltaX,
+    required this.scrollingDeltaY,
+    required this.hasPreciseScrollingDeltas,
+    required this.phase,
+    required this.momentumPhase,
+    required this.directionInvertedFromDevice,
+    required this.modifiers,
+  });
+
+  final double x;
+  final double y;
+  final double scrollingDeltaX;
+  final double scrollingDeltaY;
+  final bool hasPreciseScrollingDeltas;
+  final AppKitScrollPhase phase;
+  final AppKitScrollPhase momentumPhase;
+  final bool directionInvertedFromDevice;
+  final ModifierKeys modifiers;
+}
+
 enum AppKitKeyEventKind { down, up }
 
 final class AppKitKeyEvent extends WindowEvent {
@@ -324,6 +364,7 @@ final class _EventCodec {
   static const int _mouseUp = 11;
   static const int _mouseMoved = 12;
   static const int _mouseDragged = 13;
+  static const int _scrollWheel = 14;
   static const int _keyDown = 20;
   static const int _keyUp = 21;
   static const int _applicationActiveChanged = 30;
@@ -534,6 +575,48 @@ final class _EventCodec {
           ),
           clickCount: _integer(message, payloadOffset + 4, 'clickCount'),
         );
+      case _scrollWheel:
+        _requireVersionFive(version, 'scroll wheel');
+        _expectLength(message, payloadOffset + 9, 'scroll wheel');
+        return AppKitScrollEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          x: _finiteNumber(message, payloadOffset, 'x'),
+          y: _finiteNumber(message, payloadOffset + 1, 'y'),
+          scrollingDeltaX: _finiteNumber(
+            message,
+            payloadOffset + 2,
+            'scrollingDeltaX',
+          ),
+          scrollingDeltaY: _finiteNumber(
+            message,
+            payloadOffset + 3,
+            'scrollingDeltaY',
+          ),
+          hasPreciseScrollingDeltas: _boolean(
+            message,
+            payloadOffset + 4,
+            'hasPreciseScrollingDeltas',
+          ),
+          phase: _scrollPhase(message, payloadOffset + 5, 'phase'),
+          momentumPhase: _scrollPhase(
+            message,
+            payloadOffset + 6,
+            'momentumPhase',
+          ),
+          directionInvertedFromDevice: _boolean(
+            message,
+            payloadOffset + 7,
+            'directionInvertedFromDevice',
+          ),
+          modifiers: ModifierKeys(
+            _integer(message, payloadOffset + 8, 'modifiers'),
+          ),
+        );
       case _keyDown:
       case _keyUp:
         _expectLength(message, payloadOffset + 5, 'key');
@@ -639,6 +722,27 @@ final class _EventCodec {
       throw FormatException('$eventName requires native event protocol 4');
     }
   }
+
+  static void _requireVersionFive(int version, String eventName) {
+    if (version < 5) {
+      throw FormatException('$eventName requires native event protocol 5');
+    }
+  }
+
+  static AppKitScrollPhase _scrollPhase(
+    List<Object?> message,
+    int index,
+    String name,
+  ) => switch (_integer(message, index, name)) {
+    0 => AppKitScrollPhase.none,
+    1 => AppKitScrollPhase.began,
+    2 => AppKitScrollPhase.stationary,
+    4 => AppKitScrollPhase.changed,
+    8 => AppKitScrollPhase.ended,
+    16 => AppKitScrollPhase.cancelled,
+    32 => AppKitScrollPhase.mayBegin,
+    final int value => throw FormatException('$name has invalid value $value'),
+  };
 
   static bool _isApplicationScoped(int type) =>
       type == _applicationActiveChanged ||

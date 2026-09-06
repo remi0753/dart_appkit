@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)4)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)5)
 
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
@@ -84,6 +84,7 @@ typedef enum DaEventType {
   DA_EVENT_MOUSE_UP = 11,
   DA_EVENT_MOUSE_MOVED = 12,
   DA_EVENT_MOUSE_DRAGGED = 13,
+  DA_EVENT_SCROLL_WHEEL = 14,
   DA_EVENT_KEY_DOWN = 20,
   DA_EVENT_KEY_UP = 21,
   DA_EVENT_APPLICATION_ACTIVE_CHANGED = 30,
@@ -91,6 +92,17 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
   DA_EVENT_MENU_ITEM_INVOKED = 40
 } DaEventType;
+
+/** Stable scroll gesture phase values used by protocol version 5. */
+typedef enum DaScrollPhase {
+  DA_SCROLL_PHASE_NONE = 0,
+  DA_SCROLL_PHASE_BEGAN = 1,
+  DA_SCROLL_PHASE_STATIONARY = 2,
+  DA_SCROLL_PHASE_CHANGED = 4,
+  DA_SCROLL_PHASE_ENDED = 8,
+  DA_SCROLL_PHASE_CANCELLED = 16,
+  DA_SCROLL_PHASE_MAY_BEGIN = 32
+} DaScrollPhase;
 
 /** Stable modifier bits used by mouse and keyboard events. */
 typedef enum DaModifier {

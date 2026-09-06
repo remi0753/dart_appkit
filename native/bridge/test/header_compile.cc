@@ -8,7 +8,7 @@ static_assert(std::is_standard_layout_v<DaRect>);
 static_assert(std::is_standard_layout_v<DaError>);
 static_assert(std::is_standard_layout_v<DaPasteboardText>);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 4);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 5);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(std::is_standard_layout_v<da_native_extension_services_v1>);

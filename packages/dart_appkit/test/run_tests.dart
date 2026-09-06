@@ -83,8 +83,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 4 &&
-        app.eventProtocolVersion == 4,
+        bindings.requestedMaximumEventProtocolVersion == 5 &&
+        app.eventProtocolVersion == 5,
     'current event protocol negotiation',
   );
 
@@ -329,6 +329,23 @@ Future<void> _testEventRoutingAndDecoding() async {
       '\n',
     ])
     ..add(<Object?>[2, 1, handle, 7, 203000, 0])
+    ..add(<Object?>[
+      5,
+      14,
+      handle,
+      7,
+      203500,
+      0,
+      18.5,
+      27.25,
+      -1.5,
+      8.75,
+      true,
+      4,
+      1,
+      false,
+      ModifierKeys.shiftBit | ModifierKeys.optionBit,
+    ])
     ..add(<Object?>[99, 1, handle, 104])
     ..add(<Object?>[2, 1, handle])
     ..add(<Object?>[2, 1, handle, 8, 204000, 0])
@@ -338,8 +355,61 @@ Future<void> _testEventRoutingAndDecoding() async {
     ..add(<Object?>[2, 1, handle, 7, 204000, 0, 'trailing'])
     ..add(<Object?>[2, 2, handle, 7, 204000, 0, 'wide', 480.0]);
 
-  _expect(appEvents.length == 8, 'application receives v1 and v2 events');
-  _expect(windowEvents.length == 8, 'window receives v1 and v2 events');
+  raw
+    ..add(<Object?>[
+      4,
+      14,
+      handle,
+      7,
+      204001,
+      0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      false,
+      0,
+      0,
+      false,
+      0,
+    ])
+    ..add(<Object?>[
+      5,
+      14,
+      handle,
+      7,
+      204002,
+      0,
+      0.0,
+      0.0,
+      0.0,
+      double.infinity,
+      true,
+      4,
+      0,
+      false,
+      0,
+    ])
+    ..add(<Object?>[
+      5,
+      14,
+      handle,
+      7,
+      204003,
+      0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      true,
+      3,
+      0,
+      false,
+      0,
+    ]);
+
+  _expect(appEvents.length == 9, 'application receives v1, v2, and v5 events');
+  _expect(windowEvents.length == 9, 'window receives v1, v2, and v5 events');
   final WindowResizedEvent resized = appEvents[0] as WindowResizedEvent;
   _expect(resized.width == 800 && resized.height == 500, 'resize payload');
   final AppKitMouseEvent mouse = appEvents[1] as AppKitMouseEvent;
@@ -356,6 +426,21 @@ Future<void> _testEventRoutingAndDecoding() async {
         versionTwo.operationId == 0,
     'version 2 common metadata',
   );
+  final AppKitScrollEvent scroll = appEvents[8] as AppKitScrollEvent;
+  _expect(
+    scroll.protocolVersion == 5 &&
+        scroll.x == 18.5 &&
+        scroll.y == 27.25 &&
+        scroll.scrollingDeltaX == -1.5 &&
+        scroll.scrollingDeltaY == 8.75 &&
+        scroll.hasPreciseScrollingDeltas &&
+        scroll.phase == AppKitScrollPhase.changed &&
+        scroll.momentumPhase == AppKitScrollPhase.began &&
+        !scroll.directionInvertedFromDevice &&
+        scroll.modifiers.shift &&
+        scroll.modifiers.option,
+    'version 5 scroll payload',
+  );
   final WindowClosedEvent sourceCompatible = WindowClosedEvent(
     windowHandle: handle,
     monotonicMicros: 12,
@@ -367,7 +452,7 @@ Future<void> _testEventRoutingAndDecoding() async {
   );
   _expect(window.isClosed, 'close event updates window state');
   _expect(
-    streamErrors.length == 8 &&
+    streamErrors.length == 11 &&
         streamErrors.every((Object error) => error is FormatException),
     'malformed and unsupported events are surfaced',
   );
@@ -414,6 +499,7 @@ Future<void> _testWindowStateEvents() async {
           WindowCloseRequestedEvent() ||
           WindowResizedEvent() ||
           AppKitMouseEvent() ||
+          AppKitScrollEvent() ||
           AppKitKeyEvent() ||
           ApplicationEvent() ||
           MenuItemInvokedEvent():

@@ -52,6 +52,21 @@ bool ValidScreen(const NativeEvent& event) {
          event.visible_screen_height > 0.0;
 }
 
+bool ValidScrollPhase(int64_t phase) {
+  switch (phase) {
+    case DA_SCROLL_PHASE_NONE:
+    case DA_SCROLL_PHASE_BEGAN:
+    case DA_SCROLL_PHASE_STATIONARY:
+    case DA_SCROLL_PHASE_CHANGED:
+    case DA_SCROLL_PHASE_ENDED:
+    case DA_SCROLL_PHASE_CANCELLED:
+    case DA_SCROLL_PHASE_MAY_BEGIN:
+      return true;
+    default:
+      return false;
+  }
+}
+
 }  // namespace
 
 bool PostNativeEventToDartPort(int64_t dart_port,
@@ -97,6 +112,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       break;
     case 2:
     case 3:
+    case 4:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -173,6 +189,27 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       SetInt64(&values[payload_offset + 2], event.button);
       SetInt64(&values[payload_offset + 3], event.modifiers);
       SetInt64(&values[payload_offset + 4], event.click_count);
+      break;
+    case DA_EVENT_SCROLL_WHEEL:
+      if (!std::isfinite(event.x) || !std::isfinite(event.y) ||
+          !std::isfinite(event.scrolling_delta_x) ||
+          !std::isfinite(event.scrolling_delta_y) ||
+          !ValidScrollPhase(event.scroll_phase) ||
+          !ValidScrollPhase(event.momentum_phase)) {
+        return false;
+      }
+      length += 9;
+      SetDouble(&values[payload_offset], event.x);
+      SetDouble(&values[payload_offset + 1], event.y);
+      SetDouble(&values[payload_offset + 2], event.scrolling_delta_x);
+      SetDouble(&values[payload_offset + 3], event.scrolling_delta_y);
+      SetBool(&values[payload_offset + 4],
+              event.has_precise_scrolling_deltas);
+      SetInt64(&values[payload_offset + 5], event.scroll_phase);
+      SetInt64(&values[payload_offset + 6], event.momentum_phase);
+      SetBool(&values[payload_offset + 7],
+              event.direction_inverted_from_device);
+      SetInt64(&values[payload_offset + 8], event.modifiers);
       break;
     case DA_EVENT_KEY_DOWN:
     case DA_EVENT_KEY_UP:

@@ -101,6 +101,19 @@ Future<void> main(List<String> arguments) async {
             'mouse ${kind.name} button=$button '
             'at ${x.toStringAsFixed(1)},${y.toStringAsFixed(1)}',
           );
+        case AppKitScrollEvent(
+          :final scrollingDeltaX,
+          :final scrollingDeltaY,
+          :final hasPreciseScrollingDeltas,
+          :final phase,
+          :final momentumPhase,
+        ):
+          stdout.writeln(
+            'scroll ${scrollingDeltaX.toStringAsFixed(2)},'
+            '${scrollingDeltaY.toStringAsFixed(2)} '
+            'precise=$hasPreciseScrollingDeltas '
+            'phase=${phase.name} momentum=${momentumPhase.name}',
+          );
         case AppKitKeyEvent(:final kind, :final keyCode, :final characters):
           stdout.writeln(
             'key ${kind.name} code=$keyCode characters="$characters"',

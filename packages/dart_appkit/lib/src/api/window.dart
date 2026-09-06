@@ -227,6 +227,7 @@ final class Window extends _NativeResource {
       case WindowCloseRequestedEvent() ||
           WindowResizedEvent() ||
           AppKitMouseEvent() ||
+          AppKitScrollEvent() ||
           AppKitKeyEvent():
         break;
     }

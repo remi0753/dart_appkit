@@ -19,6 +19,8 @@ struct NativeEvent {
   double height = 0.0;
   double x = 0.0;
   double y = 0.0;
+  double scrolling_delta_x = 0.0;
+  double scrolling_delta_y = 0.0;
   double backing_scale_factor = 0.0;
 
   double screen_x = 0.0;
@@ -35,9 +37,13 @@ struct NativeEvent {
   int64_t click_count = 0;
   int64_t key_code = 0;
   bool is_repeat = false;
+  bool has_precise_scrolling_deltas = false;
+  bool direction_inverted_from_device = false;
   bool state = false;
   bool has_screen = false;
   int64_t screen_id = 0;
+  int64_t scroll_phase = DA_SCROLL_PHASE_NONE;
+  int64_t momentum_phase = DA_SCROLL_PHASE_NONE;
 
   std::string characters;
   std::string characters_ignoring_modifiers;
@@ -85,6 +91,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
     case DA_EVENT_KEY_DOWN:
     case DA_EVENT_KEY_UP:
       return true;
+    case DA_EVENT_SCROLL_WHEEL:
+      return protocol_version >= 5;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

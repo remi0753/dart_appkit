@@ -44,6 +44,46 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   }
 }
 
+bool StableScrollPhase(NSEventPhase phase, int64_t* out_phase) {
+  switch (phase) {
+    case NSEventPhaseNone:
+      *out_phase = DA_SCROLL_PHASE_NONE;
+      return true;
+    case NSEventPhaseBegan:
+      *out_phase = DA_SCROLL_PHASE_BEGAN;
+      return true;
+    case NSEventPhaseStationary:
+      *out_phase = DA_SCROLL_PHASE_STATIONARY;
+      return true;
+    case NSEventPhaseChanged:
+      *out_phase = DA_SCROLL_PHASE_CHANGED;
+      return true;
+    case NSEventPhaseEnded:
+      *out_phase = DA_SCROLL_PHASE_ENDED;
+      return true;
+    case NSEventPhaseCancelled:
+      *out_phase = DA_SCROLL_PHASE_CANCELLED;
+      return true;
+    case NSEventPhaseMayBegin:
+      *out_phase = DA_SCROLL_PHASE_MAY_BEGIN;
+      return true;
+    default:
+      return false;
+  }
+}
+
+NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
+  NSView* content_view = window.contentView;
+  NSPoint point = event.locationInWindow;
+  if (content_view != nil) {
+    point = [content_view convertPoint:point fromView:nil];
+    if (!content_view.isFlipped) {
+      point.y = NSHeight(content_view.bounds) - point.y;
+    }
+  }
+  return point;
+}
+
 }  // namespace
 
 @implementation DaView
@@ -139,17 +179,33 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   native_event.modifiers =
       static_cast<int64_t>(dart_appkit::StableModifiers(event.modifierFlags));
 
+  if (event.type == NSEventTypeScrollWheel) {
+    int64_t phase = DA_SCROLL_PHASE_NONE;
+    int64_t momentum_phase = DA_SCROLL_PHASE_NONE;
+    if (!StableScrollPhase(event.phase, &phase) ||
+        !StableScrollPhase(event.momentumPhase, &momentum_phase)) {
+      return;
+    }
+    native_event.type = DA_EVENT_SCROLL_WHEEL;
+    const NSPoint point = ContentViewPoint(self, event);
+    native_event.x = point.x;
+    native_event.y = point.y;
+    native_event.scrolling_delta_x = event.scrollingDeltaX;
+    native_event.scrolling_delta_y = event.scrollingDeltaY;
+    native_event.has_precise_scrolling_deltas =
+        event.hasPreciseScrollingDeltas;
+    native_event.scroll_phase = phase;
+    native_event.momentum_phase = momentum_phase;
+    native_event.direction_inverted_from_device =
+        event.isDirectionInvertedFromDevice;
+    dart_appkit::PostEvent(native_event);
+    return;
+  }
+
   DaEventType mouse_type = DA_EVENT_MOUSE_MOVED;
   if (MouseEventType(event.type, &mouse_type)) {
     native_event.type = mouse_type;
-    NSView* content_view = self.contentView;
-    NSPoint point = event.locationInWindow;
-    if (content_view != nil) {
-      point = [content_view convertPoint:point fromView:nil];
-      if (!content_view.isFlipped) {
-        point.y = NSHeight(content_view.bounds) - point.y;
-      }
-    }
+    const NSPoint point = ContentViewPoint(self, event);
     native_event.x = point.x;
     native_event.y = point.y;
     native_event.button = event.type == NSEventTypeMouseMoved

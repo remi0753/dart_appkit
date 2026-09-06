@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 4;
+const int dartAppKitCurrentEventProtocolVersion = 5;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
