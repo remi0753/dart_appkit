@@ -110,17 +110,21 @@ bool MouseEventType(NSEventType type, DaEventType* out_type) {
   const BOOL isKeyEvent = event.type == NSEventTypeKeyDown ||
                           event.type == NSEventTypeKeyUp;
   if (isKeyEvent &&
-      self.daKeyEventRouting == DA_KEY_EVENT_ROUTING_DART_ONLY) {
-    if (event.type == NSEventTypeKeyDown) {
-      NSMenu* mainMenu = NSApp.mainMenu;
-      if (mainMenu != nil && [mainMenu performKeyEquivalent:event]) {
-        return;
-      }
+      self.daKeyEventRouting != DA_KEY_EVENT_ROUTING_DART_AND_APPKIT &&
+      event.type == NSEventTypeKeyDown) {
+    NSMenu* mainMenu = NSApp.mainMenu;
+    if (mainMenu != nil && [mainMenu performKeyEquivalent:event]) {
+      return;
     }
+  }
+  if (isKeyEvent && self.daKeyEventRouting == DA_KEY_EVENT_ROUTING_DART_ONLY) {
     [self daPostInputEvent:event];
     return;
   }
-  [self daPostInputEvent:event];
+  if (!isKeyEvent ||
+      self.daKeyEventRouting != DA_KEY_EVENT_ROUTING_APPKIT_ONLY) {
+    [self daPostInputEvent:event];
+  }
   [super sendEvent:event];
 }
 

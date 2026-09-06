@@ -36,6 +36,13 @@
 #define DTR_MAX_METAL_ATLAS_PAGES 16u
 #define DTR_MAX_METAL_ATLAS_BYTES (64u * 1024u * 1024u)
 #define DTR_MAX_METAL_FRAME_BYTES (8u * 1024u * 1024u)
+#define DTR_TEXT_INPUT_CLIENT_VERSION 1u
+#define DTR_TEXT_INPUT_GEOMETRY_VERSION 1u
+#define DTR_TEXT_INPUT_EVENT_VERSION 1u
+#define DTR_TEXT_INPUT_EVENT_MAGIC 0x49545444u
+#define DTR_MAX_TEXT_INPUT_BYTES (64u * 1024u)
+#define DTR_MAX_TEXT_INPUT_EVENTS 256u
+#define DTR_MAX_TEXT_INPUT_QUEUE_BYTES (1024u * 1024u)
 
 typedef enum DtrStatus {
   DTR_STATUS_OK = 0,
@@ -64,6 +71,22 @@ enum {
 
 enum {
   DTR_METAL_VIEW_OPERATION_BIND = 1,
+  DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH = 2,
+  DTR_METAL_VIEW_OPERATION_TEXT_INPUT_GEOMETRY = 3,
+  DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH = 4,
+};
+
+typedef enum DtrTextInputEventKind {
+  DTR_TEXT_INPUT_EVENT_RAW_KEY_DOWN = 1,
+  DTR_TEXT_INPUT_EVENT_RAW_KEY_UP = 2,
+  DTR_TEXT_INPUT_EVENT_PREEDIT = 3,
+  DTR_TEXT_INPUT_EVENT_COMMIT = 4,
+  DTR_TEXT_INPUT_EVENT_CANCEL = 5,
+  DTR_TEXT_INPUT_EVENT_OVERFLOW = 6,
+} DtrTextInputEventKind;
+
+enum {
+  DTR_TEXT_INPUT_EVENT_REPEAT = 1u << 0,
 };
 
 enum {
@@ -394,6 +417,54 @@ typedef struct DtrMetalViewBindingV1 {
   uint64_t renderer_generation;
 } DtrMetalViewBindingV1;
 
+typedef struct DtrTextInputClientV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t reserved;
+  uint64_t client_id;
+} DtrTextInputClientV1;
+
+typedef struct DtrTextInputGeometryV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t reserved;
+  uint64_t client_id;
+  uint64_t generation;
+  double x;
+  double y;
+  double width;
+  double height;
+} DtrTextInputGeometryV1;
+
+// Immutable copied event. Range locations use UTF-16 code units and UINT32_MAX
+// for NSNotFound. Text regions are validated UTF-8 within this same packet.
+typedef struct DtrTextInputEventHeaderV1 {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t header_size;
+  uint32_t total_size;
+  uint64_t client_id;
+  uint64_t event_generation;
+  uint64_t monotonic_nanos;
+  uint32_t kind;
+  uint32_t flags;
+  uint32_t key_code;
+  uint32_t modifiers;
+  uint32_t text_offset;
+  uint32_t text_length;
+  uint32_t unmodified_text_offset;
+  uint32_t unmodified_text_length;
+  uint32_t selection_location;
+  uint32_t selection_length;
+  uint32_t replacement_location;
+  uint32_t replacement_length;
+  uint32_t reserved[2];
+} DtrTextInputEventHeaderV1;
+
+typedef void (*DtrTextInputNotifyV1)(uint64_t client_id);
+
 typedef struct DtrMetalSubmissionV1 {
   uint32_t struct_size;
   uint32_t version;
@@ -444,6 +515,21 @@ __attribute__((visibility("default"))) int32_t
 dtr_initialize(const da_native_extension_services_v1* services);
 
 __attribute__((visibility("default"))) int32_t dtr_debug_live_view_count(void);
+
+// Installs the one process-lifetime scalar notification used by the Dart
+// listener. Native owns all event bytes until dtr_text_input_take_event copies
+// and removes one packet. The callback must return immediately.
+__attribute__((visibility("default"))) int32_t
+dtr_text_input_set_notify_callback(DtrTextInputNotifyV1 callback);
+
+// Copies the oldest queued packet for client_id. A null output with zero
+// capacity is a non-consuming size query. BUFFER_TOO_SMALL never removes data.
+__attribute__((visibility("default"))) int32_t dtr_text_input_take_event(
+    uint64_t client_id, uint8_t* output, uint32_t output_capacity,
+    uint32_t* output_required);
+
+__attribute__((visibility("default"))) int32_t
+dtr_debug_live_text_input_client_count(void);
 
 // Creates an immutable native CoreText catalog. family_utf8 may be null only
 // when family_length is zero, which selects the system monospaced font.

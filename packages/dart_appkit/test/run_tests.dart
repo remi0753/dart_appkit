@@ -238,6 +238,12 @@ Future<void> _testKeyEventRoutingPolicy() async {
     bindings.windowKeyEventRoutings[handle] == 0,
     'dual routing can be restored',
   );
+  window.keyEventRouting = KeyEventRouting.appKitOnly;
+  _expect(
+    window.keyEventRouting == KeyEventRouting.appKitOnly &&
+        bindings.windowKeyEventRoutings[handle] == 2,
+    'AppKit-only routing reaches the native first-responder path',
+  );
   window.dispose();
   await _expectThrows<StateError>(() => window.keyEventRouting);
   await _expectThrows<StateError>(

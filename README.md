@@ -140,7 +140,10 @@ Windows default to `KeyEventRouting.dartAndAppKit`, which mirrors key events to
 Dart and retains ordinary AppKit responder behavior. Raw-input surfaces can set
 `window.keyEventRouting = KeyEventRouting.dartOnly`; native main-menu key
 equivalents keep priority, while remaining keys reach Dart without also falling
-through an unhandled AppKit responder path.
+through an unhandled AppKit responder path. An IME-capable custom view can use
+`KeyEventRouting.appKitOnly`; menu equivalents still win, while every remaining
+key enters only the first-responder/input-client chain and is not pre-posted to
+the window's Dart event stream.
 
 A native capability can register an `NSView` factory through the versioned
 plain-C `dart_appkit_native_extension.h` service table. The runtime builder runs

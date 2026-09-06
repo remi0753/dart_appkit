@@ -7,6 +7,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static const char kProviderIdentifier[] = "dart_terminal.TerminalMetalView";
 static _Atomic int32_t g_live_view_count = 0;
@@ -16,6 +17,234 @@ static _Atomic uint64_t g_next_metal_renderer_handle = 1;
 static _Atomic uint32_t g_next_metal_test_failure =
     DTR_METAL_TEST_FAILURE_NONE;
 static const da_native_extension_services_v1* g_initialized_services = NULL;
+static DtrTextInputNotifyV1 g_text_input_notify = NULL;
+
+@interface DtrTextInputQueue : NSObject
+
+@property(nonatomic, strong) NSMutableArray<NSData*>* packets;
+@property(nonatomic) uint64_t queuedBytes;
+
+- (BOOL)enqueuePacket:(NSData*)packet kind:(uint32_t)kind;
+- (void)replaceWithOverflowPacket:(NSData*)packet;
+- (NSData*)peekPacket;
+- (void)removeFirstPacket;
+
+@end
+
+@implementation DtrTextInputQueue
+
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    _packets = [[NSMutableArray alloc] init];
+  }
+  return self;
+}
+
+- (BOOL)enqueuePacket:(NSData*)packet kind:(uint32_t)kind {
+  if (packet == nil || packet.length > DTR_MAX_TEXT_INPUT_QUEUE_BYTES) {
+    return NO;
+  }
+  if (kind == DTR_TEXT_INPUT_EVENT_PREEDIT && self.packets.count > 0) {
+    NSData* previous = self.packets.lastObject;
+    if (previous.length >= sizeof(DtrTextInputEventHeaderV1)) {
+      DtrTextInputEventHeaderV1 header;
+      memcpy(&header, previous.bytes, sizeof(header));
+      if (header.kind == DTR_TEXT_INPUT_EVENT_PREEDIT) {
+        const uint64_t next_bytes =
+            self.queuedBytes - previous.length + packet.length;
+        if (next_bytes <= DTR_MAX_TEXT_INPUT_QUEUE_BYTES) {
+          [self.packets removeLastObject];
+          [self.packets addObject:packet];
+          self.queuedBytes = next_bytes;
+          return YES;
+        }
+      }
+    }
+  }
+  if (self.packets.count >= DTR_MAX_TEXT_INPUT_EVENTS ||
+      self.queuedBytes >
+          DTR_MAX_TEXT_INPUT_QUEUE_BYTES - (uint64_t)packet.length) {
+    return NO;
+  }
+  [self.packets addObject:packet];
+  self.queuedBytes += packet.length;
+  return YES;
+}
+
+- (void)replaceWithOverflowPacket:(NSData*)packet {
+  [self.packets removeAllObjects];
+  self.queuedBytes = 0;
+  if (packet != nil && packet.length <= DTR_MAX_TEXT_INPUT_QUEUE_BYTES) {
+    [self.packets addObject:packet];
+    self.queuedBytes = packet.length;
+  }
+}
+
+- (NSData*)peekPacket {
+  return self.packets.firstObject;
+}
+
+- (void)removeFirstPacket {
+  if (self.packets.count == 0) {
+    return;
+  }
+  NSData* packet = self.packets.firstObject;
+  [self.packets removeObjectAtIndex:0];
+  self.queuedBytes -= packet.length;
+}
+
+@end
+
+static NSLock* TextInputQueueLock(void) {
+  static NSLock* lock;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    lock = [[NSLock alloc] init];
+  });
+  return lock;
+}
+
+static NSMutableDictionary<NSNumber*, DtrTextInputQueue*>*
+TextInputQueues(void) {
+  static NSMutableDictionary<NSNumber*, DtrTextInputQueue*>* queues;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    queues = [[NSMutableDictionary alloc] init];
+  });
+  return queues;
+}
+
+static BOOL RegisterTextInputQueue(uint64_t client_id,
+                                   DtrTextInputQueue* queue) {
+  if (client_id == 0 || client_id > INT64_MAX || queue == nil) {
+    return NO;
+  }
+  NSLock* lock = TextInputQueueLock();
+  [lock lock];
+  NSNumber* key = @(client_id);
+  DtrTextInputQueue* existing = TextInputQueues()[key];
+  const BOOL accepted = existing == nil || existing == queue;
+  if (accepted) {
+    TextInputQueues()[key] = queue;
+  }
+  [lock unlock];
+  return accepted;
+}
+
+static void UnregisterTextInputQueue(uint64_t client_id,
+                                     DtrTextInputQueue* queue) {
+  if (client_id == 0 || queue == nil) {
+    return;
+  }
+  NSLock* lock = TextInputQueueLock();
+  [lock lock];
+  NSNumber* key = @(client_id);
+  if (TextInputQueues()[key] == queue) {
+    [TextInputQueues() removeObjectForKey:key];
+  }
+  [lock unlock];
+}
+
+static uint64_t TextInputMonotonicNanos(void) {
+  struct timespec now = {0, 0};
+  if (clock_gettime(CLOCK_MONOTONIC_RAW, &now) != 0 || now.tv_sec < 0 ||
+      now.tv_nsec < 0) {
+    return 0;
+  }
+  const uint64_t seconds = (uint64_t)now.tv_sec;
+  if (seconds > (uint64_t)INT64_MAX / 1000000000u) {
+    return INT64_MAX;
+  }
+  const uint64_t value = seconds * 1000000000u + (uint64_t)now.tv_nsec;
+  return value > INT64_MAX ? INT64_MAX : value;
+}
+
+static uint32_t TextInputStableModifiers(NSEventModifierFlags flags) {
+  uint32_t result = 0;
+  if ((flags & NSEventModifierFlagCapsLock) != 0) result |= 1u << 0;
+  if ((flags & NSEventModifierFlagShift) != 0) result |= 1u << 1;
+  if ((flags & NSEventModifierFlagControl) != 0) result |= 1u << 2;
+  if ((flags & NSEventModifierFlagOption) != 0) result |= 1u << 3;
+  if ((flags & NSEventModifierFlagCommand) != 0) result |= 1u << 4;
+  if ((flags & NSEventModifierFlagNumericPad) != 0) result |= 1u << 5;
+  if ((flags & NSEventModifierFlagFunction) != 0) result |= 1u << 6;
+  return result;
+}
+
+static BOOL EncodeTextInputRange(NSRange range, uint32_t* location,
+                                 uint32_t* length) {
+  if (range.location == NSNotFound) {
+    *location = UINT32_MAX;
+    *length = 0;
+    return YES;
+  }
+  if (range.location > UINT32_MAX || range.length > UINT32_MAX ||
+      range.location > UINT32_MAX - range.length) {
+    return NO;
+  }
+  *location = (uint32_t)range.location;
+  *length = (uint32_t)range.length;
+  return YES;
+}
+
+static NSData* BuildTextInputPacket(
+    uint64_t client_id, uint64_t event_generation, uint32_t kind,
+    uint32_t flags, uint32_t key_code, uint32_t modifiers, NSString* text,
+    NSString* unmodified_text, NSRange selection, NSRange replacement) {
+  NSData* text_data = text == nil
+                          ? [NSData data]
+                          : [text dataUsingEncoding:NSUTF8StringEncoding];
+  NSData* unmodified_data =
+      unmodified_text == nil
+          ? [NSData data]
+          : [unmodified_text dataUsingEncoding:NSUTF8StringEncoding];
+  if (text_data == nil || unmodified_data == nil ||
+      text_data.length > DTR_MAX_TEXT_INPUT_BYTES ||
+      unmodified_data.length > DTR_MAX_TEXT_INPUT_BYTES) {
+    return nil;
+  }
+  const uint64_t total = sizeof(DtrTextInputEventHeaderV1) + text_data.length +
+                         unmodified_data.length;
+  if (total > UINT32_MAX) {
+    return nil;
+  }
+  DtrTextInputEventHeaderV1 header;
+  memset(&header, 0, sizeof(header));
+  header.magic = DTR_TEXT_INPUT_EVENT_MAGIC;
+  header.version = DTR_TEXT_INPUT_EVENT_VERSION;
+  header.header_size = sizeof(header);
+  header.total_size = (uint32_t)total;
+  header.client_id = client_id;
+  header.event_generation = event_generation;
+  header.monotonic_nanos = TextInputMonotonicNanos();
+  header.kind = kind;
+  header.flags = flags;
+  header.key_code = key_code;
+  header.modifiers = modifiers;
+  header.text_offset = sizeof(header);
+  header.text_length = (uint32_t)text_data.length;
+  header.unmodified_text_offset =
+      sizeof(header) + (uint32_t)text_data.length;
+  header.unmodified_text_length = (uint32_t)unmodified_data.length;
+  if (!EncodeTextInputRange(selection, &header.selection_location,
+                            &header.selection_length) ||
+      !EncodeTextInputRange(replacement, &header.replacement_location,
+                            &header.replacement_length)) {
+    return nil;
+  }
+  NSMutableData* packet = [NSMutableData dataWithLength:(NSUInteger)total];
+  memcpy(packet.mutableBytes, &header, sizeof(header));
+  uint8_t* bytes = packet.mutableBytes;
+  if (text_data.length > 0) {
+    memcpy(bytes + header.text_offset, text_data.bytes, text_data.length);
+  }
+  if (unmodified_data.length > 0) {
+    memcpy(bytes + header.unmodified_text_offset, unmodified_data.bytes,
+           unmodified_data.length);
+  }
+  return packet;
+}
 
 static BOOL ConsumeMetalTestFailure(uint32_t failure) {
   uint32_t expected = failure;
@@ -525,11 +754,24 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 
 @class DtrMetalRenderer;
 
-@interface DtrTerminalMetalView : MTKView
+@interface DtrTerminalMetalView : MTKView <NSTextInputClient>
 
 @property(nonatomic, strong) DtrMetalPipelineBundle* terminalPipelines;
 @property(nonatomic, strong) DtrMetalRenderer* terminalRenderer;
 @property(nonatomic) uint64_t terminalRendererGeneration;
+@property(nonatomic) uint64_t textInputClientId;
+@property(nonatomic) uint64_t textInputEventGeneration;
+@property(nonatomic) uint64_t textInputGeometryGeneration;
+@property(nonatomic, strong) DtrTextInputQueue* textInputQueue;
+@property(nonatomic, strong) NSAttributedString* terminalMarkedText;
+@property(nonatomic) NSRange terminalMarkedSelection;
+@property(nonatomic) NSRect terminalCaretRect;
+@property(nonatomic, strong) NSEvent* terminalActiveKeyEvent;
+@property(nonatomic) BOOL terminalRawKeyPosted;
+
+- (BOOL)attachTextInputClient:(uint64_t)clientId;
+- (BOOL)updateTextInputGeometry:(DtrTextInputGeometryV1)geometry;
+- (void)detachTextInputClient;
 
 @end
 
@@ -1510,6 +1752,16 @@ static void RetainMetalRendererForHandle(
 
 @implementation DtrTerminalMetalView
 
+static NSString* TextInputPlainString(id value) {
+  if ([value isKindOfClass:NSString.class]) {
+    return (NSString*)value;
+  }
+  if ([value isKindOfClass:NSAttributedString.class]) {
+    return ((NSAttributedString*)value).string;
+  }
+  return nil;
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   if (device == nil) {
@@ -1532,17 +1784,292 @@ static void RetainMetalRendererForHandle(
     self.enableSetNeedsDisplay = YES;
     self.framebufferOnly = YES;
     self.delegate = nil;
+    self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+    self.terminalMarkedSelection = NSMakeRange(0, 0);
+    self.terminalCaretRect = NSMakeRect(0, 0, 2, 20);
   }
   return self;
 }
 
 - (void)dealloc {
+  [self detachTextInputClient];
   [_terminalRenderer viewWillDeallocate:self];
   atomic_fetch_sub_explicit(&g_live_view_count, 1, memory_order_relaxed);
 }
 
 - (BOOL)isFlipped {
   return YES;
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (BOOL)attachTextInputClient:(uint64_t)clientId {
+  if (clientId == 0 || clientId > INT64_MAX) {
+    return NO;
+  }
+  if (self.textInputClientId == clientId && self.textInputQueue != nil) {
+    return YES;
+  }
+  if (self.textInputClientId != 0 || self.textInputQueue != nil) {
+    return NO;
+  }
+  DtrTextInputQueue* queue = [[DtrTextInputQueue alloc] init];
+  if (!RegisterTextInputQueue(clientId, queue)) {
+    return NO;
+  }
+  self.textInputQueue = queue;
+  self.textInputClientId = clientId;
+  self.textInputEventGeneration = 0;
+  self.textInputGeometryGeneration = 0;
+  self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+  self.terminalMarkedSelection = NSMakeRange(0, 0);
+  return YES;
+}
+
+- (BOOL)updateTextInputGeometry:(DtrTextInputGeometryV1)geometry {
+  if (self.textInputClientId == 0 ||
+      geometry.client_id != self.textInputClientId ||
+      geometry.generation == 0 || geometry.generation > INT64_MAX ||
+      !isfinite(geometry.x) || !isfinite(geometry.y) ||
+      !isfinite(geometry.width) || !isfinite(geometry.height) ||
+      geometry.width <= 0 || geometry.height <= 0) {
+    return NO;
+  }
+  if (geometry.generation <= self.textInputGeometryGeneration) {
+    return YES;
+  }
+  self.textInputGeometryGeneration = geometry.generation;
+  self.terminalCaretRect = NSMakeRect(geometry.x, geometry.y, geometry.width,
+                                      geometry.height);
+  return YES;
+}
+
+- (void)detachTextInputClient {
+  const uint64_t client_id = self.textInputClientId;
+  DtrTextInputQueue* queue = self.textInputQueue;
+  self.textInputClientId = 0;
+  self.textInputQueue = nil;
+  self.terminalActiveKeyEvent = nil;
+  self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+  self.terminalMarkedSelection = NSMakeRange(0, 0);
+  UnregisterTextInputQueue(client_id, queue);
+}
+
+- (uint64_t)nextTextInputEventGeneration {
+  if (self.textInputEventGeneration < INT64_MAX) {
+    ++self.textInputEventGeneration;
+  }
+  return self.textInputEventGeneration;
+}
+
+- (void)notifyTextInputQueue {
+  DtrTextInputNotifyV1 callback = g_text_input_notify;
+  if (callback != NULL && self.textInputClientId != 0) {
+    callback(self.textInputClientId);
+  }
+}
+
+- (void)enqueueTextInputKind:(uint32_t)kind
+                       flags:(uint32_t)flags
+                     keyCode:(uint32_t)keyCode
+                   modifiers:(uint32_t)modifiers
+                        text:(NSString*)text
+              unmodifiedText:(NSString*)unmodifiedText
+                   selection:(NSRange)selection
+                  replacement:(NSRange)replacement {
+  if (self.textInputClientId == 0 || self.textInputQueue == nil) {
+    return;
+  }
+  const uint64_t generation = [self nextTextInputEventGeneration];
+  NSData* packet = BuildTextInputPacket(
+      self.textInputClientId, generation, kind, flags, keyCode, modifiers, text,
+      unmodifiedText, selection, replacement);
+  NSLock* lock = TextInputQueueLock();
+  [lock lock];
+  BOOL enqueued = packet != nil &&
+                  [self.textInputQueue enqueuePacket:packet kind:kind];
+  if (!enqueued) {
+    self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+    self.terminalMarkedSelection = NSMakeRange(0, 0);
+    NSData* overflow = BuildTextInputPacket(
+        self.textInputClientId, [self nextTextInputEventGeneration],
+        DTR_TEXT_INPUT_EVENT_OVERFLOW, 0, 0, 0, nil, nil,
+        NSMakeRange(NSNotFound, 0), NSMakeRange(NSNotFound, 0));
+    [self.textInputQueue replaceWithOverflowPacket:overflow];
+  }
+  [lock unlock];
+  [self notifyTextInputQueue];
+}
+
+- (void)enqueueRawKeyEvent:(NSEvent*)event kind:(uint32_t)kind {
+  if (event == nil || self.terminalRawKeyPosted || [self hasMarkedText]) {
+    return;
+  }
+  self.terminalRawKeyPosted = YES;
+  [self enqueueTextInputKind:kind
+                       flags:event.isARepeat ? DTR_TEXT_INPUT_EVENT_REPEAT : 0
+                     keyCode:event.keyCode
+                   modifiers:TextInputStableModifiers(event.modifierFlags)
+                        text:event.characters
+              unmodifiedText:event.charactersIgnoringModifiers
+                   selection:NSMakeRange(NSNotFound, 0)
+                  replacement:NSMakeRange(NSNotFound, 0)];
+}
+
+- (void)keyDown:(NSEvent*)event {
+  if (self.textInputClientId == 0) {
+    [super keyDown:event];
+    return;
+  }
+  self.terminalActiveKeyEvent = event;
+  self.terminalRawKeyPosted = NO;
+  const BOOL handled = [self.inputContext handleEvent:event];
+  if (!handled) {
+    [self enqueueRawKeyEvent:event kind:DTR_TEXT_INPUT_EVENT_RAW_KEY_DOWN];
+  }
+  self.terminalActiveKeyEvent = nil;
+  self.terminalRawKeyPosted = NO;
+}
+
+- (void)keyUp:(NSEvent*)event {
+  if (self.textInputClientId == 0) {
+    [super keyUp:event];
+    return;
+  }
+  self.terminalRawKeyPosted = NO;
+  [self enqueueRawKeyEvent:event kind:DTR_TEXT_INPUT_EVENT_RAW_KEY_UP];
+  self.terminalRawKeyPosted = NO;
+}
+
+- (void)doCommandBySelector:(SEL)selector {
+  (void)selector;
+  [self enqueueRawKeyEvent:self.terminalActiveKeyEvent
+                       kind:DTR_TEXT_INPUT_EVENT_RAW_KEY_DOWN];
+}
+
+- (BOOL)hasMarkedText {
+  return self.terminalMarkedText.length > 0;
+}
+
+- (NSRange)markedRange {
+  return [self hasMarkedText]
+             ? NSMakeRange(0, self.terminalMarkedText.length)
+             : NSMakeRange(NSNotFound, 0);
+}
+
+- (NSRange)selectedRange {
+  return [self hasMarkedText] ? self.terminalMarkedSelection
+                              : NSMakeRange(0, 0);
+}
+
+- (void)setMarkedText:(id)value
+        selectedRange:(NSRange)selectedRange
+      replacementRange:(NSRange)replacementRange {
+  NSString* text = TextInputPlainString(value);
+  if (text == nil || selectedRange.location == NSNotFound ||
+      selectedRange.location > text.length ||
+      selectedRange.length > text.length - selectedRange.location) {
+    [self enqueueTextInputKind:DTR_TEXT_INPUT_EVENT_OVERFLOW
+                         flags:0
+                       keyCode:0
+                     modifiers:0
+                          text:nil
+                unmodifiedText:nil
+                     selection:NSMakeRange(NSNotFound, 0)
+                    replacement:NSMakeRange(NSNotFound, 0)];
+    return;
+  }
+  if (text.length == 0) {
+    [self unmarkText];
+    return;
+  }
+  self.terminalMarkedText = [[NSAttributedString alloc] initWithString:text];
+  self.terminalMarkedSelection = selectedRange;
+  [self enqueueTextInputKind:DTR_TEXT_INPUT_EVENT_PREEDIT
+                       flags:0
+                     keyCode:0
+                   modifiers:0
+                        text:text
+              unmodifiedText:nil
+                   selection:selectedRange
+                  replacement:replacementRange];
+}
+
+- (void)unmarkText {
+  if (![self hasMarkedText]) {
+    return;
+  }
+  self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+  self.terminalMarkedSelection = NSMakeRange(0, 0);
+  [self enqueueTextInputKind:DTR_TEXT_INPUT_EVENT_CANCEL
+                       flags:0
+                     keyCode:0
+                   modifiers:0
+                        text:nil
+              unmodifiedText:nil
+                   selection:NSMakeRange(NSNotFound, 0)
+                  replacement:NSMakeRange(NSNotFound, 0)];
+}
+
+- (void)insertText:(id)value replacementRange:(NSRange)replacementRange {
+  NSString* text = TextInputPlainString(value);
+  if (text == nil) {
+    return;
+  }
+  self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
+  self.terminalMarkedSelection = NSMakeRange(0, 0);
+  [self enqueueTextInputKind:DTR_TEXT_INPUT_EVENT_COMMIT
+                       flags:0
+                     keyCode:0
+                   modifiers:0
+                        text:text
+              unmodifiedText:nil
+                   selection:NSMakeRange(NSNotFound, 0)
+                  replacement:replacementRange];
+}
+
+- (NSArray<NSAttributedStringKey>*)validAttributesForMarkedText {
+  return @[];
+}
+
+- (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range
+                                                actualRange:(NSRangePointer)actual {
+  const NSRange marked = [self markedRange];
+  if (marked.location == NSNotFound || range.location == NSNotFound) {
+    if (actual != NULL) *actual = NSMakeRange(NSNotFound, 0);
+    return nil;
+  }
+  const NSRange intersection = NSIntersectionRange(marked, range);
+  if (intersection.length == 0) {
+    if (actual != NULL) *actual = NSMakeRange(NSNotFound, 0);
+    return nil;
+  }
+  if (actual != NULL) *actual = intersection;
+  return [self.terminalMarkedText attributedSubstringFromRange:intersection];
+}
+
+- (NSRect)firstRectForCharacterRange:(NSRange)range
+                          actualRange:(NSRangePointer)actual {
+  if (actual != NULL) {
+    const NSRange marked = [self markedRange];
+    if (marked.location == NSNotFound || range.location == NSNotFound) {
+      *actual = NSMakeRange(NSNotFound, 0);
+    } else {
+      *actual = NSIntersectionRange(marked, range);
+    }
+  }
+  NSRect window_rect = [self convertRect:self.terminalCaretRect toView:nil];
+  if (self.window != nil) {
+    return [self.window convertRectToScreen:window_rect];
+  }
+  return window_rect;
+}
+
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+  (void)point;
+  return [self hasMarkedText] ? self.terminalMarkedSelection.location : 0;
 }
 
 @end
@@ -1558,33 +2085,80 @@ static int32_t PerformTerminalMetalViewOperation(
     size_t payload_length) {
   (void)context;
   if (opaque_view == NULL || payload == NULL ||
-      payload_length != sizeof(DtrMetalViewBindingV1)) {
+      payload_length < sizeof(DtrTextInputClientV1)) {
     return DA_STATUS_INVALID_ARGUMENT;
-  }
-  DtrMetalViewBindingV1 binding;
-  memcpy(&binding, payload, sizeof(binding));
-  if (binding.struct_size != sizeof(binding) ||
-      binding.version != DTR_METAL_VIEW_BINDING_VERSION ||
-      binding.operation != DTR_METAL_VIEW_OPERATION_BIND ||
-      binding.reserved != 0 || binding.renderer_handle == 0 ||
-      binding.renderer_generation == 0) {
-    return DA_STATUS_INVALID_ARGUMENT;
-  }
-  DtrMetalRenderer* renderer = nil;
-  RetainMetalRendererForHandle(binding.renderer_handle, &renderer);
-  if (renderer == nil || renderer.generation != binding.renderer_generation) {
-    return DA_STATUS_INVALID_HANDLE;
   }
   id view = (__bridge id)opaque_view;
   if (![view isKindOfClass:DtrTerminalMetalView.class]) {
     return DA_STATUS_WRONG_HANDLE_TYPE;
   }
-  const int32_t status = [renderer bindView:(DtrTerminalMetalView*)view];
-  if (status == DTR_STATUS_OK) {
-    return DA_STATUS_OK;
+  DtrTextInputClientV1 common;
+  memcpy(&common, payload, sizeof(common));
+  DtrTerminalMetalView* terminal_view = (DtrTerminalMetalView*)view;
+  switch (common.operation) {
+    case DTR_METAL_VIEW_OPERATION_BIND: {
+      if (payload_length != sizeof(DtrMetalViewBindingV1)) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrMetalViewBindingV1 binding;
+      memcpy(&binding, payload, sizeof(binding));
+      if (binding.struct_size != sizeof(binding) ||
+          binding.version != DTR_METAL_VIEW_BINDING_VERSION ||
+          binding.reserved != 0 || binding.renderer_handle == 0 ||
+          binding.renderer_generation == 0) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrMetalRenderer* renderer = nil;
+      RetainMetalRendererForHandle(binding.renderer_handle, &renderer);
+      if (renderer == nil ||
+          renderer.generation != binding.renderer_generation) {
+        return DA_STATUS_INVALID_HANDLE;
+      }
+      const int32_t status = [renderer bindView:terminal_view];
+      if (status == DTR_STATUS_OK) {
+        return DA_STATUS_OK;
+      }
+      return status == DTR_STATUS_INTERNAL ? DA_STATUS_INTERNAL_ERROR
+                                           : DA_STATUS_INVALID_ARGUMENT;
+    }
+    case DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH:
+    case DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH: {
+      if (payload_length != sizeof(DtrTextInputClientV1) ||
+          common.struct_size != sizeof(DtrTextInputClientV1) ||
+          common.version != DTR_TEXT_INPUT_CLIENT_VERSION ||
+          common.reserved != 0 || common.client_id == 0) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      if (common.operation == DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH) {
+        return [terminal_view attachTextInputClient:common.client_id]
+                   ? DA_STATUS_OK
+                   : DA_STATUS_INVALID_ARGUMENT;
+      }
+      if (terminal_view.textInputClientId != common.client_id) {
+        return DA_STATUS_INVALID_HANDLE;
+      }
+      [terminal_view detachTextInputClient];
+      return DA_STATUS_OK;
+    }
+    case DTR_METAL_VIEW_OPERATION_TEXT_INPUT_GEOMETRY: {
+      if (payload_length != sizeof(DtrTextInputGeometryV1)) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrTextInputGeometryV1 geometry;
+      memcpy(&geometry, payload, sizeof(geometry));
+      if (geometry.struct_size != sizeof(geometry) ||
+          geometry.version != DTR_TEXT_INPUT_GEOMETRY_VERSION ||
+          geometry.operation != DTR_METAL_VIEW_OPERATION_TEXT_INPUT_GEOMETRY ||
+          geometry.reserved != 0) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      return [terminal_view updateTextInputGeometry:geometry]
+                 ? DA_STATUS_OK
+                 : DA_STATUS_INVALID_ARGUMENT;
+    }
+    default:
+      return DA_STATUS_INVALID_ARGUMENT;
   }
-  return status == DTR_STATUS_INTERNAL ? DA_STATUS_INTERNAL_ERROR
-                                       : DA_STATUS_INVALID_ARGUMENT;
 }
 
 uint32_t dtr_abi_version(void) { return DTR_ABI_VERSION; }
@@ -1618,6 +2192,52 @@ int32_t dtr_initialize(const da_native_extension_services_v1* services) {
 
 int32_t dtr_debug_live_view_count(void) {
   return atomic_load_explicit(&g_live_view_count, memory_order_relaxed);
+}
+
+int32_t dtr_text_input_set_notify_callback(DtrTextInputNotifyV1 callback) {
+  if (callback == NULL) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  if (g_text_input_notify != NULL && g_text_input_notify != callback) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  g_text_input_notify = callback;
+  return DTR_STATUS_OK;
+}
+
+int32_t dtr_text_input_take_event(uint64_t client_id, uint8_t* output,
+                                  uint32_t output_capacity,
+                                  uint32_t* output_required) {
+  if (client_id == 0 || client_id > INT64_MAX || output_required == NULL ||
+      (output == NULL && output_capacity != 0)) {
+    return DTR_STATUS_INVALID_ARGUMENT;
+  }
+  *output_required = 0;
+  NSLock* lock = TextInputQueueLock();
+  [lock lock];
+  DtrTextInputQueue* queue = TextInputQueues()[@(client_id)];
+  NSData* packet = [queue peekPacket];
+  if (packet == nil) {
+    [lock unlock];
+    return DTR_STATUS_NOT_FOUND;
+  }
+  *output_required = (uint32_t)packet.length;
+  if (output == NULL || output_capacity < packet.length) {
+    [lock unlock];
+    return DTR_STATUS_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, packet.bytes, packet.length);
+  [queue removeFirstPacket];
+  [lock unlock];
+  return DTR_STATUS_OK;
+}
+
+int32_t dtr_debug_live_text_input_client_count(void) {
+  NSLock* lock = TextInputQueueLock();
+  [lock lock];
+  const NSUInteger count = TextInputQueues().count;
+  [lock unlock];
+  return count > INT32_MAX ? INT32_MAX : (int32_t)count;
 }
 
 static int32_t PrepareFontCatalogSummary(DtrFontCatalogSummaryV1* output) {

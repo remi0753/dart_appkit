@@ -1391,11 +1391,26 @@ void TestKeyEventRouting() {
   EXPECT_EQ(menu.performCount, static_cast<NSInteger>(1));
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
   EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(1));
+
+  EXPECT_EQ(da_window_set_key_event_routing(
+                window_handle, DA_KEY_EVENT_ROUTING_APPKIT_ONLY),
+            DA_STATUS_OK);
+  NSApp.mainMenu = nil;
+  [owner.window sendEvent:key_down];
+  [owner.window sendEvent:key_up];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(2));
+  EXPECT_EQ(view.keyUpCount, static_cast<NSInteger>(2));
+  NSApp.mainMenu = menu;
+  [owner.window sendEvent:menu_key];
+  EXPECT_EQ(menu.performCount, static_cast<NSInteger>(2));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(view.keyDownCount, static_cast<NSInteger>(2));
   NSApp.mainMenu = previous_main_menu;
 
   EXPECT_EQ(da_window_set_key_event_routing(window_handle, -1),
             DA_STATUS_INVALID_ARGUMENT);
-  EXPECT_EQ(da_window_set_key_event_routing(window_handle, 2),
+  EXPECT_EQ(da_window_set_key_event_routing(window_handle, 3),
             DA_STATUS_INVALID_ARGUMENT);
   const DaHandle view_handle = CreateView();
   EXPECT_EQ(da_window_set_key_event_routing(

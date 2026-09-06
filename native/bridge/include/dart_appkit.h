@@ -108,7 +108,9 @@ typedef enum DaKeyEventRouting {
   /** Post to Dart, then continue through AppKit's normal responder path. */
   DA_KEY_EVENT_ROUTING_DART_AND_APPKIT = 0,
   /** Post non-menu keys to Dart without normal AppKit responder dispatch. */
-  DA_KEY_EVENT_ROUTING_DART_ONLY = 1
+  DA_KEY_EVENT_ROUTING_DART_ONLY = 1,
+  /** Deliver keys only through AppKit's first-responder/input-client path. */
+  DA_KEY_EVENT_ROUTING_APPKIT_ONLY = 2
 } DaKeyEventRouting;
 
 /** Safe on any thread. */
@@ -224,7 +226,9 @@ DA_EXPORT int32_t da_window_set_close_request_deferral(DaHandle window,
  * routing must be a DaKeyEventRouting value. The default is
  * DA_KEY_EVENT_ROUTING_DART_AND_APPKIT. In DART_ONLY mode, main-menu key
  * equivalents retain priority; remaining key events are posted to Dart and
- * are not sent through the ordinary AppKit responder chain.
+ * are not sent through the ordinary AppKit responder chain. In APPKIT_ONLY
+ * mode, key events are not posted to the window's Dart stream and enter only
+ * the AppKit responder chain.
  */
 DA_EXPORT int32_t da_window_set_key_event_routing(DaHandle window,
                                                   int32_t routing);

@@ -7,6 +7,9 @@ enum KeyEventRouting {
 
   /// Let native menu shortcuts run, then post remaining keys only to Dart.
   dartOnly,
+
+  /// Deliver keys only through the AppKit first-responder/input-client chain.
+  appKitOnly,
 }
 
 final class Window extends _NativeResource {
@@ -133,6 +136,7 @@ final class Window extends _NativeResource {
     final int nativeValue = switch (value) {
       KeyEventRouting.dartAndAppKit => 0,
       KeyEventRouting.dartOnly => 1,
+      KeyEventRouting.appKitOnly => 2,
     };
     _checkCall(
       _bindings.windowSetKeyEventRouting(_handle, nativeValue),

@@ -1052,7 +1052,8 @@ int32_t da_window_set_key_event_routing(DaHandle window, int32_t routing) {
     return thread_status;
   }
   if (routing != DA_KEY_EVENT_ROUTING_DART_AND_APPKIT &&
-      routing != DA_KEY_EVENT_ROUTING_DART_ONLY) {
+      routing != DA_KEY_EVENT_ROUTING_DART_ONLY &&
+      routing != DA_KEY_EVENT_ROUTING_APPKIT_ONLY) {
     return dart_appkit::SetLastError(
         DA_STATUS_INVALID_ARGUMENT,
         "routing must be a DaKeyEventRouting value");

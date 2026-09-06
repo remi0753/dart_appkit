@@ -20,6 +20,11 @@
 namespace {
 
 int failures = 0;
+std::atomic<uint64_t> notified_text_input_client{0};
+
+void NotifyTextInput(uint64_t client_id) {
+  notified_text_input_client.store(client_id);
+}
 
 void Expect(bool condition, const char* description) {
   if (!condition) {
@@ -108,6 +113,9 @@ int main(int argc, const char* argv[]) {
     using MetalRender = int32_t (*)(uint64_t, const uint8_t*, uint32_t,
                                     uint8_t*, uint32_t, uint32_t*);
     using MetalFailNext = int32_t (*)(uint32_t);
+    using TextInputSetNotify = int32_t (*)(DtrTextInputNotifyV1);
+    using TextInputTake = int32_t (*)(uint64_t, uint8_t*, uint32_t,
+                                      uint32_t*);
     const Version version = Lookup<Version>(image, "dtr_abi_version");
     const Initialize initialize = Lookup<Initialize>(image, "dtr_initialize");
     const LiveCount live_count =
@@ -146,6 +154,12 @@ int main(int argc, const char* argv[]) {
         Lookup<LiveCount>(image, "dtr_debug_live_metal_renderer_count");
     const MetalFailNext metal_fail_next = Lookup<MetalFailNext>(
         image, "dtr_debug_metal_fail_next");
+    const TextInputSetNotify text_input_set_notify = Lookup<TextInputSetNotify>(
+        image, "dtr_text_input_set_notify_callback");
+    const TextInputTake text_input_take =
+        Lookup<TextInputTake>(image, "dtr_text_input_take_event");
+    const LiveCount live_text_input_count = Lookup<LiveCount>(
+        image, "dtr_debug_live_text_input_client_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
     Expect(DTR_ABI_VERSION == 9,
@@ -1343,6 +1357,237 @@ int main(int argc, const char* argv[]) {
       Expect(drawable_width > 0 && drawable_width <= 4096 &&
                  drawable_height > 0 && drawable_height <= 4096,
              "attached terminal view has a bounded drawable");
+
+      Expect(text_input_set_notify != nullptr &&
+                 text_input_set_notify(NotifyTextInput) == DTR_STATUS_OK &&
+                 text_input_set_notify(NotifyTextInput) == DTR_STATUS_OK,
+             "text-input scalar notification is installed idempotently");
+      DtrTextInputClientV1 text_client = {};
+      text_client.struct_size = sizeof(text_client);
+      text_client.version = DTR_TEXT_INPUT_CLIENT_VERSION;
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ATTACH;
+      text_client.client_id = 77;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK &&
+                 live_text_input_count() == 1,
+             "terminal view owns one bounded text-input client");
+      Expect([(id)view conformsToProtocol:@protocol(NSTextInputClient)] &&
+                 [view acceptsFirstResponder],
+             "terminal Metal view is an NSTextInputClient first responder");
+
+      DtrTextInputGeometryV1 text_geometry = {};
+      text_geometry.struct_size = sizeof(text_geometry);
+      text_geometry.version = DTR_TEXT_INPUT_GEOMETRY_VERSION;
+      text_geometry.operation =
+          DTR_METAL_VIEW_OPERATION_TEXT_INPUT_GEOMETRY;
+      text_geometry.client_id = text_client.client_id;
+      text_geometry.generation = 2;
+      text_geometry.x = 137;
+      text_geometry.y = 121;
+      text_geometry.width = 2;
+      text_geometry.height = 24;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_geometry),
+                 sizeof(text_geometry)) == DA_STATUS_OK,
+             "finite caret geometry is cached on the native view");
+      DtrTextInputGeometryV1 stale_geometry = text_geometry;
+      stale_geometry.generation = 1;
+      stale_geometry.x = 1;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&stale_geometry),
+                 sizeof(stale_geometry)) == DA_STATUS_OK,
+             "stale caret geometry is ignored without replacing the cache");
+
+      auto take_text_input_event = [&](uint64_t client_id) {
+        uint32_t required = 0;
+        Expect(text_input_take(client_id, nullptr, 0, &required) ==
+                       DTR_STATUS_BUFFER_TOO_SMALL &&
+                   required >= sizeof(DtrTextInputEventHeaderV1) &&
+                   required <= sizeof(DtrTextInputEventHeaderV1) +
+                                   2 * DTR_MAX_TEXT_INPUT_BYTES,
+               "text-input size query is bounded and non-consuming");
+        std::vector<uint8_t> packet(required);
+        Expect(text_input_take(client_id, packet.data(), required, &required) ==
+                       DTR_STATUS_OK &&
+                   required == packet.size(),
+               "text-input packet is copied and consumed exactly once");
+        return packet;
+      };
+      auto text_input_header = [&](const std::vector<uint8_t>& packet) {
+        DtrTextInputEventHeaderV1 header = {};
+        if (packet.size() >= sizeof(header)) {
+          memcpy(&header, packet.data(), sizeof(header));
+        }
+        Expect(header.magic == DTR_TEXT_INPUT_EVENT_MAGIC &&
+                   header.version == DTR_TEXT_INPUT_EVENT_VERSION &&
+                   header.header_size == sizeof(header) &&
+                   header.total_size == packet.size() &&
+                   header.client_id == text_client.client_id,
+               "text-input packet header has a stable identity");
+        return header;
+      };
+      auto packet_string = [&](const std::vector<uint8_t>& packet,
+                               uint32_t offset, uint32_t length) {
+        if (offset > packet.size() || length > packet.size() - offset) {
+          Expect(false, "text-input packet string region is in bounds");
+          return std::string();
+        }
+        return std::string(reinterpret_cast<const char*>(packet.data() + offset),
+                           length);
+      };
+
+      id<NSTextInputClient> input_view = (id<NSTextInputClient>)view;
+      [input_view setMarkedText:@"にほん"
+                 selectedRange:NSMakeRange(3, 0)
+               replacementRange:NSMakeRange(NSNotFound, 0)];
+      [input_view setMarkedText:@"にほんご"
+                 selectedRange:NSMakeRange(4, 0)
+               replacementRange:NSMakeRange(8, 3)];
+      Expect(notified_text_input_client.load() == text_client.client_id &&
+                 [input_view hasMarkedText] &&
+                 NSEqualRanges([input_view markedRange], NSMakeRange(0, 4)) &&
+                 NSEqualRanges([input_view selectedRange], NSMakeRange(4, 0)),
+             "marked updates retain exact native UTF-16 state");
+      std::vector<uint8_t> preedit_packet =
+          take_text_input_event(text_client.client_id);
+      DtrTextInputEventHeaderV1 preedit_header =
+          text_input_header(preedit_packet);
+      Expect(preedit_header.kind == DTR_TEXT_INPUT_EVENT_PREEDIT &&
+                 preedit_header.event_generation == 2 &&
+                 preedit_header.selection_location == 4 &&
+                 preedit_header.selection_length == 0 &&
+                 preedit_header.replacement_location == 8 &&
+                 preedit_header.replacement_length == 3 &&
+                 packet_string(preedit_packet, preedit_header.text_offset,
+                               preedit_header.text_length) == "にほんご",
+             "adjacent preedit updates coalesce to the newest exact event");
+      uint32_t no_event_required = 99;
+      Expect(text_input_take(text_client.client_id, nullptr, 0,
+                             &no_event_required) == DTR_STATUS_NOT_FOUND &&
+                 no_event_required == 0,
+             "coalesced preedit leaves no stale event");
+
+      NSRange substring_actual = NSMakeRange(NSNotFound, 0);
+      NSAttributedString* substring =
+          [input_view attributedSubstringForProposedRange:NSMakeRange(1, 2)
+                                               actualRange:&substring_actual];
+      Expect([substring.string isEqualToString:@"ほん"] &&
+                 NSEqualRanges(substring_actual, NSMakeRange(1, 2)),
+             "marked attributed substring reports its exact actual range");
+      NSRange candidate_actual = NSMakeRange(NSNotFound, 0);
+      NSRect candidate_screen =
+          [input_view firstRectForCharacterRange:NSMakeRange(0, 4)
+                                      actualRange:&candidate_actual];
+      NSRect candidate_window =
+          [owner.window convertRectFromScreen:candidate_screen];
+      NSRect candidate_local = [view convertRect:candidate_window fromView:nil];
+      Expect(NSEqualRanges(candidate_actual, NSMakeRange(0, 4)) &&
+                 std::isfinite(candidate_screen.origin.x) &&
+                 std::isfinite(candidate_screen.origin.y) &&
+                 candidate_screen.size.width > 0 &&
+                 candidate_screen.size.height > 0 &&
+                 std::abs(candidate_local.origin.x - 137) < 0.01 &&
+                 std::abs(candidate_local.origin.y - 121) < 0.01 &&
+                 std::abs(candidate_local.size.width - 2) < 0.01 &&
+                 std::abs(candidate_local.size.height - 24) < 0.01,
+             "candidate rect uses cached geometry with exact screen round-trip");
+
+      [input_view insertText:@"日本語"
+            replacementRange:NSMakeRange(8, 3)];
+      std::vector<uint8_t> commit_packet =
+          take_text_input_event(text_client.client_id);
+      DtrTextInputEventHeaderV1 commit_header =
+          text_input_header(commit_packet);
+      Expect(commit_header.kind == DTR_TEXT_INPUT_EVENT_COMMIT &&
+                 commit_header.event_generation == 3 &&
+                 ![input_view hasMarkedText] &&
+                 packet_string(commit_packet, commit_header.text_offset,
+                               commit_header.text_length) == "日本語",
+             "commit clears marked state and emits UTF-8 once");
+
+      [input_view setMarkedText:@"かな"
+                 selectedRange:NSMakeRange(2, 0)
+               replacementRange:NSMakeRange(NSNotFound, 0)];
+      NSEvent* raw_key =
+          [NSEvent keyEventWithType:NSEventTypeKeyUp
+                           location:NSZeroPoint
+                      modifierFlags:NSEventModifierFlagControl |
+                                    NSEventModifierFlagFunction
+                          timestamp:4.0
+                       windowNumber:owner.window.windowNumber
+                            context:nil
+                         characters:@"\x03"
+          charactersIgnoringModifiers:@"c"
+                          isARepeat:YES
+                            keyCode:8];
+      [view keyUp:raw_key];
+      [input_view unmarkText];
+      std::vector<uint8_t> cancelled_preedit =
+          take_text_input_event(text_client.client_id);
+      std::vector<uint8_t> cancel_packet =
+          take_text_input_event(text_client.client_id);
+      Expect(text_input_header(cancelled_preedit).kind ==
+                     DTR_TEXT_INPUT_EVENT_PREEDIT &&
+                 text_input_header(cancel_packet).kind ==
+                     DTR_TEXT_INPUT_EVENT_CANCEL &&
+                 text_input_take(text_client.client_id, nullptr, 0,
+                                 &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "composition suppresses raw keys and cancel never commits text");
+      [view keyUp:raw_key];
+      std::vector<uint8_t> raw_packet =
+          take_text_input_event(text_client.client_id);
+      DtrTextInputEventHeaderV1 raw_header = text_input_header(raw_packet);
+      Expect(raw_header.kind == DTR_TEXT_INPUT_EVENT_RAW_KEY_UP &&
+                 raw_header.key_code == 8 &&
+                 raw_header.flags == DTR_TEXT_INPUT_EVENT_REPEAT &&
+                 (raw_header.modifiers & (1u << 2)) != 0 &&
+                 (raw_header.modifiers & (1u << 6)) != 0 &&
+                 packet_string(raw_packet, raw_header.text_offset,
+                               raw_header.text_length) == "\x03" &&
+                 packet_string(raw_packet,
+                               raw_header.unmodified_text_offset,
+                               raw_header.unmodified_text_length) == "c",
+             "raw key transport preserves key, text, modifiers, and repeat");
+
+      NSMutableString* oversized = [NSMutableString string];
+      for (uint32_t index = 0; index <= DTR_MAX_TEXT_INPUT_BYTES; index++) {
+        [oversized appendString:@"a"];
+      }
+      [input_view setMarkedText:oversized
+                 selectedRange:NSMakeRange(oversized.length, 0)
+               replacementRange:NSMakeRange(NSNotFound, 0)];
+      std::vector<uint8_t> overflow_packet =
+          take_text_input_event(text_client.client_id);
+      Expect(text_input_header(overflow_packet).kind ==
+                     DTR_TEXT_INPUT_EVENT_OVERFLOW &&
+                 ![input_view hasMarkedText],
+             "oversized preedit resets composition with an explicit event");
+
+      for (uint32_t index = 0; index <= DTR_MAX_TEXT_INPUT_EVENTS; index++) {
+        [view keyUp:raw_key];
+      }
+      std::vector<uint8_t> queue_overflow_packet =
+          take_text_input_event(text_client.client_id);
+      Expect(text_input_header(queue_overflow_packet).kind ==
+                     DTR_TEXT_INPUT_EVENT_OVERFLOW &&
+                 text_input_take(text_client.client_id, nullptr, 0,
+                                 &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "bounded queue collapse publishes one explicit overflow event");
+
+      text_client.operation = DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&text_client),
+                 sizeof(text_client)) == DA_STATUS_OK &&
+                 live_text_input_count() == 0 &&
+                 text_input_take(text_client.client_id, nullptr, 0,
+                                 &no_event_required) == DTR_STATUS_NOT_FOUND,
+             "text-input detach drops queued ownership without leaking");
+
       auto presentation_frame = [&](uint64_t frame_generation) {
         std::vector<uint8_t> frame =
             make_frame(instances, presentation_summary.generation, 1);

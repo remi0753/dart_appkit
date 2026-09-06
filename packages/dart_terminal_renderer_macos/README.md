@@ -23,8 +23,11 @@ three fixed native slots, returns immediate backpressure when they are busy,
 and lets the bound native view select the newest ready frame; a slot retires
 only after it is dropped before encoding or its GPU command completes. These
 calls are intended for a font/render worker domain rather than an AppKit event
-handler. Terminal grids, atlas allocation policy, input, and application policy
-remain outside this package boundary.
+handler. Terminal grids, atlas allocation policy, and application policy remain
+outside this package boundary. The product view also implements
+`NSTextInputClient`: native marked state and synchronous candidate lookup use a
+generation-tagged cached caret rectangle, while raw/preedit/commit/cancel events
+cross a bounded copied queue after a scalar-only asynchronous Dart notification.
 
 Creation failures classify device, embedded shader/function/pipeline, and
 bounded resource allocation without publishing a handle. Runtime state keeps
@@ -54,6 +57,14 @@ Applications declare the following native capability in their runtime manifest:
 
 Call `TerminalRendererMacos.initialize()` after attaching the AppKit
 application, then use `TerminalRendererMacos.createView()`.
+
+Attach `TerminalTextInputClient` to that view when the owning window uses
+`KeyEventRouting.appKitOnly`. Listen to its typed event stream and publish the
+newest local caret rectangle with `publishCaretRect`. One text field is limited
+to 64 KiB UTF-8; a client queue is limited to 256 events and 1 MiB, coalesces
+adjacent preedit updates, and reports explicit overflow instead of growing.
+Disposal detaches native queue ownership. Composition policy and terminal byte
+encoding remain Dart-owned.
 
 Create bounded GPU resources with `TerminalMetalRenderer.open()`, bind them to
 that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,
