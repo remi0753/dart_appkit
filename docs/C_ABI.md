@@ -144,6 +144,16 @@ The public Dart `View.performCustomOperation` API copies a `Uint8List` into
 temporary native storage for this synchronous call; it exposes neither the
 view handle nor the borrowed native pointer.
 
+The terminal renderer capability uses that operation for complete, versioned
+accessibility snapshots. ABI version 10 bounds the packet, UTF-8 and UTF-16
+text lengths, physical lines, and per-line terminal-column boundaries. The
+provider validates canonical offsets, exact newline topology, UTF-8/UTF-16
+agreement, surrogate-safe ranges, terminal-boundary selection and cursor
+positions, and a strictly increasing generation before atomically replacing
+its native copy. Malformed or stale packets leave the previous accessible
+state intact. AppKit selectors and notifications are implemented by the
+provider-owned `NSView`; the bridge never interprets terminal text.
+
 ## Event envelope
 
 Version 1 remains the legacy fixed-position list:

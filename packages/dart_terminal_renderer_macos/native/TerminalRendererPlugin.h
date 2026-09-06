@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 9u
+#define DTR_ABI_VERSION 10u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -43,6 +43,12 @@
 #define DTR_MAX_TEXT_INPUT_BYTES (64u * 1024u)
 #define DTR_MAX_TEXT_INPUT_EVENTS 256u
 #define DTR_MAX_TEXT_INPUT_QUEUE_BYTES (1024u * 1024u)
+#define DTR_ACCESSIBILITY_SNAPSHOT_VERSION 1u
+#define DTR_MAX_ACCESSIBILITY_UTF8_BYTES (4u * 1024u * 1024u)
+#define DTR_MAX_ACCESSIBILITY_UTF16_UNITS (2u * 1024u * 1024u)
+#define DTR_MAX_ACCESSIBILITY_LINES 4096u
+#define DTR_MAX_ACCESSIBILITY_COLUMN_BOUNDARIES (1048576u + 4096u)
+#define DTR_MAX_ACCESSIBILITY_PACKET_BYTES (9u * 1024u * 1024u)
 
 typedef enum DtrStatus {
   DTR_STATUS_OK = 0,
@@ -76,6 +82,15 @@ enum {
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_DETACH = 4,
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_ACCEPTANCE = 5,
   DTR_METAL_VIEW_OPERATION_TEXT_INPUT_MATRIX = 6,
+  DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_SNAPSHOT = 7,
+  DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_ACCEPTANCE = 8,
+};
+
+enum {
+  DTR_ACCESSIBILITY_HAS_SELECTION = 1u << 0,
+  DTR_ACCESSIBILITY_HAS_CURSOR = 1u << 1,
+  DTR_ACCESSIBILITY_KNOWN_FLAGS = DTR_ACCESSIBILITY_HAS_SELECTION |
+                                  DTR_ACCESSIBILITY_HAS_CURSOR,
 };
 
 typedef enum DtrTextInputEventKind {
@@ -451,6 +466,53 @@ typedef struct DtrTextInputAcceptanceV1 {
   uint64_t client_id;
   uint64_t reserved;
 } DtrTextInputAcceptanceV1;
+
+// Complete copied accessibility document for one physical terminal viewport.
+// Text is UTF-8 while every range and column boundary is measured in UTF-16
+// code units. Sections are canonical and contiguous in header, line,
+// row-relative column-boundary, and text order.
+typedef struct DtrAccessibilitySnapshotHeaderV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t flags;
+  uint64_t generation;
+  uint32_t rows;
+  uint32_t columns;
+  uint32_t utf8_length;
+  uint32_t utf16_length;
+  uint32_t line_count;
+  uint32_t column_boundary_count;
+  uint32_t selection_location;
+  uint32_t selection_length;
+  uint32_t cursor_location;
+  uint32_t cursor_row;
+  uint32_t cursor_column;
+  uint32_t reserved0;
+  double cell_width;
+  double cell_height;
+  uint32_t lines_offset;
+  uint32_t column_boundaries_offset;
+  uint32_t text_offset;
+  uint32_t total_size;
+  uint32_t reserved[4];
+} DtrAccessibilitySnapshotHeaderV1;
+
+typedef struct DtrAccessibilityLineV1 {
+  uint32_t row;
+  uint32_t utf16_start;
+  uint32_t utf16_length;
+  uint32_t first_column_boundary;
+  uint32_t column_boundary_count;
+} DtrAccessibilityLineV1;
+
+typedef struct DtrAccessibilityAcceptanceV1 {
+  uint32_t struct_size;
+  uint32_t version;
+  uint32_t operation;
+  uint32_t reserved;
+  uint64_t generation;
+} DtrAccessibilityAcceptanceV1;
 
 // Immutable copied event. Range locations use UTF-16 code units and UINT32_MAX
 // for NSNotFound. Text regions are validated UTF-8 within this same packet.

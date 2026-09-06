@@ -162,8 +162,8 @@ int main(int argc, const char* argv[]) {
         image, "dtr_debug_live_text_input_client_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 9,
-           "Metal failure and metrics state requires renderer ABI v9");
+    Expect(DTR_ABI_VERSION == 10,
+           "terminal accessibility snapshot requires renderer ABI v10");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -1357,6 +1357,210 @@ int main(int argc, const char* argv[]) {
       Expect(drawable_width > 0 && drawable_width <= 4096 &&
                  drawable_height > 0 && drawable_height <= 4096,
              "attached terminal view has a bounded drawable");
+
+      const uint8_t accessibility_text[] = {'A', 0xf0, 0x9f, 0x98,
+                                            0x80, '\n', 'B'};
+      DtrAccessibilityLineV1 accessibility_lines[2] = {};
+      accessibility_lines[0].row = 0;
+      accessibility_lines[0].utf16_start = 0;
+      accessibility_lines[0].utf16_length = 3;
+      accessibility_lines[0].first_column_boundary = 0;
+      accessibility_lines[0].column_boundary_count = 4;
+      accessibility_lines[1].row = 1;
+      accessibility_lines[1].utf16_start = 4;
+      accessibility_lines[1].utf16_length = 1;
+      accessibility_lines[1].first_column_boundary = 4;
+      accessibility_lines[1].column_boundary_count = 2;
+      const uint32_t accessibility_boundaries[] = {0, 1, 1, 3, 0, 1};
+      DtrAccessibilitySnapshotHeaderV1 accessibility = {};
+      accessibility.struct_size = sizeof(accessibility);
+      accessibility.version = DTR_ACCESSIBILITY_SNAPSHOT_VERSION;
+      accessibility.operation =
+          DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_SNAPSHOT;
+      accessibility.flags = DTR_ACCESSIBILITY_HAS_SELECTION |
+                            DTR_ACCESSIBILITY_HAS_CURSOR;
+      accessibility.generation = 1;
+      accessibility.rows = 2;
+      accessibility.columns = 4;
+      accessibility.utf8_length = sizeof(accessibility_text);
+      accessibility.utf16_length = 5;
+      accessibility.line_count = 2;
+      accessibility.column_boundary_count = 6;
+      accessibility.selection_location = 1;
+      accessibility.selection_length = 2;
+      accessibility.cursor_location = 5;
+      accessibility.cursor_row = 1;
+      accessibility.cursor_column = 1;
+      accessibility.cell_width = 10;
+      accessibility.cell_height = 20;
+      accessibility.lines_offset = sizeof(accessibility);
+      accessibility.column_boundaries_offset =
+          sizeof(accessibility) + sizeof(accessibility_lines);
+      accessibility.text_offset =
+          accessibility.column_boundaries_offset +
+          sizeof(accessibility_boundaries);
+      accessibility.total_size =
+          accessibility.text_offset + sizeof(accessibility_text);
+      std::vector<uint8_t> accessibility_packet(accessibility.total_size);
+      auto write_accessibility_packet = [&] {
+        memcpy(accessibility_packet.data(), &accessibility,
+               sizeof(accessibility));
+        memcpy(accessibility_packet.data() + accessibility.lines_offset,
+               accessibility_lines, sizeof(accessibility_lines));
+        memcpy(accessibility_packet.data() +
+                   accessibility.column_boundaries_offset,
+               accessibility_boundaries, sizeof(accessibility_boundaries));
+        memcpy(accessibility_packet.data() + accessibility.text_offset,
+               accessibility_text, sizeof(accessibility_text));
+      };
+      write_accessibility_packet();
+      Expect(da_view_perform_custom_operation(
+                 view_handle, accessibility_packet.data(),
+                 accessibility_packet.size()) == DA_STATUS_OK,
+             "complete accessibility snapshot is copied atomically");
+      Expect([(id)view isAccessibilityElement] &&
+                 [[(id)view accessibilityRole]
+                     isEqualToString:NSAccessibilityTextAreaRole] &&
+                 [[(id)view accessibilityLabel]
+                     isEqualToString:@"Terminal"] &&
+                 [[(id)view accessibilityValue]
+                     isEqualToString:@"A😀\nB"] &&
+                 [(id)view accessibilityNumberOfCharacters] == 5 &&
+                 NSEqualRanges(
+                     [(id)view accessibilityVisibleCharacterRange],
+                     NSMakeRange(0, 5)) &&
+                 NSEqualRanges([(id)view accessibilitySharedCharacterRange],
+                               NSMakeRange(0, 5)),
+             "terminal view exposes one labelled read-only text area");
+      Expect(NSEqualRanges([(id)view accessibilitySelectedTextRange],
+                           NSMakeRange(1, 2)) &&
+                 [[(id)view accessibilitySelectedText]
+                     isEqualToString:@"😀"] &&
+                 [[(id)view accessibilitySelectedTextRanges] count] == 1 &&
+                 [(id)view accessibilityInsertionPointLineNumber] == 1 &&
+                 [(id)view isAccessibilityFocused],
+             "selection, cursor line, and first-responder focus are visible");
+      Expect([[(id)view accessibilityStringForRange:NSMakeRange(0, 3)]
+                 isEqualToString:@"A😀"] &&
+                 [[[(id)view
+                     accessibilityAttributedStringForRange:NSMakeRange(4, 1)]
+                       string] isEqualToString:@"B"] &&
+                 NSEqualRanges([(id)view accessibilityRangeForLine:0],
+                               NSMakeRange(0, 4)) &&
+                 [(id)view accessibilityLineForIndex:4] == 1 &&
+                 NSEqualRanges([(id)view accessibilityRangeForIndex:1],
+                               NSMakeRange(1, 2)) &&
+                 NSEqualRanges([(id)view accessibilityStyleRangeForIndex:4],
+                               NSMakeRange(4, 1)),
+             "native text navigation retains UTF-16 physical line ranges");
+      NSRect selection_screen =
+          [(id)view accessibilityFrameForRange:NSMakeRange(1, 2)];
+      NSRect selection_window =
+          [owner.window convertRectFromScreen:selection_screen];
+      NSRect selection_local = [view convertRect:selection_window fromView:nil];
+      NSPoint link_window =
+          [view convertPoint:NSMakePoint(15, 10) toView:nil];
+      NSPoint link_screen = [owner.window convertPointToScreen:link_window];
+      Expect(std::abs(selection_local.origin.x - 10) < 0.01 &&
+                 std::abs(selection_local.origin.y) < 0.01 &&
+                 std::abs(selection_local.size.width - 20) < 0.01 &&
+                 std::abs(selection_local.size.height - 20) < 0.01 &&
+                 NSEqualRanges(
+                     [(id)view accessibilityRangeForPosition:link_screen],
+                     NSMakeRange(1, 2)),
+             "range and point geometry use the shared wide-cell map");
+      const uint64_t initial_value_notifications =
+          [[(id)view
+              valueForKey:@"terminalAccessibilityValueNotificationCount"]
+              unsignedLongLongValue];
+      const uint64_t initial_selection_notifications =
+          [[(id)view
+              valueForKey:@"terminalAccessibilitySelectionNotificationCount"]
+              unsignedLongLongValue];
+      accessibility.generation = 2;
+      write_accessibility_packet();
+      Expect(da_view_perform_custom_operation(
+                 view_handle, accessibility_packet.data(),
+                 accessibility_packet.size()) == DA_STATUS_OK &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilityValueNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_value_notifications &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilitySelectionNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_selection_notifications,
+             "new identical generation emits no redundant notification");
+      accessibility.generation = 3;
+      accessibility.flags = DTR_ACCESSIBILITY_HAS_CURSOR;
+      accessibility.selection_location = 5;
+      accessibility.selection_length = 0;
+      write_accessibility_packet();
+      Expect(da_view_perform_custom_operation(
+                 view_handle, accessibility_packet.data(),
+                 accessibility_packet.size()) == DA_STATUS_OK &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilityValueNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_value_notifications &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilitySelectionNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_selection_notifications + 1 &&
+                 NSEqualRanges([(id)view accessibilitySelectedTextRange],
+                               NSMakeRange(5, 0)),
+             "cursor-only update emits exactly one selection notification");
+      Expect(da_view_perform_custom_operation(
+                 view_handle, accessibility_packet.data(),
+                 accessibility_packet.size()) == DA_STATUS_INVALID_ARGUMENT,
+             "duplicate accessibility generation is rejected");
+      std::vector<uint8_t> malformed_accessibility = accessibility_packet;
+      uint32_t malformed_boundary = 1;
+      memcpy(malformed_accessibility.data() +
+                 accessibility.column_boundaries_offset,
+             &malformed_boundary, sizeof(malformed_boundary));
+      accessibility.generation = 4;
+      memcpy(malformed_accessibility.data(), &accessibility,
+             sizeof(accessibility));
+      Expect(da_view_perform_custom_operation(
+                 view_handle, malformed_accessibility.data(),
+                 malformed_accessibility.size()) ==
+                 DA_STATUS_INVALID_ARGUMENT &&
+                 [[(id)view accessibilityValue]
+                     isEqualToString:@"A😀\nB"] &&
+                 NSEqualRanges([(id)view accessibilitySelectedTextRange],
+                               NSMakeRange(5, 0)),
+             "malformed column topology cannot partially replace native state");
+      DtrAccessibilityAcceptanceV1 accessibility_acceptance = {};
+      accessibility_acceptance.struct_size =
+          sizeof(accessibility_acceptance);
+      accessibility_acceptance.version =
+          DTR_ACCESSIBILITY_SNAPSHOT_VERSION;
+      accessibility_acceptance.operation =
+          DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_ACCEPTANCE;
+      accessibility_acceptance.generation = 3;
+      Expect(da_view_perform_custom_operation(
+                 view_handle,
+                 reinterpret_cast<const uint8_t*>(&accessibility_acceptance),
+                 sizeof(accessibility_acceptance)) == DA_STATUS_OK,
+             "content-free acceptance verifies native selectors and geometry");
+      const uint64_t focus_notifications =
+          [[(id)view
+              valueForKey:@"terminalAccessibilityFocusNotificationCount"]
+              unsignedLongLongValue];
+      [owner.window makeFirstResponder:nil];
+      [owner.window makeFirstResponder:view];
+      Expect([(id)view isAccessibilityFocused] &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilityFocusNotificationCount"]
+                         unsignedLongLongValue] >=
+                     focus_notifications + 2,
+             "first-responder transitions post focused-element notifications");
 
       Expect(text_input_set_notify != nullptr &&
                  text_input_set_notify(NotifyTextInput) == DTR_STATUS_OK &&

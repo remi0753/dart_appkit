@@ -56,7 +56,7 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
   capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
   CoreText font／shape／raster、Metal readback／submission、atlas reset、failure state、
-  renderer metrics、Dart facadeである。Terminal renderer capability ABIはversion 9である。
+  renderer metrics、Dart facadeである。Terminal renderer capability ABIはversion 10である。
 
 ## 実装済みの基盤
 

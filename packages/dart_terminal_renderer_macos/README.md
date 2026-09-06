@@ -28,6 +28,10 @@ outside this package boundary. The product view also implements
 `NSTextInputClient`: native marked state and synchronous candidate lookup use a
 generation-tagged cached caret rectangle, while raw/preedit/commit/cancel events
 cross a bounded copied queue after a scalar-only asynchronous Dart notification.
+The same view is a read-only AppKit accessibility text area. Dart publishes a
+bounded, generation-tagged copy of visible text, UTF-16 line and terminal-column
+boundaries, selection, cursor, and cell geometry; VoiceOver range and frame
+queries use only the native copy and never synchronously enter Dart.
 
 Creation failures classify device, embedded shader/function/pipeline, and
 bounded resource allocation without publishing a handle. Runtime state keeps
@@ -49,7 +53,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 9,
+  "abiVersion": 10,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -65,6 +69,15 @@ to 64 KiB UTF-8; a client queue is limited to 256 events and 1 MiB, coalesces
 adjacent preedit updates, and reports explicit overflow instead of growing.
 Disposal detaches native queue ownership. Composition policy and terminal byte
 encoding remain Dart-owned.
+
+Attach `TerminalAccessibilityClient` to the same view and publish immutable
+`TerminalAccessibilityViewSnapshot` values after visible text, selection,
+cursor, or cell metrics change. Text is limited to 4 MiB UTF-8 and 2 Mi UTF-16
+code units, with at most 4096 lines and bounded column-boundary tables. The
+facade verifies canonical line topology, surrogate-safe ranges, monotonic
+terminal-column mappings, and strictly increasing generations before the
+native view atomically replaces its copy. Publishing an identical value under
+a new generation does not emit redundant AppKit value or selection changes.
 
 Create bounded GPU resources with `TerminalMetalRenderer.open()`, bind them to
 that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,

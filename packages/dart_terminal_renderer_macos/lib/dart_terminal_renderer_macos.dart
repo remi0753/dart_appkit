@@ -1,6 +1,7 @@
 import 'package:dart_appkit/dart_appkit.dart';
 import 'package:dart_macos_runtime/dart_macos_runtime.dart';
 
+export 'src/accessibility.dart';
 export 'src/font_catalog.dart';
 export 'src/metal_renderer.dart';
 export 'src/text_input.dart';

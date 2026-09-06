@@ -768,10 +768,32 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 @property(nonatomic) NSRect terminalCaretRect;
 @property(nonatomic, strong) NSEvent* terminalActiveKeyEvent;
 @property(nonatomic) BOOL terminalRawKeyPosted;
+@property(nonatomic, copy) NSString* terminalAccessibilityText;
+@property(nonatomic, copy) NSData* terminalAccessibilityLines;
+@property(nonatomic, copy) NSData* terminalAccessibilityColumnBoundaries;
+@property(nonatomic) uint64_t terminalAccessibilityGeneration;
+@property(nonatomic) uint32_t terminalAccessibilityRows;
+@property(nonatomic) uint32_t terminalAccessibilityColumns;
+@property(nonatomic) NSRange terminalAccessibilitySelection;
+@property(nonatomic) BOOL terminalAccessibilityHasSelection;
+@property(nonatomic) NSRange terminalAccessibilityCursor;
+@property(nonatomic) uint32_t terminalAccessibilityCursorRow;
+@property(nonatomic) uint32_t terminalAccessibilityCursorColumn;
+@property(nonatomic) double terminalAccessibilityCellWidth;
+@property(nonatomic) double terminalAccessibilityCellHeight;
+@property(nonatomic) uint64_t terminalAccessibilityValueNotificationCount;
+@property(nonatomic) uint64_t terminalAccessibilitySelectionNotificationCount;
+@property(nonatomic) uint64_t terminalAccessibilityFocusNotificationCount;
 
 - (BOOL)attachTextInputClient:(uint64_t)clientId;
 - (BOOL)updateTextInputGeometry:(DtrTextInputGeometryV1)geometry;
 - (void)detachTextInputClient;
+- (BOOL)updateAccessibilitySnapshot:
+            (DtrAccessibilitySnapshotHeaderV1)header
+                           lines:(const DtrAccessibilityLineV1*)lines
+                 columnBoundaries:(const uint32_t*)columnBoundaries
+                             text:(const uint8_t*)text;
+- (BOOL)runAccessibilityAcceptance:(uint64_t)generation;
 
 @end
 
@@ -1787,6 +1809,15 @@ static NSString* TextInputPlainString(id value) {
     self.terminalMarkedText = [[NSAttributedString alloc] initWithString:@""];
     self.terminalMarkedSelection = NSMakeRange(0, 0);
     self.terminalCaretRect = NSMakeRect(0, 0, 2, 20);
+    self.terminalAccessibilityText = @"";
+    self.terminalAccessibilityLines = [NSData data];
+    self.terminalAccessibilityColumnBoundaries = [NSData data];
+    self.terminalAccessibilitySelection = NSMakeRange(0, 0);
+    self.terminalAccessibilityCursor = NSMakeRange(NSNotFound, 0);
+    self.terminalAccessibilityCursorRow = UINT32_MAX;
+    self.terminalAccessibilityCursorColumn = UINT32_MAX;
+    self.terminalAccessibilityCellWidth = 1;
+    self.terminalAccessibilityCellHeight = 1;
   }
   return self;
 }
@@ -1803,6 +1834,491 @@ static NSString* TextInputPlainString(id value) {
 
 - (BOOL)acceptsFirstResponder {
   return YES;
+}
+
+- (BOOL)becomeFirstResponder {
+  const BOOL accepted = [super becomeFirstResponder];
+  if (accepted) {
+    SaturatingIncrementMetric(&_terminalAccessibilityFocusNotificationCount);
+    NSAccessibilityPostNotification(
+        self, NSAccessibilityFocusedUIElementChangedNotification);
+  }
+  return accepted;
+}
+
+- (BOOL)resignFirstResponder {
+  const BOOL accepted = [super resignFirstResponder];
+  if (accepted) {
+    SaturatingIncrementMetric(&_terminalAccessibilityFocusNotificationCount);
+    NSAccessibilityPostNotification(
+        self, NSAccessibilityFocusedUIElementChangedNotification);
+  }
+  return accepted;
+}
+
+- (BOOL)isAccessibilityElement {
+  return YES;
+}
+
+- (NSString*)accessibilityRole {
+  return NSAccessibilityTextAreaRole;
+}
+
+- (NSString*)accessibilityLabel {
+  return @"Terminal";
+}
+
+- (id)accessibilityValue {
+  return self.terminalAccessibilityText;
+}
+
+- (BOOL)isAccessibilityFocused {
+  return self.window != nil && self.window.firstResponder == self;
+}
+
+- (NSRange)accessibilityVisibleCharacterRange {
+  return NSMakeRange(0, self.terminalAccessibilityText.length);
+}
+
+- (NSRange)accessibilitySharedCharacterRange {
+  return [self accessibilityVisibleCharacterRange];
+}
+
+- (NSInteger)accessibilityNumberOfCharacters {
+  return (NSInteger)self.terminalAccessibilityText.length;
+}
+
+- (NSString*)accessibilitySelectedText {
+  const NSRange range = self.terminalAccessibilitySelection;
+  return NSMaxRange(range) <= self.terminalAccessibilityText.length
+             ? [self.terminalAccessibilityText substringWithRange:range]
+             : @"";
+}
+
+- (NSRange)accessibilitySelectedTextRange {
+  return self.terminalAccessibilitySelection;
+}
+
+- (NSArray<NSValue*>*)accessibilitySelectedTextRanges {
+  return @[ [NSValue valueWithRange:self.terminalAccessibilitySelection] ];
+}
+
+- (NSInteger)accessibilityInsertionPointLineNumber {
+  return self.terminalAccessibilityCursor.location == NSNotFound
+             ? NSNotFound
+             : (NSInteger)self.terminalAccessibilityCursorRow;
+}
+
+- (const DtrAccessibilityLineV1*)terminalAccessibilityLineAtIndex:
+    (NSUInteger)index {
+  if (index >= self.terminalAccessibilityRows ||
+      self.terminalAccessibilityLines.length !=
+          self.terminalAccessibilityRows * sizeof(DtrAccessibilityLineV1)) {
+    return NULL;
+  }
+  return ((const DtrAccessibilityLineV1*)
+              self.terminalAccessibilityLines.bytes) +
+         index;
+}
+
+- (const uint32_t*)terminalAccessibilityBoundariesForLine:
+    (const DtrAccessibilityLineV1*)line {
+  if (line == NULL ||
+      self.terminalAccessibilityColumnBoundaries.length % sizeof(uint32_t) !=
+          0) {
+    return NULL;
+  }
+  const NSUInteger count = self.terminalAccessibilityColumnBoundaries.length /
+                           sizeof(uint32_t);
+  if (line->first_column_boundary > count ||
+      line->column_boundary_count >
+          count - line->first_column_boundary) {
+    return NULL;
+  }
+  return ((const uint32_t*)
+              self.terminalAccessibilityColumnBoundaries.bytes) +
+         line->first_column_boundary;
+}
+
+- (NSInteger)terminalAccessibilityLineForUtf16Index:(NSUInteger)index {
+  if (index > self.terminalAccessibilityText.length) return NSNotFound;
+  for (uint32_t row = 0; row < self.terminalAccessibilityRows; row++) {
+    const DtrAccessibilityLineV1* line =
+        [self terminalAccessibilityLineAtIndex:row];
+    if (line == NULL) return NSNotFound;
+    const NSUInteger end =
+        (NSUInteger)line->utf16_start + line->utf16_length;
+    if (index <= end || row + 1 == self.terminalAccessibilityRows) {
+      return row;
+    }
+  }
+  return NSNotFound;
+}
+
+- (NSUInteger)terminalAccessibilityColumnForLine:
+                  (const DtrAccessibilityLineV1*)line
+                                          index:(NSUInteger)index {
+  const uint32_t* boundaries =
+      [self terminalAccessibilityBoundariesForLine:line];
+  if (boundaries == NULL || line->column_boundary_count == 0) return 0;
+  const NSUInteger requested_relative =
+      index <= line->utf16_start ? 0 : index - line->utf16_start;
+  const NSUInteger relative =
+      requested_relative < line->utf16_length ? requested_relative
+                                              : line->utf16_length;
+  NSUInteger group_start = 0;
+  for (NSUInteger column = 0;
+       column + 1 < line->column_boundary_count; column++) {
+    if (boundaries[column] != boundaries[group_start]) group_start = column;
+    if (relative < boundaries[column + 1]) return group_start;
+    if (relative == boundaries[column]) return group_start;
+  }
+  return line->column_boundary_count - 1;
+}
+
+- (NSString*)accessibilityStringForRange:(NSRange)range {
+  if (range.location == NSNotFound ||
+      range.location > self.terminalAccessibilityText.length ||
+      range.length > self.terminalAccessibilityText.length - range.location) {
+    return nil;
+  }
+  return [self.terminalAccessibilityText substringWithRange:range];
+}
+
+- (NSAttributedString*)accessibilityAttributedStringForRange:(NSRange)range {
+  NSString* value = [self accessibilityStringForRange:range];
+  return value == nil ? nil
+                      : [[NSAttributedString alloc] initWithString:value];
+}
+
+- (NSInteger)accessibilityLineForIndex:(NSInteger)index {
+  if (index < 0) return NSNotFound;
+  return [self terminalAccessibilityLineForUtf16Index:(NSUInteger)index];
+}
+
+- (NSRange)accessibilityRangeForLine:(NSInteger)lineNumber {
+  if (lineNumber < 0 ||
+      (NSUInteger)lineNumber >= self.terminalAccessibilityRows) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  const DtrAccessibilityLineV1* line =
+      [self terminalAccessibilityLineAtIndex:(NSUInteger)lineNumber];
+  if (line == NULL) return NSMakeRange(NSNotFound, 0);
+  const NSUInteger newline =
+      (NSUInteger)lineNumber + 1 < self.terminalAccessibilityRows ? 1 : 0;
+  return NSMakeRange(line->utf16_start, line->utf16_length + newline);
+}
+
+- (NSRange)accessibilityRangeForIndex:(NSInteger)index {
+  if (index < 0 || (NSUInteger)index > self.terminalAccessibilityText.length) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  if ((NSUInteger)index == self.terminalAccessibilityText.length) {
+    return NSMakeRange((NSUInteger)index, 0);
+  }
+  return [self.terminalAccessibilityText
+      rangeOfComposedCharacterSequenceAtIndex:(NSUInteger)index];
+}
+
+- (NSRange)accessibilityStyleRangeForIndex:(NSInteger)index {
+  const NSInteger line = [self accessibilityLineForIndex:index];
+  return line == NSNotFound ? NSMakeRange(NSNotFound, 0)
+                            : [self accessibilityRangeForLine:line];
+}
+
+- (NSRange)accessibilityRangeForPosition:(NSPoint)point {
+  NSPoint window_point = self.window == nil
+                             ? point
+                             : [self.window convertPointFromScreen:point];
+  const NSPoint local = [self convertPoint:window_point fromView:nil];
+  if (!isfinite(local.x) || !isfinite(local.y) || local.x < 0 || local.y < 0 ||
+      self.terminalAccessibilityCellWidth <= 0 ||
+      self.terminalAccessibilityCellHeight <= 0) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  const NSUInteger row =
+      (NSUInteger)floor(local.y / self.terminalAccessibilityCellHeight);
+  if (row >= self.terminalAccessibilityRows) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  const DtrAccessibilityLineV1* line =
+      [self terminalAccessibilityLineAtIndex:row];
+  const uint32_t* boundaries =
+      [self terminalAccessibilityBoundariesForLine:line];
+  if (line == NULL || boundaries == NULL) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  NSUInteger column =
+      (NSUInteger)floor(local.x / self.terminalAccessibilityCellWidth);
+  const NSUInteger last_column = line->column_boundary_count - 1;
+  if (column > last_column) column = last_column;
+  const NSUInteger index = line->utf16_start + boundaries[column];
+  return [self accessibilityRangeForIndex:(NSInteger)index];
+}
+
+- (NSRect)accessibilityFrameForRange:(NSRange)range {
+  if (range.location == NSNotFound ||
+      range.location > self.terminalAccessibilityText.length ||
+      range.length > self.terminalAccessibilityText.length - range.location ||
+      self.terminalAccessibilityRows == 0) {
+    return NSZeroRect;
+  }
+  const NSInteger first_row =
+      [self terminalAccessibilityLineForUtf16Index:range.location];
+  const NSUInteger terminal_index =
+      range.length == 0 ? range.location : NSMaxRange(range) - 1;
+  const NSInteger last_row =
+      [self terminalAccessibilityLineForUtf16Index:terminal_index];
+  if (first_row == NSNotFound || last_row == NSNotFound ||
+      last_row < first_row) {
+    return NSZeroRect;
+  }
+  const DtrAccessibilityLineV1* first =
+      [self terminalAccessibilityLineAtIndex:(NSUInteger)first_row];
+  const DtrAccessibilityLineV1* last =
+      [self terminalAccessibilityLineAtIndex:(NSUInteger)last_row];
+  if (first == NULL || last == NULL) return NSZeroRect;
+  NSUInteger first_column =
+      [self terminalAccessibilityColumnForLine:first index:range.location];
+  NSUInteger end_column = first_column + 1;
+  if (first_row == last_row && range.length > 0) {
+    end_column = [self terminalAccessibilityColumnForLine:first
+                                                    index:NSMaxRange(range)];
+    if (end_column <= first_column) ++end_column;
+  }
+  const CGFloat x = first_row == last_row
+                        ? first_column * self.terminalAccessibilityCellWidth
+                        : 0;
+  const CGFloat requested_width =
+      (end_column - first_column) * self.terminalAccessibilityCellWidth;
+  const CGFloat width =
+      first_row == last_row
+          ? (requested_width > self.terminalAccessibilityCellWidth
+                 ? requested_width
+                 : self.terminalAccessibilityCellWidth)
+          : self.terminalAccessibilityColumns *
+                self.terminalAccessibilityCellWidth;
+  NSRect local = NSMakeRect(
+      x, first_row * self.terminalAccessibilityCellHeight, width,
+      (last_row - first_row + 1) * self.terminalAccessibilityCellHeight);
+  NSRect window_rect = [self convertRect:local toView:nil];
+  return self.window == nil ? window_rect
+                            : [self.window convertRectToScreen:window_rect];
+}
+
+- (BOOL)updateAccessibilitySnapshot:
+            (DtrAccessibilitySnapshotHeaderV1)header
+                           lines:(const DtrAccessibilityLineV1*)lines
+                 columnBoundaries:(const uint32_t*)columnBoundaries
+                             text:(const uint8_t*)text {
+  if (header.generation == 0 || header.generation > INT64_MAX ||
+      header.generation <= self.terminalAccessibilityGeneration ||
+      header.rows == 0 || header.rows > DTR_MAX_ACCESSIBILITY_LINES ||
+      header.columns == 0 || header.columns > 4096 ||
+      header.line_count != header.rows ||
+      header.utf8_length > DTR_MAX_ACCESSIBILITY_UTF8_BYTES ||
+      header.utf16_length > DTR_MAX_ACCESSIBILITY_UTF16_UNITS ||
+      header.column_boundary_count == 0 ||
+      header.column_boundary_count >
+          DTR_MAX_ACCESSIBILITY_COLUMN_BOUNDARIES ||
+      !isfinite(header.cell_width) || !isfinite(header.cell_height) ||
+      header.cell_width <= 0 || header.cell_height <= 0 || lines == NULL ||
+      columnBoundaries == NULL || (header.utf8_length > 0 && text == NULL)) {
+    return NO;
+  }
+  NSString* value = [[NSString alloc] initWithBytes:text
+                                             length:header.utf8_length
+                                           encoding:NSUTF8StringEncoding];
+  if (value == nil || value.length != header.utf16_length) return NO;
+  NSData* round_trip = [value dataUsingEncoding:NSUTF8StringEncoding];
+  if (round_trip == nil || round_trip.length != header.utf8_length ||
+      (header.utf8_length > 0 &&
+       memcmp(round_trip.bytes, text, header.utf8_length) != 0)) {
+    return NO;
+  }
+
+  uint32_t expected_start = 0;
+  uint32_t expected_boundary = 0;
+  BOOL selection_start_matched = NO;
+  BOOL selection_end_matched = NO;
+  const uint64_t requested_selection_end =
+      (uint64_t)header.selection_location + header.selection_length;
+  for (uint32_t row = 0; row < header.rows; row++) {
+    const DtrAccessibilityLineV1 line = lines[row];
+    if (line.row != row || line.utf16_start != expected_start ||
+        line.utf16_start > header.utf16_length ||
+        line.utf16_length > header.utf16_length - line.utf16_start ||
+        line.first_column_boundary != expected_boundary ||
+        line.column_boundary_count == 0 ||
+        line.column_boundary_count > header.columns + 1 ||
+        expected_boundary > header.column_boundary_count ||
+        line.column_boundary_count >
+            header.column_boundary_count - expected_boundary) {
+      return NO;
+    }
+    const uint32_t* boundaries =
+        columnBoundaries + line.first_column_boundary;
+    if (boundaries[0] != 0 ||
+        boundaries[line.column_boundary_count - 1] != line.utf16_length) {
+      return NO;
+    }
+    uint32_t previous = 0;
+    for (uint32_t index = 0; index < line.column_boundary_count; index++) {
+      const uint32_t boundary = boundaries[index];
+      const uint32_t absolute = line.utf16_start + boundary;
+      if (boundary < previous || boundary > line.utf16_length ||
+          (absolute > 0 && absolute < header.utf16_length &&
+           [value characterAtIndex:absolute - 1] >= 0xd800 &&
+           [value characterAtIndex:absolute - 1] <= 0xdbff &&
+           [value characterAtIndex:absolute] >= 0xdc00 &&
+           [value characterAtIndex:absolute] <= 0xdfff)) {
+        return NO;
+      }
+      if (absolute == header.selection_location) selection_start_matched = YES;
+      if (absolute == requested_selection_end) {
+        selection_end_matched = YES;
+      }
+      previous = boundary;
+    }
+    expected_boundary += line.column_boundary_count;
+    const uint32_t end = line.utf16_start + line.utf16_length;
+    if (row + 1 < header.rows) {
+      if (end >= header.utf16_length || [value characterAtIndex:end] != '\n') {
+        return NO;
+      }
+      expected_start = end + 1;
+    } else {
+      expected_start = end;
+    }
+  }
+  if (expected_start != header.utf16_length ||
+      expected_boundary != header.column_boundary_count ||
+      header.selection_location > header.utf16_length ||
+      header.selection_length >
+          header.utf16_length - header.selection_location ||
+      !selection_start_matched || !selection_end_matched ||
+      ((header.flags & DTR_ACCESSIBILITY_HAS_SELECTION) != 0) !=
+          (header.selection_length > 0)) {
+    return NO;
+  }
+
+  const BOOL has_cursor =
+      (header.flags & DTR_ACCESSIBILITY_HAS_CURSOR) != 0;
+  if (has_cursor) {
+    if (header.cursor_location > header.utf16_length ||
+        header.cursor_row >= header.rows) {
+      return NO;
+    }
+    const DtrAccessibilityLineV1 line = lines[header.cursor_row];
+    if (header.cursor_column >= line.column_boundary_count ||
+        header.cursor_location !=
+            line.utf16_start +
+                columnBoundaries[line.first_column_boundary +
+                                 header.cursor_column] ||
+        ((header.flags & DTR_ACCESSIBILITY_HAS_SELECTION) == 0 &&
+         (header.selection_location != header.cursor_location ||
+          header.selection_length != 0))) {
+      return NO;
+    }
+  } else if (header.cursor_location != UINT32_MAX ||
+             header.cursor_row != UINT32_MAX ||
+             header.cursor_column != UINT32_MAX ||
+             ((header.flags & DTR_ACCESSIBILITY_HAS_SELECTION) == 0 &&
+              (header.selection_location != 0 ||
+               header.selection_length != 0))) {
+    return NO;
+  }
+
+  NSData* line_data =
+      [NSData dataWithBytes:lines
+                     length:header.line_count *
+                            sizeof(DtrAccessibilityLineV1)];
+  NSData* boundary_data =
+      [NSData dataWithBytes:columnBoundaries
+                     length:header.column_boundary_count * sizeof(uint32_t)];
+  const NSRange selection =
+      NSMakeRange(header.selection_location, header.selection_length);
+  const NSRange cursor = has_cursor
+                             ? NSMakeRange(header.cursor_location, 0)
+                             : NSMakeRange(NSNotFound, 0);
+  const BOOL value_changed =
+      ![self.terminalAccessibilityText isEqualToString:value] ||
+      ![self.terminalAccessibilityLines isEqualToData:line_data] ||
+      ![self.terminalAccessibilityColumnBoundaries
+          isEqualToData:boundary_data] ||
+      self.terminalAccessibilityRows != header.rows ||
+      self.terminalAccessibilityColumns != header.columns ||
+      self.terminalAccessibilityCellWidth != header.cell_width ||
+      self.terminalAccessibilityCellHeight != header.cell_height;
+  const BOOL selection_changed =
+      !NSEqualRanges(self.terminalAccessibilitySelection, selection) ||
+      self.terminalAccessibilityHasSelection !=
+          ((header.flags & DTR_ACCESSIBILITY_HAS_SELECTION) != 0) ||
+      !NSEqualRanges(self.terminalAccessibilityCursor, cursor) ||
+      self.terminalAccessibilityCursorRow !=
+          (has_cursor ? header.cursor_row : UINT32_MAX) ||
+      self.terminalAccessibilityCursorColumn !=
+          (has_cursor ? header.cursor_column : UINT32_MAX);
+
+  self.terminalAccessibilityText = value;
+  self.terminalAccessibilityLines = line_data;
+  self.terminalAccessibilityColumnBoundaries = boundary_data;
+  self.terminalAccessibilityGeneration = header.generation;
+  self.terminalAccessibilityRows = header.rows;
+  self.terminalAccessibilityColumns = header.columns;
+  self.terminalAccessibilitySelection = selection;
+  self.terminalAccessibilityHasSelection =
+      (header.flags & DTR_ACCESSIBILITY_HAS_SELECTION) != 0;
+  self.terminalAccessibilityCursor = cursor;
+  self.terminalAccessibilityCursorRow =
+      has_cursor ? header.cursor_row : UINT32_MAX;
+  self.terminalAccessibilityCursorColumn =
+      has_cursor ? header.cursor_column : UINT32_MAX;
+  self.terminalAccessibilityCellWidth = header.cell_width;
+  self.terminalAccessibilityCellHeight = header.cell_height;
+  if (value_changed) {
+    SaturatingIncrementMetric(&_terminalAccessibilityValueNotificationCount);
+    NSAccessibilityPostNotification(self,
+                                    NSAccessibilityValueChangedNotification);
+  }
+  if (selection_changed) {
+    SaturatingIncrementMetric(
+        &_terminalAccessibilitySelectionNotificationCount);
+    NSAccessibilityPostNotification(
+        self, NSAccessibilitySelectedTextChangedNotification);
+  }
+  return YES;
+}
+
+- (BOOL)runAccessibilityAcceptance:(uint64_t)generation {
+  if (generation == 0 || generation != self.terminalAccessibilityGeneration ||
+      ![self isAccessibilityElement] ||
+      ![[self accessibilityRole] isEqualToString:NSAccessibilityTextAreaRole] ||
+      ![[self accessibilityLabel] isEqualToString:@"Terminal"] ||
+      ![[self accessibilityValue]
+          isEqualToString:self.terminalAccessibilityText] ||
+      !NSEqualRanges([self accessibilityVisibleCharacterRange],
+                     NSMakeRange(0, self.terminalAccessibilityText.length)) ||
+      [self accessibilityNumberOfCharacters] !=
+          (NSInteger)self.terminalAccessibilityText.length ||
+      !NSEqualRanges([self accessibilitySelectedTextRange],
+                     self.terminalAccessibilitySelection) ||
+      ![[self accessibilitySelectedText]
+          isEqualToString:[self.terminalAccessibilityText
+                              substringWithRange:
+                                  self.terminalAccessibilitySelection]] ||
+      self.terminalAccessibilityRows == 0 ||
+      [self accessibilityLineForIndex:0] != 0 ||
+      [self accessibilityRangeForLine:0].location != 0 ||
+      self.terminalAccessibilityValueNotificationCount == 0 ||
+      self.terminalAccessibilitySelectionNotificationCount == 0) {
+    return NO;
+  }
+  const NSRect frame =
+      [self accessibilityFrameForRange:self.terminalAccessibilitySelection];
+  return isfinite(frame.origin.x) && isfinite(frame.origin.y) &&
+         isfinite(frame.size.width) && isfinite(frame.size.height) &&
+         frame.size.width > 0 && frame.size.height > 0;
 }
 
 - (BOOL)attachTextInputClient:(uint64_t)clientId {
@@ -2302,6 +2818,67 @@ static int32_t PerformTerminalMetalViewOperation(
         return DA_STATUS_INVALID_ARGUMENT;
       }
       return [terminal_view runTextInputAcceptanceMatrix]
+                 ? DA_STATUS_OK
+                 : DA_STATUS_INTERNAL_ERROR;
+    }
+    case DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_SNAPSHOT: {
+      if (payload_length < sizeof(DtrAccessibilitySnapshotHeaderV1) ||
+          payload_length > DTR_MAX_ACCESSIBILITY_PACKET_BYTES) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrAccessibilitySnapshotHeaderV1 header;
+      memcpy(&header, payload, sizeof(header));
+      const uint64_t lines_end =
+          (uint64_t)sizeof(header) +
+          (uint64_t)header.line_count * sizeof(DtrAccessibilityLineV1);
+      const uint64_t boundaries_end =
+          lines_end + (uint64_t)header.column_boundary_count * sizeof(uint32_t);
+      const uint64_t total = boundaries_end + header.utf8_length;
+      if (header.struct_size != sizeof(header) ||
+          header.version != DTR_ACCESSIBILITY_SNAPSHOT_VERSION ||
+          header.operation !=
+              DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_SNAPSHOT ||
+          (header.flags & ~DTR_ACCESSIBILITY_KNOWN_FLAGS) != 0 ||
+          header.reserved0 != 0 || header.reserved[0] != 0 ||
+          header.reserved[1] != 0 || header.reserved[2] != 0 ||
+          header.reserved[3] != 0 || header.lines_offset != sizeof(header) ||
+          header.column_boundaries_offset != lines_end ||
+          header.text_offset != boundaries_end || header.total_size != total ||
+          total != payload_length || total > DTR_MAX_ACCESSIBILITY_PACKET_BYTES) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      NSData* line_data =
+          [NSData dataWithBytes:payload + header.lines_offset
+                         length:header.line_count *
+                                sizeof(DtrAccessibilityLineV1)];
+      NSData* boundary_data =
+          [NSData dataWithBytes:payload + header.column_boundaries_offset
+                         length:header.column_boundary_count *
+                                sizeof(uint32_t)];
+      const DtrAccessibilityLineV1* lines = line_data.bytes;
+      const uint32_t* column_boundaries = boundary_data.bytes;
+      const uint8_t* text = payload + header.text_offset;
+      return [terminal_view updateAccessibilitySnapshot:header
+                                                   lines:lines
+                                        columnBoundaries:column_boundaries
+                                                    text:text]
+                 ? DA_STATUS_OK
+                 : DA_STATUS_INVALID_ARGUMENT;
+    }
+    case DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_ACCEPTANCE: {
+      if (payload_length != sizeof(DtrAccessibilityAcceptanceV1)) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      DtrAccessibilityAcceptanceV1 acceptance;
+      memcpy(&acceptance, payload, sizeof(acceptance));
+      if (acceptance.struct_size != sizeof(acceptance) ||
+          acceptance.version != DTR_ACCESSIBILITY_SNAPSHOT_VERSION ||
+          acceptance.operation !=
+              DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_ACCEPTANCE ||
+          acceptance.reserved != 0) {
+        return DA_STATUS_INVALID_ARGUMENT;
+      }
+      return [terminal_view runAccessibilityAcceptance:acceptance.generation]
                  ? DA_STATUS_OK
                  : DA_STATUS_INTERNAL_ERROR;
     }

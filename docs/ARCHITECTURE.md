@@ -275,7 +275,13 @@ view shell. Its `dtr_*` ABI registers the existing
 capability initialization and view creation. The implementation is a paused,
 on-demand, framebuffer-only, top-left-coordinate `MTKView`; future terminal
 grid, CoreText, atlas, and shader behavior stays in that capability rather than
-moving into `dart_appkit` or `dart_macos_runtime`.
+moving into `dart_appkit` or `dart_macos_runtime`. It also owns the platform
+accessibility boundary for terminal content: the application projects its
+visible terminal state into a bounded immutable UTF-16 snapshot, and one custom
+view operation copies and validates that complete snapshot on the AppKit main
+thread. `NSAccessibility` text, selection, cursor, navigation, and screen-frame
+selectors then read only the native copy. No accessibility query synchronously
+calls Dart, and generic `dart_appkit` views remain unaware of terminal semantics.
 
 Plain `nativeAssets` use the same hook and Frameworks staging path but do not
 receive the AppKit extension service table. `dart_pty_macos` uses this path: its

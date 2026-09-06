@@ -1972,3 +1972,41 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Complete `make test` passed every bridge, runner, runtime, renderer, PTY,
   package, launcher, Kernel, FFI, and legacy-event regression after the policy
   corrections.
+
+## 2026-09-06 — Copied terminal accessibility snapshot
+
+- Purpose: expose the terminal renderer's visible text, selection, and cursor
+  through the native `TerminalMetalView` without adding terminal semantics to
+  generic `dart_appkit` views or synchronously entering Dart from VoiceOver.
+- Terminal renderer capability ABI version 10 adds a bounded, versioned packet
+  containing UTF-8 text, canonical UTF-16 line records, a terminal-column to
+  UTF-16 boundary table, optional selection/cursor, and logical cell metrics.
+  The Dart facade validates all topology and ranges before encoding it and
+  requires strictly increasing generations.
+- The provider copies and independently validates the complete packet before
+  replacing its immutable native state. Rejected stale or malformed packets
+  preserve the prior state. Limits are 4 MiB UTF-8, 2 Mi UTF-16 code units,
+  4096 lines, 4096 columns per line, and a 9 MiB packet.
+- `DtrTerminalMetalView` is a read-only AppKit accessibility text area with
+  visible/shared ranges, selected text and insertion point, line/index/range
+  navigation, attributed strings, point lookup, and screen-coordinate range
+  frames. Selection/cursor endpoints must match published terminal-column
+  boundaries, so a wide emoji continuation cannot split its surrogate pair.
+  Focus follows first-responder state. Value and selected-text notifications
+  are emitted only when their corresponding state actually changes.
+- Native acceptance creates a real Metal view and window, publishes a two-line
+  snapshot containing a wide emoji, verifies all selectors and geometry, then
+  proves identical updates do not notify, cursor-only updates notify only the
+  selected-text channel, and rejected packets do not corrupt native state.
+  Dart tests verify deterministic packet bytes plus malformed topology, ranges,
+  surrogate boundaries, cursor mapping, generations, and all declared limits.
+- The first warning-clean native compile rejected Foundation's `MIN`/`MAX`
+  macros as GNU statement expressions under `-Wpedantic -Werror`; explicit
+  comparisons replaced those macros. A later emoji fixture exposed an expected
+  UTF-16 offset that still assumed an ASCII character; the assertion was
+  corrected to the cursor's actual offset after the surrogate pair.
+- Focused `make terminal-renderer-native-test terminal-renderer-dart-test`
+  passes after these corrections. The complete repository verification is
+  also green: warning-clean C11/C++20 headers, every native capability suite,
+  all Dart analysis and tests, launcher/Kernel compilation, real FFI loading,
+  and the legacy bridge fallback passed under `make test`.
