@@ -41,4 +41,5 @@ export 'src/api.dart'
 export 'src/native/native_bindings.dart'
     show
         dartAppKitCurrentEventProtocolVersion,
-        dartAppKitMinimumEventProtocolVersion;
+        dartAppKitMinimumEventProtocolVersion,
+        dartAppKitPasteboardMaximumTextUtf8Bytes;

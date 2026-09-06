@@ -375,6 +375,8 @@ void TestContractAndErrors() {
             std::string("unsupported_version"));
   EXPECT_EQ(std::string(da_status_name(DA_STATUS_SHUTTING_DOWN)),
             std::string("shutting_down"));
+  EXPECT_EQ(std::string(da_status_name(DA_STATUS_LIMIT_EXCEEDED)),
+            std::string("limit_exceeded"));
 
   int32_t is_main = 0;
   EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
@@ -616,6 +618,16 @@ void TestPasteboardText() {
   EXPECT_EQ(snapshot.text_length, unicode_with_nul.size());
   EXPECT_EQ(std::string(snapshot.text, snapshot.text_length), unicode_with_nul);
   EXPECT_EQ(snapshot.change_count, written_count);
+  EXPECT_EQ(
+      dart_appkit::ReadPasteboardTextWithLimit(pasteboard, 3, &snapshot),
+      DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(snapshot.has_text, 0);
+  EXPECT_TRUE(snapshot.text == nullptr);
+  EXPECT_EQ(snapshot.text_length, static_cast<size_t>(0));
+  EXPECT_EQ(dart_appkit::ReadPasteboardTextWithLimit(
+                pasteboard, unicode_with_nul.size(), &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(std::string(snapshot.text, snapshot.text_length), unicode_with_nul);
 
   int64_t empty_count = -1;
   EXPECT_EQ(

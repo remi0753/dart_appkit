@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
 
@@ -33,6 +34,7 @@ final class FakeNativeBindings implements NativeBindings {
   bool? applicationTerminationReplyAllow;
   String? pasteboardText;
   int pasteboardChangeCount = 0;
+  int? pasteboardTextUtf8LengthOverride;
   int? mainMenu;
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
@@ -145,14 +147,27 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() =>
-      _value<NativePasteboardTextSnapshot>(
-        'pasteboardReadText',
-        NativePasteboardTextSnapshot(
-          text: pasteboardText,
-          changeCount: pasteboardChangeCount,
-        ),
+  NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() {
+    final NativeValueResult<NativePasteboardTextSnapshot> result =
+        _value<NativePasteboardTextSnapshot>(
+          'pasteboardReadText',
+          NativePasteboardTextSnapshot(
+            text: pasteboardText,
+            changeCount: pasteboardChangeCount,
+          ),
+        );
+    if (!result.isSuccess) return result;
+    final String? text = pasteboardText;
+    final int length = pasteboardTextUtf8LengthOverride ??
+        (text == null ? 0 : utf8.encode(text).length);
+    if (length > dartAppKitPasteboardMaximumTextUtf8Bytes) {
+      return const NativeValueResult<NativePasteboardTextSnapshot>.failure(
+        10,
+        'pasteboard UTF-8 text exceeds the read limit',
       );
+    }
+    return result;
+  }
 
   @override
   NativeValueResult<int> pasteboardWriteText(String text) {

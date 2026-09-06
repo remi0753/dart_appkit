@@ -292,6 +292,13 @@ int32_t GetPasteboardChangeCount(NSPasteboard* pasteboard,
 
 int32_t ReadPasteboardText(NSPasteboard* pasteboard,
                            DaPasteboardText* out_snapshot) {
+  return ReadPasteboardTextWithLimit(
+      pasteboard, DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES, out_snapshot);
+}
+
+int32_t ReadPasteboardTextWithLimit(NSPasteboard* pasteboard,
+                                    size_t maximum_utf8_bytes,
+                                    DaPasteboardText* out_snapshot) {
   if (out_snapshot == nullptr) {
     return SetLastError(DA_STATUS_INVALID_ARGUMENT,
                         "out_snapshot must not be null");
@@ -314,6 +321,11 @@ int32_t ReadPasteboardText(NSPasteboard* pasteboard,
   if (data == nil) {
     return SetLastError(DA_STATUS_INTERNAL_ERROR,
                         "pasteboard text could not be encoded as UTF-8");
+  }
+  if (data.length > maximum_utf8_bytes) {
+    g_pasteboard_text.clear();
+    return SetLastError(DA_STATUS_LIMIT_EXCEEDED,
+                        "pasteboard UTF-8 text exceeds the read limit");
   }
   if (data.length == 0) {
     g_pasteboard_text.clear();
@@ -464,6 +476,8 @@ const char* da_status_name(int32_t status) {
       return "unsupported_version";
     case DA_STATUS_SHUTTING_DOWN:
       return "shutting_down";
+    case DA_STATUS_LIMIT_EXCEEDED:
+      return "limit_exceeded";
     default:
       return "unknown_status";
   }

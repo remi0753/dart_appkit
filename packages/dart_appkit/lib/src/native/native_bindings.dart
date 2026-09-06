@@ -4,6 +4,7 @@ import 'dart:typed_data';
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
 const int dartAppKitCurrentEventProtocolVersion = 5;
+const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';

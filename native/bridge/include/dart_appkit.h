@@ -21,6 +21,9 @@ extern "C" {
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
 #define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)5)
 
+/** Maximum UTF-8 text copied from the general pasteboard into a client. */
+#define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
+
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
 
@@ -67,7 +70,8 @@ typedef enum DaStatus {
   DA_STATUS_EVENT_PORT_UNAVAILABLE = 6,
   DA_STATUS_INTERNAL_ERROR = 7,
   DA_STATUS_UNSUPPORTED_VERSION = 8,
-  DA_STATUS_SHUTTING_DOWN = 9
+  DA_STATUS_SHUTTING_DOWN = 9,
+  DA_STATUS_LIMIT_EXCEEDED = 10
 } DaStatus;
 
 /** Event list slot 1; slot 0 is the negotiated event protocol version. */
@@ -170,7 +174,11 @@ da_application_set_termination_request_deferral(int32_t enabled);
 DA_EXPORT int32_t da_application_reply_to_termination_request(
     int64_t operation_id, int32_t allow);
 
-/** Main thread only. Reads one general-pasteboard plain-text snapshot. */
+/**
+ * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.
+ * Returns DA_STATUS_LIMIT_EXCEEDED without copying text when its UTF-8 form is
+ * larger than DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES.
+ */
 DA_EXPORT int32_t da_pasteboard_read_text(DaPasteboardText* out_snapshot);
 
 /** Main thread only. Replaces general-pasteboard contents with copied UTF-8. */

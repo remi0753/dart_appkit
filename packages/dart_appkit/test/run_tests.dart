@@ -844,6 +844,19 @@ Future<void> _testPasteboardApi() async {
     snapshot.text == 'A\u0000é — 日本語' && snapshot.changeCount == 1,
     'unicode and embedded NUL round trip',
   );
+  _expect(
+    Pasteboard.maximumTextUtf8Bytes == 64 * 1024 * 1024,
+    'public pasteboard read bound is stable',
+  );
+  bindings.pasteboardTextUtf8LengthOverride =
+      Pasteboard.maximumTextUtf8Bytes + 1;
+  final AppKitNativeException limitError =
+      await _expectThrows<AppKitNativeException>(pasteboard.readText);
+  _expect(
+    limitError.status == 10 && snapshot.text == 'A\u0000é — 日本語',
+    'oversized text is rejected without publishing a partial snapshot',
+  );
+  bindings.pasteboardTextUtf8LengthOverride = null;
 
   final int emptyCount = pasteboard.writeText('');
   snapshot = pasteboard.readText();

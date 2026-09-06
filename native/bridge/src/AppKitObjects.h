@@ -83,6 +83,9 @@ namespace dart_appkit {
 
 int32_t ReadPasteboardText(NSPasteboard* pasteboard,
                            DaPasteboardText* out_snapshot);
+int32_t ReadPasteboardTextWithLimit(NSPasteboard* pasteboard,
+                                    size_t maximum_utf8_bytes,
+                                    DaPasteboardText* out_snapshot);
 int32_t WritePasteboardText(NSPasteboard* pasteboard, const char* text,
                             size_t text_length, int64_t* out_change_count);
 int32_t ClearPasteboard(NSPasteboard* pasteboard, int64_t* out_change_count);

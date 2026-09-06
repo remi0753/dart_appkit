@@ -12,6 +12,10 @@ final class Pasteboard {
 
   final AppKitApplication _application;
 
+  /// Maximum UTF-8 bytes copied from AppKit by one [readText] call.
+  static const int maximumTextUtf8Bytes =
+      dartAppKitPasteboardMaximumTextUtf8Bytes;
+
   PasteboardTextSnapshot readText() {
     _application._ensureRunning();
     final NativePasteboardTextSnapshot native =

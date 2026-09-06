@@ -7,7 +7,8 @@ Dart message work is limited per run-loop turn.
 
 The reusable surface is deliberately small: one window, generic, text, and
 registered native-provider views, menus and menu-item actions, periodic
-`Timer` updates, lifecycle/window/input events, plain-text pasteboard snapshots,
+`Timer` updates, lifecycle/window/input events, 64 MiB-bounded plain-text
+pasteboard snapshots,
 explicit native ownership, per-window key-event routing, and a restart-based
 developer command.
 
