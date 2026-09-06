@@ -7,10 +7,11 @@
 アプリケーションを構築できる基盤へ段階的に拡張することである。
 
 現在の実装は、AppKitメインスレッド上でDartを安全に実行し、1枚の専用
-ビューへ低水準の入力を届ける用途には適している。一方、フォーム、設定画面、
-テキストエディタ、ファイルブラウザ、データ一覧などを実装するには、ビュー階層、
-レイアウト、標準コントロール、テキスト入力、アクセシビリティ、macOSサービス
-との統合が不足している。
+ビューへ低水準入力を届け、terminal専用のIME入力と読み取り専用accessibilityを
+提供する用途には適している。一方、フォーム、設定画面、テキストエディタ、
+ファイルブラウザ、データ一覧などを実装するには、ビュー階層、レイアウト、
+標準コントロール、汎用の編集可能テキスト／semantics、macOSサービスとの統合が
+不足している。
 
 本ロードマップでは、macOSネイティブのAppKitコントロールを基本とし、特殊な
 描画面だけをMetalや独自レンダラーで実装するハイブリッド方式を採用する。
@@ -50,20 +51,24 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 旧タスクIDは `docs/WORKLOG.md` と `docs/VERIFICATION.md` の履歴参照用として
   維持し、今後のタスクには再利用しない。
 - Terminal rendererトラックの次の中心作業は、grid／cell model、atlas allocation、
-  frame構築、cursor／selection、damage tracking、owner側の再試行／障害回復を既存pipelineへ
-  統合することである。
+  frame構築、cursor／selection、damage trackingに加え、実screen stateからのcaret geometry／
+  accessibility snapshot公開、text-input eventのterminal処理、owner側の再試行／障害回復を
+  既存pipelineへ統合することである。
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
-  capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
-  CoreText font／shape／raster、Metal readback／submission、atlas reset、failure state、
-  renderer metrics、Dart facadeである。Terminal renderer capability ABIはversion 10である。
+  event protocol v5のprecision scroll、boundedなplain-text pasteboard read、allowlist付き
+  外部URL起動、capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
+  CoreText font／shape／top-down raster、Metal readback／submission、atlas reset、failure state、
+  renderer metrics、Dart facade、bounded `NSTextInputClient` event、candidate geometry、
+  deterministic input-source matrix、読み取り専用AppKit accessibilityである。
+  Terminal renderer capability ABIはversion 10である。
 
 ## 実装済みの基盤
 
 以下は旧T0〜T14と、その後追加された実装を機能別に再整理したものである。
 旧T0〜T14の詳細な時系列と判断理由は `docs/WORKLOG.md`、検証結果は
-`docs/VERIFICATION.md` を正とし、今回のterminal renderer更新は上記コミットと
-各packageの現行testを根拠とする。
+`docs/VERIFICATION.md` を正とし、その後の実装状況は現行コード、各packageのtest、
+関連するworklogを根拠とする。
 
 ### [x] B0 — Dart／AppKitホストとイベントループ
 
@@ -91,14 +96,20 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - resize、focus、visibility、occlusion、backing scale、接続screenの状態イベントを実装。
 - 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装。
 - dependencyが登録したnative `NSView` を `View.custom()` で生成できる仕組みを実装。
+- Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、`http`、`https`、
+  `mailto` だけを登録済みmacOS handlerで開く `AppKitApplication.openExternalUrl` を実装。
 
 ### [x] B3 — 入力イベントとキー配送
 
 - Windowを発生元とするmouse down/up/move/dragイベントを実装。
 - key down/up、key code、modifier、repeat、charactersをDartへ配送。
-- 通常のAppKit responder chainも通す既定modeと、メニューshortcutを優先した後で
-  Dartだけへ配送するraw-input modeをWindow単位で選択可能にした。
-- input、window、application eventをversion 1〜4でdecode／routeする仕組みを実装。
+- 通常のAppKit responder chainも通す `dartAndAppKit`、メニューshortcutを優先した後で
+  Dartだけへ配送する `dartOnly`、残りをfirst-responder／input-client chainだけへ配送する
+  `appKitOnly` をWindow単位で選択可能にした。
+- event protocol v5に、flipped content座標、pixel精度delta、通常／momentum phase、
+  device inversion、modifierを持つWindow発生元の `AppKitScrollEvent` を追加。
+- input、window、application eventをversion 1〜5でstrict decode／routeし、旧protocolでは
+  新しいeventを安全に除外する仕組みを実装。
 
 ### [x] B4 — MenuとプレーンテキストPasteboard
 
@@ -106,6 +117,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - applicationとMenuItem固有streamへのaction routingを実装。
 - general pasteboardのplain text read/write/clear/change countを実装。
 - Unicode、空文字、値なし、NULを含む文字列、native failureを検証。
+- plain text readを64 MiB UTF-8に制限し、超過時はpartial dataを返さず型付きstatusで失敗する
+  Dart/native境界を実装。
 
 ### [x] B5 — Native capability／native asset基盤
 
@@ -144,6 +157,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   entry数とbyte数を制限したDart-owned LRU cacheを提供する。
 - backing scaleに応じてunique glyph setを一括rasterizeするAPIを実装。top-down alpha8 maskと
   straight RGBA8 color glyph、baseline-relative bearingをcopy-owned resultとして返す。
+- Core Graphicsの座標変換後にglyph rowを二重反転しないtop-down contractへ修正し、非対称な
+  glyphを2xでrasterizeして上下方向を検出するregression testを追加。
 - build時にMetal shaderをcompileしてdylibへ埋め込み、bounded resource set、alpha／color
   texture array、atlas dirty-rectangle upload、generation検証、layer順を持つpacked frame、
   deterministic RGBA readbackを実装。
@@ -162,13 +177,26 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - `TerminalMetalRenderer`、config、atlas upload、frame encoder、submission result、stateを
   型付きDart facadeとして実装し、atlas reset、presentation retry、failure分類、metrics、
   明示dispose、NativeFinalizer fallbackを提供する。
+- `TerminalMetalView` を `NSTextInputClient` として実装し、raw key、preedit、commit、cancel、
+  overflowをcopy-ownedなbounded queueから非同期通知する `TerminalTextInputClient` を追加。
+  text fieldを64 KiB UTF-8、queueを256 event／1 MiBに制限し、隣接preeditのcoalescing、
+  generation検証、明示detachを実装した。
+- IME candidate queryがDartへ同期再入せず最新のnative copyを使える、generation付き
+  `publishCaretRect` を実装。terminal byte encodingとcomposition policyはDart ownerに残す。
+- 同じViewを読み取り専用AppKit accessibility text areaとして実装し、visible text、UTF-16
+  physical line／terminal-column境界、selection、cursor、cell geometryを含むboundedな
+  `TerminalAccessibilityViewSnapshot` をDartから原子的に公開できるようにした。
+- accessibility queryはnative snapshotだけを参照し、range／line／point／screen frameを
+  提供する。値が変わった場合だけnotificationを発行し、first responder時のfocused stateも
+  AppKit selector acceptanceで検証した。
 - `dart_pty_macos` に、AppKit非依存のPTY生成、非同期read/write、bounded queue、
   backpressure、resize、signal、graceful/forced close、exit/reapを実装。
 - terminal-specific protocol、renderer、recovery policyを汎用hostから分離。
 
-注意: 上記は描画pipelineの低水準基盤である。terminal grid／cell model、atlasの
-allocation／packing／eviction、terminal stateからframeへの変換、cursor／selectionの
-高水準挙動、damage trackingはまだ未実装であり、X0に残る。
+注意: 上記は描画、text input、accessibilityの低水準基盤である。terminal grid／cell model、
+atlasのallocation／packing／eviction、terminal stateからframeへの変換、cursor／selectionの
+高水準挙動、damage tracking、実sessionへのtext-input／caret／accessibility snapshot接続は
+まだ未実装であり、X0に残る。
 
 ### [x] B8 — Build、検証、サンプル
 
@@ -185,6 +213,12 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 - empty／populated atlas reset、stale／active-slot rejection、生成時failure分類、drawable miss、
   明示的presentation retry、command encoding／completion fault、fault後のadmission停止、
   GPU timing／atlas upload metricsをdeterministic fault injection込みで検証。
+- event protocol v5のscroll encoder／strict Dart decoder／旧protocol filtering、64 MiB
+  pasteboard read上限、外部URLのDart/native二重validationとLaunch Services recorderを検証。
+- terminal text inputについて、staged raw／preedit／commit／cancel、candidate geometry更新、
+  overflow／bound、ASCII・CJK・emoji・modifier・repeatのdeterministic input-source matrixを検証。
+- terminal accessibility snapshotのDart/native二重validation、stale／malformed拒否、AppKit
+  selector、range geometry、notification、first-responder focusを文字列をDartへ戻さず検証。
 
 ## 未実装ロードマップ
 
@@ -199,7 +233,8 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
   完了とする。
 - **G15、G16** は早期に必要なdiagnostics／manifest項目を前倒しできるが、正式な
   完了は汎用GUI APIが安定した後とする。
-- **G1、G9、G15、X0は部分実装済み**である。チェックボックスは各項目の完了条件を
+- **G1、G4〜G6、G9、G11、G12、G14、G15、X0は部分実装済み**である。
+  チェックボックスは各項目の完了条件を
   すべて満たした場合だけ `[x]` にする。
 
 ### [ ] G0 — 汎用GUIの公開契約と境界の確定
@@ -295,10 +330,22 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 
 達成目標: 入力と操作eventを、Windowではなく実際のView／Controlへ正しく配送する。
 
-実装内容:
+進捗: **部分実装**。scrollとterminal input-client向けkey routingは追加済みだが、
+いずれも汎用のView単位event／focus APIにはなっていない。
 
-- view handleをsourceとするtyped event streamと、hit-test／local-coordinate情報を追加する。
-- mouse enter/exit、hover、scroll wheel、modifier changeを追加する。
+実装済み:
+
+- event protocol v5に、flipped Window content座標、精密delta、scroll／momentum phase、
+  device inversion、modifierを持つtyped `AppKitScrollEvent` を追加した。
+- `KeyEventRouting.appKitOnly` を追加し、menu shortcut処理後のkeyをDartのWindow eventへ
+  重複配送せず、first-responder／`NSTextInputClient` chainだけへ渡せるようにした。
+- v1〜v5のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
+
+未実装:
+
+- mouse、key、scrollをview handle発生元のtyped event streamへ拡張し、hit-test／
+  view-local coordinate情報を追加する。
+- mouse enter/exit、hover、modifier changeを追加する。
 - drag captureと、必要なgesture、magnify、rotate、swipe、pressure eventを追加する。
 - first responderの取得・設定、focus可否、Tab traversal、focus change eventを追加する。
 - Button、Menu、shortcutから共有できるaction／command routingの基礎を追加する。
@@ -315,16 +362,33 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 達成目標: 日本語を含む実用的なテキスト入力・編集をDartアプリケーションで扱える
 ようにする。
 
-実装内容:
+進捗: **部分実装（terminal専用）**。汎用Controlは未実装だが、custom terminal Viewで
+IME bridgeのboundedな先行実装が動作している。
+
+実装済み:
+
+- `TerminalMetalView` に `NSTextInputClient` を実装し、raw key down/up、marked textの
+  preedit、commit、cancelを型付き `TerminalTextInputEvent` として非同期配送する。
+- textを1 field 64 KiB UTF-8、queueを256 event／1 MiBに制限し、隣接preeditのcoalescingと
+  明示的overflow event、copy ownership、attach／detach lifecycleを実装した。
+- candidate-window位置を同期Dart callなしで返すgeneration付きnative caret cacheと、
+  Dart側の `publishCaretRect` を実装した。
+- staged AppKit selector acceptanceでraw／preedit／commit／cancelとcandidate geometryの更新を
+  検証し、ASCII、CJK、accent、emoji、modifier、key repeatを固定matrixで検証した。
+
+未実装:
 
 - 現在の表示専用 `TextView` と区別したLabel、single-line TextField、SecureTextField、
   multiline TextEditorを追加する。
-- text、selection、replacement range、marked text、commit/cancel compositionを扱う。
-- `NSTextInputClient` に必要なIME、dead key、candidate-window位置、surrounding textの
-  bridgeを追加する。
+- terminal専用event／caret contractを汎用のeditable Controlへ拡張し、text、selection、
+  replacement range、marked text、surrounding text、commit／cancel compositionを扱う。
+- native TextField／TextEditorとcustom Viewの双方で使えるIME、dead key、candidate-window、
+  input-source切替の共通bridgeを追加する。
 - change、submit、selection、validation eventとcontrolled/uncontrolled stateの規則を
   追加する。
 - cut/copy/paste/select-all、Undo/Redo、find、必要なspell-check integrationを追加する。
+- 実際の日本語IME／dead key／candidate UI／入力source切替を使うGUI integration testを
+  追加する。現在の固定matrixは決定的なnative acceptanceであり、実OS入力sessionの代替ではない。
 
 完了条件:
 
@@ -337,7 +401,20 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 達成目標: native controlとcustom-rendered viewの両方をVoiceOverとキーボードだけで
 操作できるようにする。
 
-実装内容:
+進捗: **部分実装（terminal専用）**。terminal Viewは読み取り専用text areaとして公開済みだが、
+汎用semantic treeとControl統合は未実装である。
+
+実装済み:
+
+- `TerminalAccessibilityViewSnapshot` に、boundedなvisible text、canonical UTF-16 line、
+  terminal-column境界、selection、cursor、cell geometry、generationを持たせ、Dart/native双方で
+  topology、range、surrogate境界、容量を検証して原子的に置き換える経路を実装した。
+- `TerminalMetalView` を読み取り専用AppKit accessibility text areaとして公開し、range、line、
+  attributed text、point lookup、screen-coordinate frame queryをnative snapshotだけで処理する。
+- 値／selectionが変化した場合だけnotificationを送り、first responder時のfocused element、
+  cursor line／range frame、stale／malformed snapshot拒否をnative acceptanceで検証した。
+
+未実装:
 
 - role、label、help、value、enabled、selected、expanded、range、actionを表す
   semantics APIを追加する。
@@ -346,6 +423,8 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 - native controlでは標準semanticsを保持し、custom viewではDartからsemantic treeを
   提供できるようにする。
 - accessibility identifierと自動UI test向けqueryを追加する。
+- 実VoiceOver processとkeyboard navigationを使い、読み上げ、selection、focus移動、
+  View破棄／再配置を検証するGUI integration testを追加する。
 
 完了条件:
 
@@ -399,7 +478,8 @@ allocation／packing／eviction、terminal stateからframeへの変換、cursor
 
 実装済み:
 
-- CoreText font catalog、fallback、metrics、run shaping、glyph rasterization。
+- CoreText font catalog、fallback、metrics、run shaping、top-down glyph rasterization。
+  Core Graphics変換後のrow方向を非対称glyphの1x／2x testで固定している。
 - build-time compiled Metal shader、bounded alpha／color atlas texture、dirty-rectangle upload、
   full-snapshot atlas reset、ordered instance frame、同期RGBA readback。
 - custom View binding、on-demand presentation、triple-buffer submission、backpressure、
@@ -452,7 +532,17 @@ window/application操作を提供する。
 達成目標: macOS標準のcommand操作とアプリケーション間データ交換を一貫して扱える
 ようにする。
 
-実装内容:
+進捗: **部分実装**。固定構造のMenuとplain-text pasteboardだけが利用できる。
+
+実装済み:
+
+- main menu、submenu、separator、shortcut、enabled stateと、application／MenuItem streamへの
+  action routingを実装した。
+- general pasteboardのplain text read／write／clear／change countを実装した。
+- nativeからのtext readを64 MiB UTF-8に制限し、超過時はoutputを空のまま
+  `limit exceeded` として失敗させ、partial dataを公開しないcontractを実装した。
+
+未実装:
 
 - Button、Menu、keyboard shortcut、toolbar itemで共有するtyped `Command` modelを
   追加する。
@@ -476,12 +566,26 @@ window/application操作を提供する。
 達成目標: ファイルを扱う一般的なデスクトップアプリケーションに必要なsystem UIと
 application delegate eventを提供する。
 
-実装内容:
+進捗: **部分実装**。送信方向のallowlist付き外部URL起動だけを先行実装している。
+
+実装済み:
+
+- `AllowedExternalUrl` をclosedな値型として追加し、絶対 `http`／`https`／`mailto`、
+  最大4096 UTF-8 bytes、host／authority条件、control／whitespace／backslash／bidi／
+  malformed escape／UTF-16拒否をDartとnativeの両方で検証する。
+- `AppKitApplication.openExternalUrl` が検証済みの同一文字列だけをmain thread上の
+  `NSWorkspace.openURL` へ渡し、Launch Servicesの受理結果を `bool` で返す経路を実装した。
+  shell commandや文字列補間は使用しない。
+- optionalなABI entryとtest recorderにより、旧bridgeではunsupportedとして安全に失敗し、
+  test中に実browser／mail applicationを起動せずvalidationとdispatchを検証できる。
+
+未実装:
 
 - Open Panel、Save Panel、Alert、Color Panel、Font Panelを非同期APIとして追加する。
 - applicationへのopen files、open URLs、reopen、user activity eventを追加する。
 - recent documents、file association、URL scheme、security-scoped bookmarkを追加する。
-- Finderで表示、既定applicationで開く、URLを開くなど `NSWorkspace` 操作を追加する。
+- Finderで表示、file／directoryを既定applicationで開くなど、残りの安全な `NSWorkspace`
+  操作を追加する。
 - user notificationなどのoptional capabilityが必要とするapplication activation eventと
   manifest連携を追加する。
 - modal operationでもnative delegateからDartへ同期再入しないrequest/result modelを
@@ -518,8 +622,16 @@ helperへ委譲できるようにする。
 箇所だけを実GUI／画像／accessibility testで検証できるようにする。
 
 進捗: **既存機能向けの内部検証基盤は実装済み、外部向け公開Testing APIは未実装**。
-既存のfake bindings、native contract test、terminal rendererのstrict decoder／readback／
-one-shot fault injection testは、後続の公開test hostを設計する際の基準として利用する。
+
+実装済みの内部基準:
+
+- coreのfake bindings、native contract、event encoder、legacy bridge、JIT／AOT FFI smokeを
+  実装している。
+- event protocol v5 scroll、pasteboard read上限、外部URLの二重validation／recorderを
+  実processを起動しないdeterministic testで検証している。
+- terminal rendererのstrict decoder、RGBA readback、one-shot fault injectionに加え、
+  staged `NSTextInputClient` acceptance、input-source／repeat matrix、accessibility snapshot／
+  AppKit selector／focus acceptanceを実装している。
 
 未実装:
 
@@ -629,7 +741,8 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - generation-owned CoreText font catalog、style／fallback解決、terminal cell／decoration
   metrics。
 - bounded run shaping、UTF-16 cluster mapping、Dart-owned bounded LRU shaping cache。
-- unique glyph batchのalpha8／RGBA8 rasterizationとbacking scale対応。
+- unique glyph batchのtop-down alpha8／RGBA8 rasterizationとbacking scale対応。
+  Core Graphics変換後のrow二重反転を除去し、非対称glyphでorientationを固定している。
 - precompiled Metal shader、bounded alpha／color texture array、atlas dirty-rectangle upload、
   snapshot／page generation検証、全sliceをclearするgeneration-safe `resetAtlas`。
 - background、selection、alpha／color glyph、decoration、cursorをlayer順に表せるpacked
@@ -640,6 +753,10 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
   明示的 `requestPresentation`。
 - GPU timing、atlas upload量、submission、drop、backpressure、drawable miss、command
   failureを取得できるbounded renderer metrics。
+- `NSTextInputClient` によるraw key／preedit／commit／cancel、bounded queue／overflow、
+  generation付きcandidate caret cacheを型付きDart APIとして提供するterminal text-input境界。
+- visible text、UTF-16 line／terminal-column mapping、selection、cursor、cell geometryのbounded
+  snapshotを使い、同期Dart callなしでAppKitの読み取り専用accessibility text areaを提供する境界。
 
 未実装:
 
@@ -655,6 +772,12 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
   構築するframe builderを実装する。
 - cursor shape／blink／focus、selection range／色／IME marked rangeなどの高水準表示挙動を
   実装する。
+- `TerminalTextInputClient` のraw／preedit／commit／cancel／overflowを実terminal sessionの
+  command／byte encoding／composition stateへ接続し、focus／routing lifecycleを管理する。
+- terminal cursorから最新のlocal caret rectangleを計算して `publishCaretRect` へ接続し、
+  resize、scroll、font／scale、preedit更新後もcandidate geometryを同期させる。
+- 実screen stateから `TerminalAccessibilityViewSnapshot` を生成し、wide／combining cellを含む
+  UTF-16 column mapping、selection、cursor、geometryの変更時に単調なgenerationで公開する。
 - resize、backing-scale、font、theme、color-space変更時の再layout／再raster／atlas再構築を
   実装し、必要な時に既存 `resetAtlas` でfull snapshotを開始して再populateする。
 - Windowのvisibility／occlusion／resume eventを `requestPresentation` に接続し、drawable
@@ -666,10 +789,11 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - renderer metricsを定期収集し、許容frame time、drop、backpressure、upload量の基準と
   diagnostics出力を定める。
 - 実PTY sessionを使い、mixed-script、emoji、Retina変更、resize、rapid update、
-  drawable miss、command failure、resource boundを検証するend-to-end／performance testと
-  sampleを追加する。
-- 入力、IME、accessibilityはrenderer内部へ持ち込まず、G4、G5、G6との統合として実装する。
-  terminal semanticsと描画policyは引き続きterminal側packageが所有する。
+  drawable miss、command failure、resource bound、実input source／IME candidate、VoiceOverを
+  検証するend-to-end／performance testとsampleを追加する。
+- 汎用View／Controlの入力、IME、semantic treeはG4〜G6で実装する。terminal packageには
+  先行する専用adapterだけを置き、terminal byte encoding、composition、semantics、描画の
+  製品policyは引き続きterminal ownerが保持する。
 
 完了条件:
 
@@ -678,6 +802,8 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
 - 継続的な大量出力でもqueue、atlas、frame slotが設定上限を越えず、入力応答を維持する。
 - stale generation、backpressure、drawable miss、Metal command／device fault、View破棄、
   renderer破棄から安全に回復できる。
+- IMEのpreedit／commit／candidate位置と、VoiceOverへ公開するtext／selection／cursor／frameが
+  実terminal stateと一致し、native callbackからDartへ同期再入しない。
 
 ### [ ] X1 — クロスプラットフォーム化（将来検討）
 
