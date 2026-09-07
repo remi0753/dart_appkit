@@ -73,6 +73,27 @@ policy remain consumer responsibilities.
   the tracked change. The event version is the only wire-contract increment,
   and exact v1-v5 behavior remains covered.
 
+### Consumer fullscreen sequencing correction
+
+Terminal integration after commit `47b1f5e` found that a user-initiated native
+fullscreen transition could publish move/resize frames before its completion
+state. Publishing the final fullscreen frame before the state likewise gives a
+consumer no reliable way to retain its last safe windowed frame. The window
+owner now marks will-enter/will-exit transitions, suppresses only frame-state
+records while that transition is pending, and publishes the observed
+fullscreen state before the resulting frame on enter, exit, and failure.
+Legacy content-resize delivery is unchanged so renderers can keep adapting
+during animation.
+
+The native fixture drives will/did/failure callbacks with real nonnull
+notifications, verifies same-target and opposite-target behavior while pending,
+proves transition frames are suppressed, and checks state-before-frame ordering
+at both completion boundaries. This follow-up changes no ABI/event layout and
+will be committed normally rather than amending the substrate commit. Focused
+`DART_SUPPRESS_ANALYTICS=true CI=true make native-test` and the complete
+`DART_SUPPRESS_ANALYTICS=true CI=true make test` both pass after the correction,
+including every native, Dart, JIT/AOT manifest, FFI, and legacy-image gate.
+
 ## 2026-09-07 — represented paths and native-tab color markers
 
 ### Purpose and boundary

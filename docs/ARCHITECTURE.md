@@ -114,7 +114,10 @@ observed frame is also published from AppKit move/resize/fullscreen callbacks.
 Fullscreen mutation is only a request: repeated current or pending targets are
 idempotent, an opposite target while AppKit is transitioning is rejected, and
 the Dart cache changes only after the enter/exit or failure callback publishes
-the observed state. Neither callback synchronously enters Dart.
+the observed state. Will-enter/will-exit callbacks suppress intermediate
+frame-state records while retaining legacy content-resize delivery; completion
+publishes fullscreen state before the resulting frame so consumers can retain
+their last safe windowed geometry. Neither callback synchronously enters Dart.
 
 Event-port registration posts an application-active snapshot, after which
 AppDelegate posts active/resign and reopen transitions. User close and

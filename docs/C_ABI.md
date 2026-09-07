@@ -224,6 +224,10 @@ request matching the current or pending target is idempotent; an opposite
 target while a transition is pending returns `DA_STATUS_INVALID_ARGUMENT`.
 The observed state is reported only by a deduplicated
 `WINDOW_FULLSCREEN_CHANGED` record after an enter, exit, or failure callback.
+Intermediate frame-state records are suppressed between AppKit's will/did
+fullscreen callbacks, and completion publishes observed fullscreen state before
+the resulting frame. Existing `WINDOW_RESIZED` delivery remains available
+during the transition.
 Both functions are additive symbols; a current Dart client loaded against a
 legacy image returns `DA_STATUS_UNSUPPORTED_VERSION`.
 

@@ -1478,9 +1478,34 @@ void TestWindowStateEvents() {
   NSNotification* exit_notification = [NSNotification
       notificationWithName:NSWindowDidExitFullScreenNotification
                     object:transition_owner.window];
+  [transition_delegate windowWillEnterFullScreen:enter_notification];
+  EXPECT_TRUE([transition_owner daSetFullscreen:YES]);
+  EXPECT_TRUE(![transition_owner daSetFullscreen:NO]);
+  const size_t before_transition_frame =
+      CountEvents(transition_capture, DA_EVENT_WINDOW_FRAME_CHANGED);
+  [transition_owner.window setFrame:NSMakeRect(-800.0, 40.0, 800.0, 500.0)
+                             display:NO];
+  [transition_delegate windowDidMove:enter_notification];
+  EXPECT_EQ(CountEvents(transition_capture, DA_EVENT_WINDOW_FRAME_CHANGED),
+            before_transition_frame);
+  const size_t before_enter_completion = transition_capture.events.size();
   [transition_delegate windowDidEnterFullScreen:enter_notification];
+  EXPECT_EQ(transition_capture.events[before_enter_completion].type,
+            DA_EVENT_WINDOW_FULLSCREEN_CHANGED);
+  EXPECT_EQ(transition_capture.events[before_enter_completion + 1].type,
+            DA_EVENT_WINDOW_FRAME_CHANGED);
   [transition_delegate windowDidEnterFullScreen:enter_notification];
+  [transition_delegate windowWillExitFullScreen:exit_notification];
+  EXPECT_TRUE([transition_owner daSetFullscreen:NO]);
+  EXPECT_TRUE(![transition_owner daSetFullscreen:YES]);
+  [transition_owner.window setFrame:NSMakeRect(120.0, 90.0, 920.0, 580.0)
+                             display:NO];
+  const size_t before_exit_completion = transition_capture.events.size();
   [transition_delegate windowDidExitFullScreen:exit_notification];
+  EXPECT_EQ(transition_capture.events[before_exit_completion].type,
+            DA_EVENT_WINDOW_FULLSCREEN_CHANGED);
+  EXPECT_EQ(transition_capture.events[before_exit_completion + 1].type,
+            DA_EVENT_WINDOW_FRAME_CHANGED);
   [transition_delegate windowDidExitFullScreen:exit_notification];
   [transition_delegate windowDidFailToEnterFullScreen:transition_owner.window];
   [transition_delegate windowDidFailToExitFullScreen:transition_owner.window];
