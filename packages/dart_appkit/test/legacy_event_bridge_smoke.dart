@@ -74,6 +74,25 @@ void main(List<String> arguments) {
   if (bindings.applicationOpenExternalUrl('https://example.com').status != 8) {
     _fail('legacy bridge did not reject the additive external URL API');
   }
+  if (bindings.windowAddTabbedWindow(1, 2).status != 8 ||
+      bindings.windowRemoveFromTabGroup(1).status != 8 ||
+      bindings.windowSelectTab(1).status != 8 ||
+      bindings.windowMakeFirstResponder(1, 2).status != 8 ||
+      bindings.splitViewCreate(0).status != 8 ||
+      bindings.splitViewSetChildren(1, 2, 3).status != 8 ||
+      bindings
+              .splitViewSetPosition(
+                handle: 1,
+                fraction: 0.5,
+                firstMinimumExtent: 0,
+                secondMinimumExtent: 0,
+              )
+              .status !=
+          8 ||
+      bindings.splitViewEqualize(1).status != 8 ||
+      bindings.splitViewSetZoomedChild(1, -1).status != 8) {
+    _fail('legacy bridge did not reject additive tab/split/focus APIs');
+  }
   if (bindings.menuCreate('Menu').status != 8 ||
       bindings
               .menuItemCreate(title: 'Item', keyEquivalent: 'i', modifiers: 0)

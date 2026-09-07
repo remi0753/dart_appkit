@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dart_appkit/src/native/native_bindings.dart';
 
-enum FakeObjectKind { window, view, textView, menu, menuItem }
+enum FakeObjectKind { window, view, splitView, textView, menu, menuItem }
 
 final class FakeMenuItemState {
   const FakeMenuItemState({
@@ -46,6 +46,15 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, List<Uint8List>> customViewOperations =
       <int, List<Uint8List>>{};
   final Map<int, int> contentViews = <int, int>{};
+  final List<List<int>> windowTabGroups = <List<int>>[];
+  final Map<int, int> selectedTabWindows = <int, int>{};
+  final Map<int, int> firstResponders = <int, int>{};
+  final Map<int, int> splitViewAxes = <int, int>{};
+  final Map<int, List<int>> splitViewChildren = <int, List<int>>{};
+  final Map<int, double> splitViewFractions = <int, double>{};
+  final Map<int, double> splitViewFirstMinimumExtents = <int, double>{};
+  final Map<int, double> splitViewSecondMinimumExtents = <int, double>{};
+  final Map<int, int> splitViewZoomedChildren = <int, int>{};
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
   final Map<int, int> windowKeyEventRoutings = <int, int>{};
   final Map<int, String> menuTitles = <int, String>{};
@@ -391,11 +400,150 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle) {
+    final NativeCallResult result = _status('windowAddTabbedWindow');
+    if (!result.isSuccess) return result;
+    if (handle == tabbedWindowHandle ||
+        objects[handle] != FakeObjectKind.window ||
+        objects[tabbedWindowHandle] != FakeObjectKind.window) {
+      return const NativeCallResult.failure(1, 'invalid tabbed windows');
+    }
+    for (final List<int> group in windowTabGroups.toList()) {
+      if (group.remove(tabbedWindowHandle) && group.length < 2) {
+        windowTabGroups.remove(group);
+      }
+    }
+    List<int>? target;
+    for (final List<int> group in windowTabGroups) {
+      if (group.contains(handle)) {
+        target = group;
+        break;
+      }
+    }
+    if (target == null) {
+      target = <int>[handle];
+      windowTabGroups.add(target);
+    }
+    target.add(tabbedWindowHandle);
+    selectedTabWindows[target.first] = handle;
+    return result;
+  }
+
+  @override
+  NativeCallResult windowRemoveFromTabGroup(int handle) {
+    final NativeCallResult result = _status('windowRemoveFromTabGroup');
+    if (!result.isSuccess) return result;
+    for (final List<int> group in windowTabGroups.toList()) {
+      if (!group.remove(handle)) continue;
+      selectedTabWindows.remove(group.first);
+      if (group.length < 2) {
+        windowTabGroups.remove(group);
+      }
+      break;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSelectTab(int handle) {
+    final NativeCallResult result = _status('windowSelectTab');
+    if (!result.isSuccess) return result;
+    for (final List<int> group in windowTabGroups) {
+      if (group.contains(handle)) {
+        selectedTabWindows[group.first] = handle;
+        break;
+      }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowMakeFirstResponder(int handle, int viewHandle) {
+    final NativeCallResult result = _status('windowMakeFirstResponder');
+    if (!result.isSuccess) return result;
+    final int? contentView = contentViews[handle];
+    if (contentView == null || !_containsView(contentView, viewHandle)) {
+      return const NativeCallResult.failure(
+        1,
+        'first responder is not attached to the window',
+      );
+    }
+    firstResponders[handle] = viewHandle;
+    return result;
+  }
+
+  @override
   NativeValueResult<int> viewCreate() {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('viewCreate', handle);
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.view;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> splitViewCreate(int axis) {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'splitViewCreate',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.splitView;
+      splitViewAxes[handle] = axis;
+      splitViewFractions[handle] = 0.5;
+      splitViewZoomedChildren[handle] = -1;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult splitViewSetChildren(
+    int splitViewHandle,
+    int firstViewHandle,
+    int secondViewHandle,
+  ) {
+    final NativeCallResult result = _status('splitViewSetChildren');
+    if (result.isSuccess) {
+      splitViewChildren[splitViewHandle] = <int>[
+        firstViewHandle,
+        secondViewHandle,
+      ];
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult splitViewSetPosition({
+    required int handle,
+    required double fraction,
+    required double firstMinimumExtent,
+    required double secondMinimumExtent,
+  }) {
+    final NativeCallResult result = _status('splitViewSetPosition');
+    if (result.isSuccess) {
+      splitViewFractions[handle] = fraction;
+      splitViewFirstMinimumExtents[handle] = firstMinimumExtent;
+      splitViewSecondMinimumExtents[handle] = secondMinimumExtent;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult splitViewEqualize(int handle) {
+    final NativeCallResult result = _status('splitViewEqualize');
+    if (result.isSuccess) {
+      splitViewFractions[handle] = 0.5;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult splitViewSetZoomedChild(int handle, int child) {
+    final NativeCallResult result = _status('splitViewSetZoomedChild');
+    if (result.isSuccess) {
+      splitViewZoomedChildren[handle] = child;
     }
     return result;
   }
@@ -469,6 +617,18 @@ final class FakeNativeBindings implements NativeBindings {
       customViewProviders.remove(handle);
       customViewOperations.remove(handle);
       contentViews.remove(handle);
+      firstResponders.remove(handle);
+      splitViewAxes.remove(handle);
+      splitViewChildren.remove(handle);
+      splitViewFractions.remove(handle);
+      splitViewFirstMinimumExtents.remove(handle);
+      splitViewSecondMinimumExtents.remove(handle);
+      splitViewZoomedChildren.remove(handle);
+      for (final List<int> group in windowTabGroups.toList()) {
+        if (group.remove(handle) && group.length < 2) {
+          windowTabGroups.remove(group);
+        }
+      }
       windowCloseDeferrals.remove(handle);
       windowKeyEventRoutings.remove(handle);
       menuTitles.remove(handle);
@@ -481,6 +641,13 @@ final class FakeNativeBindings implements NativeBindings {
       }
     }
     return result;
+  }
+
+  bool _containsView(int root, int target) {
+    if (root == target) return true;
+    final List<int>? children = splitViewChildren[root];
+    return children != null &&
+        children.any((int child) => _containsView(child, target));
   }
 
   @override

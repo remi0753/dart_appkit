@@ -31,6 +31,15 @@ int da_header_compiles_as_c(void) {
       da_view_create_custom;
   int32_t (*custom_view_operation)(DaHandle, const uint8_t*, size_t) =
       da_view_perform_custom_operation;
+  int32_t (*window_tab_add)(DaHandle, DaHandle) =
+      da_window_add_tabbed_window;
+  int32_t (*first_responder)(DaHandle, DaHandle) =
+      da_window_make_first_responder;
+  int32_t (*split_create)(int32_t, DaHandle*) = da_split_view_create;
+  int32_t (*split_children)(DaHandle, DaHandle, DaHandle) =
+      da_split_view_set_children;
+  int32_t (*split_position)(DaHandle, double, double, double) =
+      da_split_view_set_position;
   const da_native_extension_services_v1* (*extension_services)(uint32_t) =
       da_native_extension_services;
   return rect.width == 640.0 && versioned_registration != 0 &&
@@ -40,6 +49,9 @@ int da_header_compiles_as_c(void) {
                  pasteboard_read != 0 && menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&
                  custom_view_operation != 0 &&
+                 window_tab_add != 0 && first_responder != 0 &&
+                 split_create != 0 && split_children != 0 &&
+                 split_position != 0 &&
                  extension_services != 0 && selected_version == 0
              ? DA_STATUS_OK
              : DA_STATUS_INTERNAL_ERROR;

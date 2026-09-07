@@ -215,6 +215,20 @@ NSView* View(DaHandle handle, int32_t* out_status) {
       handle, ObjectKind::kView, ThreadDomain::kAppKitMain, out_status));
 }
 
+DaSplitView* SplitView(DaHandle handle, int32_t* out_status) {
+  NSView* view = View(handle, out_status);
+  if (view == nil) {
+    return nil;
+  }
+  if (![view isKindOfClass:DaSplitView.class]) {
+    *out_status = SetLastError(DA_STATUS_WRONG_HANDLE_TYPE,
+                               "expected split view handle");
+    return nil;
+  }
+  *out_status = DA_STATUS_OK;
+  return static_cast<DaSplitView*>(view);
+}
+
 DaTextView* TextView(DaHandle handle, int32_t* out_status) {
   return static_cast<DaTextView*>(ObjectRegistry::Shared().Lookup(
       handle, ObjectKind::kTextView, ThreadDomain::kAppKitMain, out_status));
@@ -1316,6 +1330,127 @@ int32_t da_window_set_title(DaHandle window, const char* title,
   return DA_STATUS_OK;
 }
 
+int32_t da_window_add_tabbed_window(DaHandle window,
+                                    DaHandle tabbed_window) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (window == tabbed_window) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "a window cannot tab with itself");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  DaWindowOwner* tabbed_owner =
+      dart_appkit::WindowOwner(tabbed_window, &status);
+  if (tabbed_owner == nil) {
+    return status;
+  }
+  @try {
+    NSWindowTabGroup* group = owner.window.tabGroup;
+    if (group == nil || group.windows.count < 2) {
+      [owner.window addTabbedWindow:tabbed_owner.window
+                            ordered:NSWindowAbove];
+    } else {
+      [group addWindow:tabbed_owner.window];
+    }
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native tab grouping failed");
+  }
+}
+
+int32_t da_window_remove_from_tab_group(DaHandle window) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  @try {
+    NSWindowTabGroup* group = owner.window.tabGroup;
+    if (group != nil && group.windows.count > 1) {
+      [group removeWindow:owner.window];
+    }
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native tab removal failed");
+  }
+}
+
+int32_t da_window_select_tab(DaHandle window) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  @try {
+    NSWindowTabGroup* group = owner.window.tabGroup;
+    if (group != nil && [group.windows containsObject:owner.window]) {
+      group.selectedWindow = owner.window;
+    }
+    [owner.window makeKeyAndOrderFront:nil];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native tab selection failed");
+  }
+}
+
+int32_t da_window_make_first_responder(DaHandle window, DaHandle view) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  NSView* responder = dart_appkit::View(view, &status);
+  if (responder == nil) {
+    return status;
+  }
+  NSView* content_view = owner.window.contentView;
+  if (content_view == nil ||
+      (responder != content_view && ![responder isDescendantOf:content_view])) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "first responder view must belong to the window content hierarchy");
+  }
+  if (![owner.window makeFirstResponder:responder]) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "view refused first responder status");
+  }
+  return DA_STATUS_OK;
+}
+
 int32_t da_view_create(DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {
@@ -1335,6 +1470,129 @@ int32_t da_view_create(DaHandle* out_view) {
     return DA_STATUS_INTERNAL_ERROR;
   }
   *out_view = handle;
+  return DA_STATUS_OK;
+}
+
+int32_t da_split_view_create(int32_t axis, DaHandle* out_view) {
+  dart_appkit::ClearLastError();
+  if (out_view == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_view must not be null");
+  }
+  *out_view = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (axis != DA_SPLIT_AXIS_HORIZONTAL && axis != DA_SPLIT_AXIS_VERTICAL) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "axis must be a DaSplitAxis value");
+  }
+  DaSplitView* view = [[DaSplitView alloc]
+      initWithAxis:static_cast<DaSplitAxis>(axis)];
+  const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+      view, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain);
+  if (handle == 0) {
+    return DA_STATUS_INTERNAL_ERROR;
+  }
+  *out_view = handle;
+  return DA_STATUS_OK;
+}
+
+int32_t da_split_view_set_children(DaHandle split_view, DaHandle first_view,
+                                   DaHandle second_view) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (split_view == first_view || split_view == second_view ||
+      first_view == second_view) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "split and child handles must be three distinct views");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) {
+    return status;
+  }
+  NSView* first = dart_appkit::View(first_view, &status);
+  if (first == nil) {
+    return status;
+  }
+  NSView* second = dart_appkit::View(second_view, &status);
+  if (second == nil) {
+    return status;
+  }
+  if (![split daSetFirstView:first secondView:second]) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "split children would create an invalid view hierarchy");
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t da_split_view_set_position(DaHandle split_view, double fraction,
+                                   double first_minimum_extent,
+                                   double second_minimum_extent) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (!std::isfinite(fraction) || fraction <= 0.0 || fraction >= 1.0 ||
+      !std::isfinite(first_minimum_extent) || first_minimum_extent < 0.0 ||
+      !std::isfinite(second_minimum_extent) || second_minimum_extent < 0.0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "split fraction and minimum extents are invalid");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) {
+    return status;
+  }
+  [split daSetFraction:fraction
+      firstMinimumExtent:first_minimum_extent
+     secondMinimumExtent:second_minimum_extent];
+  return DA_STATUS_OK;
+}
+
+int32_t da_split_view_equalize(DaHandle split_view) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) {
+    return status;
+  }
+  [split daEqualize];
+  return DA_STATUS_OK;
+}
+
+int32_t da_split_view_set_zoomed_child(DaHandle split_view, int32_t child) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (child != DA_SPLIT_ZOOM_NONE && child != DA_SPLIT_ZOOM_FIRST &&
+      child != DA_SPLIT_ZOOM_SECOND) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "child must be a DaSplitZoomedChild value");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) {
+    return status;
+  }
+  [split daSetZoomedChild:static_cast<DaSplitZoomedChild>(child)];
   return DA_STATUS_OK;
 }
 

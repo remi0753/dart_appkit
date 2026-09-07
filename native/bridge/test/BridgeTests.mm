@@ -308,6 +308,23 @@ DaHandle CreateView() {
   return handle;
 }
 
+DaHandle CreateSplitView(DaSplitAxis axis) {
+  DaHandle handle = 0;
+  EXPECT_EQ(da_split_view_create(axis, &handle), DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  return handle;
+}
+
+DaSplitView* SplitViewFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaSplitView.class]);
+  return static_cast<DaSplitView*>(object);
+}
+
 DaHandle CreateMenu(const std::string& title) {
   DaHandle handle = 0;
   EXPECT_EQ(da_menu_create(title.data(), title.size(), &handle), DA_STATUS_OK);
@@ -1641,6 +1658,150 @@ void TestKeyEventRouting() {
             DA_STATUS_INVALID_HANDLE);
 }
 
+void TestNativeTabsSplitViewsAndFirstResponder() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle first_window_handle = CreateWindow();
+  const DaHandle second_window_handle = CreateWindow();
+  const DaHandle third_window_handle = CreateWindow();
+  DaWindowOwner* first_window = OwnerFor(first_window_handle);
+  DaWindowOwner* second_window = OwnerFor(second_window_handle);
+  DaWindowOwner* third_window = OwnerFor(third_window_handle);
+
+  EXPECT_EQ(da_window_add_tabbed_window(first_window_handle,
+                                        second_window_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_add_tabbed_window(first_window_handle,
+                                        third_window_handle),
+            DA_STATUS_OK);
+  NSWindowTabGroup* tab_group = first_window.window.tabGroup;
+  EXPECT_TRUE(tab_group != nil);
+  EXPECT_EQ(tab_group.windows.count, static_cast<NSUInteger>(3));
+  EXPECT_TRUE(tab_group.windows[0] == first_window.window);
+  EXPECT_TRUE(tab_group.windows[1] == second_window.window);
+  EXPECT_TRUE(tab_group.windows[2] == third_window.window);
+  EXPECT_EQ(da_window_select_tab(second_window_handle), DA_STATUS_OK);
+  EXPECT_TRUE(tab_group.selectedWindow == second_window.window);
+  EXPECT_EQ(da_window_remove_from_tab_group(second_window_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(tab_group.windows.count, static_cast<NSUInteger>(2));
+  EXPECT_TRUE(![tab_group.windows containsObject:second_window.window]);
+  EXPECT_EQ(da_window_add_tabbed_window(first_window_handle,
+                                        first_window_handle),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const DaHandle first_view_handle = CreateView();
+  const DaHandle second_view_handle = CreateView();
+  const DaHandle third_view_handle = CreateView();
+  const DaHandle root_split_handle =
+      CreateSplitView(DA_SPLIT_AXIS_HORIZONTAL);
+  const DaHandle nested_split_handle =
+      CreateSplitView(DA_SPLIT_AXIS_VERTICAL);
+  DaSplitView* root_split = SplitViewFor(root_split_handle);
+  DaSplitView* nested_split = SplitViewFor(nested_split_handle);
+  int32_t lookup_status = DA_STATUS_OK;
+  NSView* first_view = static_cast<NSView*>(
+      dart_appkit::ObjectRegistry::Shared().Lookup(
+          first_view_handle, dart_appkit::ObjectKind::kView,
+          dart_appkit::ThreadDomain::kAppKitMain, &lookup_status));
+  EXPECT_EQ(lookup_status, DA_STATUS_OK);
+  NSView* second_view = static_cast<NSView*>(
+      dart_appkit::ObjectRegistry::Shared().Lookup(
+          second_view_handle, dart_appkit::ObjectKind::kView,
+          dart_appkit::ThreadDomain::kAppKitMain, &lookup_status));
+  EXPECT_EQ(lookup_status, DA_STATUS_OK);
+  NSView* third_view = static_cast<NSView*>(
+      dart_appkit::ObjectRegistry::Shared().Lookup(
+          third_view_handle, dart_appkit::ObjectKind::kView,
+          dart_appkit::ThreadDomain::kAppKitMain, &lookup_status));
+  EXPECT_EQ(lookup_status, DA_STATUS_OK);
+
+  root_split.frame = NSMakeRect(0.0, 0.0, 400.0, 240.0);
+  EXPECT_EQ(da_split_view_set_children(nested_split_handle,
+                                       second_view_handle,
+                                       third_view_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_split_view_set_children(root_split_handle, first_view_handle,
+                                       nested_split_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_split_view_set_position(root_split_handle, 0.1, 80.0, 90.0),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_split_view_set_position(nested_split_handle, 0.75, 30.0, 40.0),
+            DA_STATUS_OK);
+  EXPECT_EQ(root_split.daAxis, DA_SPLIT_AXIS_HORIZONTAL);
+  EXPECT_TRUE(root_split.isVertical);
+  EXPECT_EQ(nested_split.daAxis, DA_SPLIT_AXIS_VERTICAL);
+  EXPECT_TRUE(!nested_split.isVertical);
+  EXPECT_EQ(root_split.subviews.count, static_cast<NSUInteger>(2));
+  EXPECT_TRUE(root_split.subviews[0] == first_view);
+  EXPECT_TRUE(root_split.subviews[1] == nested_split);
+  EXPECT_TRUE(NSWidth(first_view.frame) >= 80.0);
+  EXPECT_TRUE(NSWidth(nested_split.frame) >= 90.0);
+  EXPECT_TRUE(NSHeight(second_view.frame) >= 30.0);
+  EXPECT_TRUE(NSHeight(third_view.frame) >= 40.0);
+
+  EXPECT_EQ(da_split_view_equalize(root_split_handle), DA_STATUS_OK);
+  EXPECT_TRUE(std::abs(root_split.daFraction - 0.5) < 0.001);
+  EXPECT_EQ(da_split_view_set_zoomed_child(root_split_handle,
+                                           DA_SPLIT_ZOOM_SECOND),
+            DA_STATUS_OK);
+  EXPECT_TRUE(first_view.hidden);
+  EXPECT_TRUE(!nested_split.hidden);
+  EXPECT_EQ(da_split_view_set_zoomed_child(root_split_handle,
+                                           DA_SPLIT_ZOOM_NONE),
+            DA_STATUS_OK);
+  EXPECT_TRUE(!first_view.hidden);
+  EXPECT_TRUE(!nested_split.hidden);
+
+  EXPECT_EQ(da_window_set_content_view(first_window_handle, root_split_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_make_first_responder(first_window_handle,
+                                           third_view_handle),
+            DA_STATUS_OK);
+  EXPECT_TRUE(first_window.window.firstResponder == third_view);
+  EXPECT_EQ(da_window_make_first_responder(third_window_handle,
+                                           third_view_handle),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  EXPECT_EQ(da_split_view_create(-1, nullptr), DA_STATUS_INVALID_ARGUMENT);
+  DaHandle invalid_axis_handle = 99;
+  EXPECT_EQ(da_split_view_create(2, &invalid_axis_handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(invalid_axis_handle, static_cast<DaHandle>(0));
+  EXPECT_EQ(da_split_view_set_children(root_split_handle, first_view_handle,
+                                       first_view_handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_set_children(first_view_handle, second_view_handle,
+                                       third_view_handle),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_split_view_set_position(root_split_handle,
+                                       std::numeric_limits<double>::quiet_NaN(),
+                                       0.0, 0.0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_set_zoomed_child(root_split_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_add_tabbed_window(first_view_handle,
+                                        third_window_handle),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(da_split_view_equalize(root_split_handle));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(second_window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(third_window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(first_window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(root_split_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(nested_split_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(first_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(second_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(third_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 }  // namespace
 
 int main() {
@@ -1665,6 +1826,7 @@ int main() {
     TestInputEvents();
     TestScrollInputEvent();
     TestKeyEventRouting();
+    TestNativeTabsSplitViewsAndFirstResponder();
     dart_appkit::ResetBridgeForTesting();
   }
 

@@ -94,6 +94,52 @@ final class Window extends _NativeResource {
     _title = value;
   }
 
+  void addTabbedWindow(Window tabbedWindow) {
+    ensureAlive();
+    tabbedWindow.ensureAlive();
+    if (identical(tabbedWindow, this)) {
+      throw ArgumentError.value(
+        tabbedWindow,
+        'tabbedWindow',
+        'a window cannot tab with itself',
+      );
+    }
+    if (!identical(tabbedWindow._bindings, _bindings)) {
+      throw StateError('tabbed window belongs to a different application');
+    }
+    _checkCall(
+      _bindings.windowAddTabbedWindow(_handle, tabbedWindow._handle),
+      'Window.addTabbedWindow',
+    );
+  }
+
+  void removeFromTabGroup() {
+    ensureAlive();
+    _checkCall(
+      _bindings.windowRemoveFromTabGroup(_handle),
+      'Window.removeFromTabGroup',
+    );
+  }
+
+  void selectTab() {
+    ensureAlive();
+    _checkCall(_bindings.windowSelectTab(_handle), 'Window.selectTab');
+  }
+
+  void makeFirstResponder(View view) {
+    ensureAlive();
+    view.ensureAlive();
+    if (!identical(view._bindings, _bindings)) {
+      throw StateError(
+        'first responder view belongs to a different application',
+      );
+    }
+    _checkCall(
+      _bindings.windowMakeFirstResponder(_handle, view._handle),
+      'Window.makeFirstResponder',
+    );
+  }
+
   View? get contentView {
     ensureAlive();
     return _contentView;

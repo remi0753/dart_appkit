@@ -132,6 +132,21 @@ typedef enum DaKeyEventRouting {
   DA_KEY_EVENT_ROUTING_APPKIT_ONLY = 2
 } DaKeyEventRouting;
 
+/** Stable two-child split directions. */
+typedef enum DaSplitAxis {
+  /** Places the first child to the left of the second child. */
+  DA_SPLIT_AXIS_HORIZONTAL = 0,
+  /** Places the first child above the second child. */
+  DA_SPLIT_AXIS_VERTICAL = 1
+} DaSplitAxis;
+
+/** Stable split zoom selection. */
+typedef enum DaSplitZoomedChild {
+  DA_SPLIT_ZOOM_NONE = -1,
+  DA_SPLIT_ZOOM_FIRST = 0,
+  DA_SPLIT_ZOOM_SECOND = 1
+} DaSplitZoomedChild;
+
 /** Safe on any thread. */
 DA_EXPORT uint32_t da_abi_version(void);
 
@@ -282,8 +297,51 @@ DA_EXPORT int32_t da_window_reply_to_close_request(DaHandle window,
 DA_EXPORT int32_t da_window_set_title(DaHandle window, const char* title,
                                       size_t title_length);
 
+/** Main thread only. Appends tabbed_window to window's native tab group. */
+DA_EXPORT int32_t da_window_add_tabbed_window(DaHandle window,
+                                              DaHandle tabbed_window);
+
+/** Main thread only. Removes window from its native tab group if necessary. */
+DA_EXPORT int32_t da_window_remove_from_tab_group(DaHandle window);
+
+/** Main thread only. Selects window in its native tab group and brings it forward. */
+DA_EXPORT int32_t da_window_select_tab(DaHandle window);
+
+/**
+ * Main thread only. Makes an attached generic or specialized view the
+ * window's first responder. Consumes neither handle.
+ */
+DA_EXPORT int32_t da_window_make_first_responder(DaHandle window,
+                                                 DaHandle view);
+
 /** Main thread only. Creates a generic AppKit view. */
 DA_EXPORT int32_t da_view_create(DaHandle* out_view);
+
+/** Main thread only. Creates a native two-child split view. */
+DA_EXPORT int32_t da_split_view_create(int32_t axis, DaHandle* out_view);
+
+/**
+ * Main thread only. Replaces a split view's two ordered children. The children
+ * must be distinct generic or specialized views. Consumes no handle.
+ */
+DA_EXPORT int32_t da_split_view_set_children(DaHandle split_view,
+                                             DaHandle first_view,
+                                             DaHandle second_view);
+
+/**
+ * Main thread only. Sets the first-child fraction and non-negative minimum
+ * extents along the split axis. fraction must be finite and in (0, 1).
+ */
+DA_EXPORT int32_t da_split_view_set_position(
+    DaHandle split_view, double fraction, double first_minimum_extent,
+    double second_minimum_extent);
+
+/** Main thread only. Sets the first-child fraction to one half. */
+DA_EXPORT int32_t da_split_view_equalize(DaHandle split_view);
+
+/** Main thread only. Shows both children or zooms exactly one child. */
+DA_EXPORT int32_t da_split_view_set_zoomed_child(DaHandle split_view,
+                                                 int32_t child);
 
 /**
  * Main thread only. Creates a generic view from a registered native provider.

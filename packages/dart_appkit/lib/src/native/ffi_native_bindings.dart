@@ -133,8 +133,19 @@ typedef _HandleStringNative = Int32 Function(Uint64, Pointer<Uint8>, Size);
 typedef _HandleStringDart = int Function(int, Pointer<Uint8>, int);
 typedef _TwoHandlesNative = Int32 Function(Uint64, Uint64);
 typedef _TwoHandlesDart = int Function(int, int);
+typedef _ThreeHandlesNative = Int32 Function(Uint64, Uint64, Uint64);
+typedef _ThreeHandlesDart = int Function(int, int, int);
+typedef _HandleThreeDoublesNative = Int32 Function(
+  Uint64,
+  Double,
+  Double,
+  Double,
+);
+typedef _HandleThreeDoublesDart = int Function(int, double, double, double);
 typedef _CreateHandleNative = Int32 Function(Pointer<Uint64>);
 typedef _CreateHandleDart = int Function(Pointer<Uint64>);
+typedef _IntCreateHandleNative = Int32 Function(Int32, Pointer<Uint64>);
+typedef _IntCreateHandleDart = int Function(int, Pointer<Uint64>);
 typedef _GetLastErrorNative = Void Function(Pointer<_DaErrorNative>);
 typedef _GetLastErrorDart = void Function(Pointer<_DaErrorNative>);
 typedef _DebugInt32Native = Int32 Function(Pointer<Int32>);
@@ -387,6 +398,80 @@ _HandleStatusDart? _lookupMenuItemPerformAction(DynamicLibrary library) {
   }
 }
 
+_TwoHandlesDart? _lookupWindowAddTabbedWindow(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(
+      'da_window_add_tabbed_window',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStatusDart? _lookupHandleStatus(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TwoHandlesDart? _lookupTwoHandles(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(symbol);
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_ThreeHandlesDart? _lookupThreeHandles(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_ThreeHandlesNative, _ThreeHandlesDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleBoolStatusDart? _lookupHandleInt(DynamicLibrary library, String symbol) {
+  try {
+    return library
+        .lookupFunction<_HandleBoolStatusNative, _HandleBoolStatusDart>(symbol);
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleThreeDoublesDart? _lookupHandleThreeDoubles(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library
+        .lookupFunction<_HandleThreeDoublesNative, _HandleThreeDoublesDart>(
+          symbol,
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_IntCreateHandleDart? _lookupIntCreateHandle(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library.lookupFunction<_IntCreateHandleNative, _IntCreateHandleDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings implements NativeBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -440,7 +525,37 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_window_set_title',
           ),
+      _windowAddTabbedWindow = _lookupWindowAddTabbedWindow(library),
+      _windowRemoveFromTabGroup = _lookupHandleStatus(
+        library,
+        'da_window_remove_from_tab_group',
+      ),
+      _windowSelectTab = _lookupHandleStatus(library, 'da_window_select_tab'),
+      _windowMakeFirstResponder = _lookupTwoHandles(
+        library,
+        'da_window_make_first_responder',
+      ),
       _viewCreate = _lookupViewCreate(library),
+      _splitViewCreate = _lookupIntCreateHandle(
+        library,
+        'da_split_view_create',
+      ),
+      _splitViewSetChildren = _lookupThreeHandles(
+        library,
+        'da_split_view_set_children',
+      ),
+      _splitViewSetPosition = _lookupHandleThreeDoubles(
+        library,
+        'da_split_view_set_position',
+      ),
+      _splitViewEqualize = _lookupHandleStatus(
+        library,
+        'da_split_view_equalize',
+      ),
+      _splitViewSetZoomedChild = _lookupHandleInt(
+        library,
+        'da_split_view_set_zoomed_child',
+      ),
       _customViewCreate = _lookupCustomViewCreate(library),
       _customViewPerformOperation = _lookupCustomViewPerformOperation(library),
       _textViewCreate = library
@@ -517,7 +632,16 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleBoolStatusDart? _windowKeyEventRouting;
   final _HandleOperationReplyDart? _windowCloseReply;
   final _HandleStringDart _windowSetTitle;
+  final _TwoHandlesDart? _windowAddTabbedWindow;
+  final _HandleStatusDart? _windowRemoveFromTabGroup;
+  final _HandleStatusDart? _windowSelectTab;
+  final _TwoHandlesDart? _windowMakeFirstResponder;
   final _CreateHandleDart? _viewCreate;
+  final _IntCreateHandleDart? _splitViewCreate;
+  final _ThreeHandlesDart? _splitViewSetChildren;
+  final _HandleThreeDoublesDart? _splitViewSetPosition;
+  final _HandleStatusDart? _splitViewEqualize;
+  final _HandleBoolStatusDart? _splitViewSetZoomedChild;
   final _StringCreateDart? _customViewCreate;
   final _HandleStringDart? _customViewPerformOperation;
   final _CreateHandleDart _textViewCreate;
@@ -1090,6 +1214,54 @@ final class FfiNativeBindings implements NativeBindings {
       });
 
   @override
+  NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle) {
+    final _TwoHandlesDart? function = _windowAddTabbedWindow;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support native window tabs',
+      );
+    }
+    return _callResult(function(handle, tabbedWindowHandle));
+  }
+
+  @override
+  NativeCallResult windowRemoveFromTabGroup(int handle) {
+    final _HandleStatusDart? function = _windowRemoveFromTabGroup;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support native window tabs',
+      );
+    }
+    return _callResult(function(handle));
+  }
+
+  @override
+  NativeCallResult windowSelectTab(int handle) {
+    final _HandleStatusDart? function = _windowSelectTab;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support native window tabs',
+      );
+    }
+    return _callResult(function(handle));
+  }
+
+  @override
+  NativeCallResult windowMakeFirstResponder(int handle, int viewHandle) {
+    final _TwoHandlesDart? function = _windowMakeFirstResponder;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support explicit first responders',
+      );
+    }
+    return _callResult(function(handle, viewHandle));
+  }
+
+  @override
   NativeValueResult<int> viewCreate() {
     final _CreateHandleDart? viewCreate = _viewCreate;
     if (viewCreate == null) {
@@ -1107,6 +1279,87 @@ final class FfiNativeBindings implements NativeBindings {
     } finally {
       _free(handlePointer.cast<Void>());
     }
+  }
+
+  @override
+  NativeValueResult<int> splitViewCreate(int axis) {
+    final _IntCreateHandleDart? function = _splitViewCreate;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support split views',
+      );
+    }
+    final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
+        .cast<Uint64>();
+    try {
+      handlePointer.value = 0;
+      final int status = function(axis, handlePointer);
+      return _valueResult<int>(status, handlePointer.value);
+    } finally {
+      _free(handlePointer.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult splitViewSetChildren(
+    int splitViewHandle,
+    int firstViewHandle,
+    int secondViewHandle,
+  ) {
+    final _ThreeHandlesDart? function = _splitViewSetChildren;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support split views',
+      );
+    }
+    return _callResult(
+      function(splitViewHandle, firstViewHandle, secondViewHandle),
+    );
+  }
+
+  @override
+  NativeCallResult splitViewSetPosition({
+    required int handle,
+    required double fraction,
+    required double firstMinimumExtent,
+    required double secondMinimumExtent,
+  }) {
+    final _HandleThreeDoublesDart? function = _splitViewSetPosition;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support split views',
+      );
+    }
+    return _callResult(
+      function(handle, fraction, firstMinimumExtent, secondMinimumExtent),
+    );
+  }
+
+  @override
+  NativeCallResult splitViewEqualize(int handle) {
+    final _HandleStatusDart? function = _splitViewEqualize;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support split views',
+      );
+    }
+    return _callResult(function(handle));
+  }
+
+  @override
+  NativeCallResult splitViewSetZoomedChild(int handle, int child) {
+    final _HandleBoolStatusDart? function = _splitViewSetZoomedChild;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support split views',
+      );
+    }
+    return _callResult(function(handle, child));
   }
 
   @override

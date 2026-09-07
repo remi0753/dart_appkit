@@ -1,0 +1,149 @@
+part of '../api.dart';
+
+/// Direction in which two native split-view children are arranged.
+enum SplitViewAxis {
+  /// The first child is left of the second child.
+  horizontal,
+
+  /// The first child is above the second child.
+  vertical,
+}
+
+/// One ordered child that can occupy the whole split view while zoomed.
+enum SplitViewChild { first, second }
+
+/// A native two-child `NSSplitView` that remains substitutable as a [View].
+final class SplitView extends View {
+  factory SplitView({required SplitViewAxis axis}) {
+    final AppKitApplication application = AppKitApplication._requireCurrent();
+    final int nativeAxis = axis == SplitViewAxis.horizontal ? 0 : 1;
+    final int handle = _checkValue<int>(
+      application._bindings.splitViewCreate(nativeAxis),
+      'SplitView.create',
+    );
+    return SplitView._(application._bindings, handle, axis);
+  }
+
+  SplitView._(NativeBindings bindings, int handle, this.axis)
+    : super._(bindings, handle);
+
+  final SplitViewAxis axis;
+  View? _firstView;
+  View? _secondView;
+  double _fraction = 0.5;
+  double _firstMinimumExtent = 0;
+  double _secondMinimumExtent = 0;
+  SplitViewChild? _zoomedChild;
+
+  View? get firstView {
+    ensureAlive();
+    return _firstView;
+  }
+
+  View? get secondView {
+    ensureAlive();
+    return _secondView;
+  }
+
+  double get fraction {
+    ensureAlive();
+    return _fraction;
+  }
+
+  double get firstMinimumExtent {
+    ensureAlive();
+    return _firstMinimumExtent;
+  }
+
+  double get secondMinimumExtent {
+    ensureAlive();
+    return _secondMinimumExtent;
+  }
+
+  SplitViewChild? get zoomedChild {
+    ensureAlive();
+    return _zoomedChild;
+  }
+
+  void setChildren({required View first, required View second}) {
+    ensureAlive();
+    first.ensureAlive();
+    second.ensureAlive();
+    if (identical(first, second) ||
+        identical(first, this) ||
+        identical(second, this)) {
+      throw ArgumentError('split and children must be distinct views');
+    }
+    if (!identical(first._bindings, _bindings) ||
+        !identical(second._bindings, _bindings)) {
+      throw StateError('split children belong to a different application');
+    }
+    _checkCall(
+      _bindings.splitViewSetChildren(_handle, first._handle, second._handle),
+      'SplitView.setChildren',
+    );
+    _firstView = first;
+    _secondView = second;
+  }
+
+  void setPosition({
+    required double fraction,
+    double firstMinimumExtent = 0,
+    double secondMinimumExtent = 0,
+  }) {
+    ensureAlive();
+    if (!fraction.isFinite || fraction <= 0 || fraction >= 1) {
+      throw ArgumentError.value(
+        fraction,
+        'fraction',
+        'must be finite and strictly between zero and one',
+      );
+    }
+    if (!firstMinimumExtent.isFinite || firstMinimumExtent < 0) {
+      throw ArgumentError.value(
+        firstMinimumExtent,
+        'firstMinimumExtent',
+        'must be finite and non-negative',
+      );
+    }
+    if (!secondMinimumExtent.isFinite || secondMinimumExtent < 0) {
+      throw ArgumentError.value(
+        secondMinimumExtent,
+        'secondMinimumExtent',
+        'must be finite and non-negative',
+      );
+    }
+    _checkCall(
+      _bindings.splitViewSetPosition(
+        handle: _handle,
+        fraction: fraction,
+        firstMinimumExtent: firstMinimumExtent,
+        secondMinimumExtent: secondMinimumExtent,
+      ),
+      'SplitView.setPosition',
+    );
+    _fraction = fraction;
+    _firstMinimumExtent = firstMinimumExtent;
+    _secondMinimumExtent = secondMinimumExtent;
+  }
+
+  void equalize() {
+    ensureAlive();
+    _checkCall(_bindings.splitViewEqualize(_handle), 'SplitView.equalize');
+    _fraction = 0.5;
+  }
+
+  set zoomedChild(SplitViewChild? value) {
+    ensureAlive();
+    final int nativeValue = switch (value) {
+      null => -1,
+      SplitViewChild.first => 0,
+      SplitViewChild.second => 1,
+    };
+    _checkCall(
+      _bindings.splitViewSetZoomedChild(_handle, nativeValue),
+      'SplitView.zoomedChild',
+    );
+    _zoomedChild = value;
+  }
+}

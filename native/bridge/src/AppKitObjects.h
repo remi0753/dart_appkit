@@ -15,6 +15,24 @@
 
 @end
 
+@interface DaSplitView : NSSplitView <NSSplitViewDelegate>
+
+@property(nonatomic, assign, readonly) DaSplitAxis daAxis;
+@property(nonatomic, assign, readonly) double daFraction;
+@property(nonatomic, assign, readonly) double daFirstMinimumExtent;
+@property(nonatomic, assign, readonly) double daSecondMinimumExtent;
+@property(nonatomic, assign, readonly) DaSplitZoomedChild daZoomedChild;
+
+- (instancetype)initWithAxis:(DaSplitAxis)axis;
+- (BOOL)daSetFirstView:(NSView*)firstView secondView:(NSView*)secondView;
+- (void)daSetFraction:(double)fraction
+    firstMinimumExtent:(double)firstMinimumExtent
+   secondMinimumExtent:(double)secondMinimumExtent;
+- (void)daEqualize;
+- (void)daSetZoomedChild:(DaSplitZoomedChild)zoomedChild;
+
+@end
+
 @interface DaWindow : NSWindow
 
 @property(nonatomic, assign) DaHandle daHandle;

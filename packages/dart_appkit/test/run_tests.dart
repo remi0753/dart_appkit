@@ -187,6 +187,140 @@ Future<void> _testGenericViewBoundary() async {
   await raw.close();
 }
 
+Future<void> _testNativeTabsSplitViewAndFocusApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final View first = View();
+  final View second = View();
+  final TextView third = TextView();
+  final SplitView nested = SplitView(axis: SplitViewAxis.vertical)
+    ..setChildren(first: second, second: third)
+    ..setPosition(
+      fraction: 0.75,
+      firstMinimumExtent: 20,
+      secondMinimumExtent: 30,
+    );
+  final SplitView root = SplitView(axis: SplitViewAxis.horizontal)
+    ..setChildren(first: first, second: nested)
+    ..setPosition(
+      fraction: 0.4,
+      firstMinimumExtent: 40,
+      secondMinimumExtent: 50,
+    );
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 640, 480),
+    title: 'First tab',
+  )..contentView = root;
+  final Window secondWindow = Window(
+    frame: const Rect.fromLTWH(0, 0, 640, 480),
+    title: 'Second tab',
+  );
+  final Window thirdWindow = Window(
+    frame: const Rect.fromLTWH(0, 0, 640, 480),
+    title: 'Third tab',
+  );
+
+  final int rootHandle = bindings.splitViewAxes.entries
+      .singleWhere((MapEntry<int, int> entry) => entry.value == 0)
+      .key;
+  final int nestedHandle = bindings.splitViewAxes.entries
+      .singleWhere((MapEntry<int, int> entry) => entry.value == 1)
+      .key;
+  final List<int> leafHandles = bindings.objects.entries
+      .where(
+        (MapEntry<int, FakeObjectKind> entry) =>
+            entry.value == FakeObjectKind.view ||
+            entry.value == FakeObjectKind.textView,
+      )
+      .map((MapEntry<int, FakeObjectKind> entry) => entry.key)
+      .toList(growable: false);
+  _expect(
+    root.axis == SplitViewAxis.horizontal &&
+        nested.axis == SplitViewAxis.vertical &&
+        identical(root.firstView, first) &&
+        identical(root.secondView, nested) &&
+        root.fraction == 0.4 &&
+        root.firstMinimumExtent == 40 &&
+        root.secondMinimumExtent == 50 &&
+        bindings.splitViewChildren[rootHandle]?.last == nestedHandle &&
+        bindings.splitViewChildren[nestedHandle]?.length == 2,
+    'nested split view retains ordered children, axis, fraction, and minima',
+  );
+
+  root.equalize();
+  root.zoomedChild = SplitViewChild.second;
+  _expect(
+    root.fraction == 0.5 &&
+        root.zoomedChild == SplitViewChild.second &&
+        bindings.splitViewFractions[rootHandle] == 0.5 &&
+        bindings.splitViewZoomedChildren[rootHandle] == 1,
+    'split equalize and zoom reach the native binding',
+  );
+  root.zoomedChild = null;
+  window.makeFirstResponder(third);
+  final int windowHandle = bindings.contentViews.keys.single;
+  _expect(
+    bindings.firstResponders[windowHandle] == leafHandles.last,
+    'an attached nested leaf can become explicit first responder',
+  );
+  await _expectThrows<AppKitNativeException>(
+    () => thirdWindow.makeFirstResponder(third),
+  );
+
+  window
+    ..addTabbedWindow(secondWindow)
+    ..addTabbedWindow(thirdWindow);
+  thirdWindow.selectTab();
+  _expect(
+    bindings.windowTabGroups.length == 1 &&
+        bindings.windowTabGroups.single.length == 3 &&
+        bindings.selectedTabWindows.values.single ==
+            bindings.windowTabGroups.single.last,
+    'native window tabs append in model order and select explicitly',
+  );
+  secondWindow.removeFromTabGroup();
+  _expect(
+    bindings.windowTabGroups.single.length == 2,
+    'native window tab can detach without closing',
+  );
+
+  await _expectThrows<ArgumentError>(
+    () => root.setChildren(first: first, second: first),
+  );
+  await _expectThrows<ArgumentError>(
+    () => root.setPosition(fraction: double.nan),
+  );
+  await _expectThrows<ArgumentError>(
+    () => root.setPosition(fraction: 0.5, firstMinimumExtent: -1),
+  );
+  final double previousFraction = root.fraction;
+  bindings.failNextOperation = 'splitViewSetPosition';
+  await _expectThrows<AppKitNativeException>(
+    () => root.setPosition(fraction: 0.25),
+  );
+  _expect(
+    root.fraction == previousFraction &&
+        bindings.splitViewFractions[rootHandle] == previousFraction,
+    'failed split mutation preserves Dart and fake-native state',
+  );
+  await _expectThrows<ArgumentError>(() => window.addTabbedWindow(window));
+
+  thirdWindow.dispose();
+  secondWindow.dispose();
+  window.dispose();
+  root.dispose();
+  nested.dispose();
+  third.dispose();
+  second.dispose();
+  first.dispose();
+  _expect(bindings.objects.isEmpty, 'tab and split resources release exactly');
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testKeyEventRoutingPolicy() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -1218,6 +1352,10 @@ Future<void> _testCrossApplicationGuard() async {
   final FakeNativeBindings bindingsOne = FakeNativeBindings();
   final AppKitApplication appOne = await _attach(bindingsOne, rawOne);
   final TextView oldView = TextView();
+  final Window oldWindow = Window(
+    frame: const Rect.fromLTWH(0, 0, 100, 100),
+    title: 'Old window',
+  );
   final Menu oldMenu = Menu(title: 'Old');
   final MenuItem oldItem = MenuItem(title: 'Old item');
   await appOne.terminate();
@@ -1234,16 +1372,26 @@ Future<void> _testCrossApplicationGuard() async {
   );
   final Menu newMenu = Menu(title: 'New');
   final MenuItem newItem = MenuItem(title: 'New item');
+  final SplitView newSplit = SplitView(axis: SplitViewAxis.horizontal);
+  final View newView = View();
   await _expectThrows<StateError>(() => newWindow.contentView = oldView);
+  await _expectThrows<StateError>(
+    () => newSplit.setChildren(first: oldView, second: newView),
+  );
+  await _expectThrows<StateError>(() => newWindow.makeFirstResponder(oldView));
+  await _expectThrows<StateError>(() => newWindow.addTabbedWindow(oldWindow));
   await _expectThrows<StateError>(() => newMenu.addItem(oldItem));
   await _expectThrows<StateError>(() => newItem.submenu = oldMenu);
   await _expectThrows<StateError>(() => appTwo.mainMenu = oldMenu);
 
   oldView.dispose();
+  oldWindow.dispose();
   oldItem.dispose();
   oldMenu.dispose();
   newItem.dispose();
   newMenu.dispose();
+  newSplit.dispose();
+  newView.dispose();
   newWindow.dispose();
   await appTwo.terminate();
   await rawTwo.close();
@@ -1255,6 +1403,10 @@ Future<void> main() async {
   await _test(
     'generic and specialized view boundary',
     _testGenericViewBoundary,
+  );
+  await _test(
+    'native tabs, split views, and explicit focus',
+    _testNativeTabsSplitViewAndFocusApi,
   );
   await _test('key event routing policy', _testKeyEventRoutingPolicy);
   await _test(

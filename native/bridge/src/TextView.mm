@@ -1,5 +1,6 @@
 #include "AppKitObjects.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -102,6 +103,179 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 - (BOOL)acceptsFirstResponder {
   return YES;
+}
+
+@end
+
+@implementation DaSplitView {
+  DaSplitAxis _daAxis;
+  double _daFraction;
+  double _daFirstMinimumExtent;
+  double _daSecondMinimumExtent;
+  DaSplitZoomedChild _daZoomedChild;
+  BOOL _daApplyingLayout;
+}
+
+@synthesize daAxis = _daAxis;
+@synthesize daFraction = _daFraction;
+@synthesize daFirstMinimumExtent = _daFirstMinimumExtent;
+@synthesize daSecondMinimumExtent = _daSecondMinimumExtent;
+@synthesize daZoomedChild = _daZoomedChild;
+
+- (instancetype)initWithAxis:(DaSplitAxis)axis {
+  self = [super initWithFrame:NSZeroRect];
+  if (self != nil) {
+    _daAxis = axis;
+    _daFraction = 0.5;
+    _daFirstMinimumExtent = 0.0;
+    _daSecondMinimumExtent = 0.0;
+    _daZoomedChild = DA_SPLIT_ZOOM_NONE;
+    _daApplyingLayout = NO;
+    self.vertical = axis == DA_SPLIT_AXIS_HORIZONTAL;
+    self.dividerStyle = NSSplitViewDividerStyleThin;
+    self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.delegate = self;
+  }
+  return self;
+}
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+- (BOOL)daSetFirstView:(NSView*)firstView secondView:(NSView*)secondView {
+  if (firstView == nil || secondView == nil || firstView == secondView ||
+      firstView == self || secondView == self ||
+      [self isDescendantOf:firstView] || [self isDescendantOf:secondView]) {
+    return NO;
+  }
+  for (NSView* subview in self.subviews.copy) {
+    [subview removeFromSuperview];
+  }
+  [self addArrangedSubview:firstView];
+  [self addArrangedSubview:secondView];
+  [self daApplyLayout];
+  return YES;
+}
+
+- (void)daSetFraction:(double)fraction
+    firstMinimumExtent:(double)firstMinimumExtent
+   secondMinimumExtent:(double)secondMinimumExtent {
+  _daFraction = fraction;
+  _daFirstMinimumExtent = firstMinimumExtent;
+  _daSecondMinimumExtent = secondMinimumExtent;
+  [self daApplyLayout];
+}
+
+- (void)daEqualize {
+  _daFraction = 0.5;
+  [self daApplyLayout];
+}
+
+- (void)daSetZoomedChild:(DaSplitZoomedChild)zoomedChild {
+  _daZoomedChild = zoomedChild;
+  [self daApplyLayout];
+}
+
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+  (void)oldSize;
+  [self daApplyLayout];
+}
+
+- (void)daApplyLayout {
+  if (self.subviews.count != 2 || _daApplyingLayout) {
+    return;
+  }
+  NSView* first = self.subviews[0];
+  NSView* second = self.subviews[1];
+  if (_daZoomedChild != DA_SPLIT_ZOOM_NONE) {
+    first.hidden = _daZoomedChild != DA_SPLIT_ZOOM_FIRST;
+    second.hidden = _daZoomedChild != DA_SPLIT_ZOOM_SECOND;
+    NSView* visible = _daZoomedChild == DA_SPLIT_ZOOM_FIRST ? first : second;
+    visible.frame = self.bounds;
+    return;
+  }
+  first.hidden = NO;
+  second.hidden = NO;
+  const double axis_extent = self.isVertical ? NSWidth(self.bounds)
+                                             : NSHeight(self.bounds);
+  const double usable_extent = axis_extent - self.dividerThickness;
+  if (usable_extent <= 0.0) {
+    return;
+  }
+  const double maximum_first =
+      std::max(0.0, usable_extent - _daSecondMinimumExtent);
+  const double minimum_first =
+      std::min(_daFirstMinimumExtent, maximum_first);
+  const double desired_first = usable_extent * _daFraction;
+  const double first_extent =
+      std::clamp(desired_first, minimum_first, maximum_first);
+  _daApplyingLayout = YES;
+  if (self.isVertical) {
+    first.frame = NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds),
+                             first_extent, NSHeight(self.bounds));
+    second.frame = NSMakeRect(
+        NSMinX(self.bounds) + first_extent + self.dividerThickness,
+        NSMinY(self.bounds), usable_extent - first_extent,
+        NSHeight(self.bounds));
+  } else {
+    first.frame = NSMakeRect(NSMinX(self.bounds), NSMinY(self.bounds),
+                             NSWidth(self.bounds), first_extent);
+    second.frame = NSMakeRect(
+        NSMinX(self.bounds),
+        NSMinY(self.bounds) + first_extent + self.dividerThickness,
+        NSWidth(self.bounds), usable_extent - first_extent);
+  }
+  _daApplyingLayout = NO;
+}
+
+- (CGFloat)splitView:(NSSplitView*)splitView
+    constrainMinCoordinate:(CGFloat)proposedMinimumPosition
+         ofSubviewAt:(NSInteger)dividerIndex {
+  (void)proposedMinimumPosition;
+  if (splitView != self || dividerIndex != 0) {
+    return proposedMinimumPosition;
+  }
+  const double origin = self.isVertical ? NSMinX(self.bounds)
+                                        : NSMinY(self.bounds);
+  return origin + _daFirstMinimumExtent;
+}
+
+- (CGFloat)splitView:(NSSplitView*)splitView
+    constrainMaxCoordinate:(CGFloat)proposedMaximumPosition
+         ofSubviewAt:(NSInteger)dividerIndex {
+  (void)proposedMaximumPosition;
+  if (splitView != self || dividerIndex != 0) {
+    return proposedMaximumPosition;
+  }
+  const double maximum = self.isVertical
+                             ? NSMaxX(self.bounds)
+                             : NSMaxY(self.bounds);
+  return maximum - self.dividerThickness - _daSecondMinimumExtent;
+}
+
+- (BOOL)splitView:(NSSplitView*)splitView
+    canCollapseSubview:(NSView*)subview {
+  (void)splitView;
+  (void)subview;
+  return NO;
+}
+
+- (void)splitViewDidResizeSubviews:(NSNotification*)notification {
+  if (notification.object != self || _daApplyingLayout ||
+      _daZoomedChild != DA_SPLIT_ZOOM_NONE || self.subviews.count != 2) {
+    return;
+  }
+  const double axis_extent = self.isVertical ? NSWidth(self.bounds)
+                                             : NSHeight(self.bounds);
+  const double usable_extent = axis_extent - self.dividerThickness;
+  if (usable_extent <= 0.0) {
+    return;
+  }
+  NSView* first = self.subviews[0];
+  const double first_extent =
+      self.isVertical ? NSWidth(first.frame) : NSHeight(first.frame);
+  _daFraction = std::clamp(first_extent / usable_extent, 0.0, 1.0);
 }
 
 @end

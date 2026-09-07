@@ -96,8 +96,26 @@ abstract interface class NativeBindings {
     required bool allow,
   });
   NativeCallResult windowSetTitle(int handle, String title);
+  NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle);
+  NativeCallResult windowRemoveFromTabGroup(int handle);
+  NativeCallResult windowSelectTab(int handle);
+  NativeCallResult windowMakeFirstResponder(int handle, int viewHandle);
 
   NativeValueResult<int> viewCreate();
+  NativeValueResult<int> splitViewCreate(int axis);
+  NativeCallResult splitViewSetChildren(
+    int splitViewHandle,
+    int firstViewHandle,
+    int secondViewHandle,
+  );
+  NativeCallResult splitViewSetPosition({
+    required int handle,
+    required double fraction,
+    required double firstMinimumExtent,
+    required double secondMinimumExtent,
+  });
+  NativeCallResult splitViewEqualize(int handle);
+  NativeCallResult splitViewSetZoomedChild(int handle, int child);
   NativeValueResult<int> customViewCreate(String providerIdentifier);
   NativeCallResult customViewPerformOperation(int handle, Uint8List payload);
   NativeValueResult<int> textViewCreate();

@@ -5,12 +5,12 @@ thread without Flutter. The native Runner owns `NSApplication` and its run loop;
 Dart calls a narrow C ABI; AppKit events return through a Dart native port; and
 Dart message work is limited per run-loop turn.
 
-The reusable surface is deliberately small: one window, generic, text, and
-registered native-provider views, menus and menu-item actions, periodic
-`Timer` updates, lifecycle/window/input events, 64 MiB-bounded plain-text
-pasteboard snapshots, allowlisted external URL opening,
-explicit native ownership, per-window key-event routing, and a restart-based
-developer command.
+The reusable surface is deliberately small: native windows and tab groups,
+generic, text, registered native-provider, and two-child split views, explicit
+first-responder selection, menus and menu-item actions, periodic `Timer`
+updates, lifecycle/window/input events, 64 MiB-bounded plain-text pasteboard
+snapshots, allowlisted external URL opening, explicit native ownership,
+per-window key-event routing, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -136,6 +136,15 @@ window.dispose();
 view.dispose();
 await app.terminate();
 ```
+
+Native tabs use one `Window` per tab, preserving independent window event and
+content-view ownership. `Window.addTabbedWindow` appends another window to the
+receiver's native tab group; `selectTab` and `removeFromTabGroup` select and
+detach without synthesizing Dart identity. `SplitView` remains a generic
+`View`, composes exactly two ordered children, constrains its native divider by
+per-child logical minimum extents, and supports equalize and one-child zoom.
+After installing the split root as content, `Window.makeFirstResponder` can
+target any attached descendant view.
 
 Windows default to `KeyEventRouting.dartAndAppKit`, which mirrors key events to
 Dart and retains ordinary AppKit responder behavior. Raw-input surfaces can set

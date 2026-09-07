@@ -71,6 +71,27 @@ void main(List<String> arguments) {
       customView.message.isEmpty) {
     _fail('custom-view symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> splitView = bindings.splitViewCreate(0);
+  if (splitView.isSuccess ||
+      splitView.status != 5 ||
+      splitView.message.isEmpty) {
+    _fail('split-view create FFI did not preserve its main-thread guard');
+  }
+  final NativeCallResult splitPosition = bindings.splitViewSetPosition(
+    handle: 1,
+    fraction: 0.5,
+    firstMinimumExtent: 10,
+    secondMinimumExtent: 10,
+  );
+  if (splitPosition.isSuccess ||
+      splitPosition.status != 5 ||
+      splitPosition.message.isEmpty) {
+    _fail('split-view position FFI did not preserve its main-thread guard');
+  }
+  final NativeCallResult tabGroup = bindings.windowAddTabbedWindow(1, 2);
+  if (tabGroup.isSuccess || tabGroup.status != 5 || tabGroup.message.isEmpty) {
+    _fail('window-tab FFI did not preserve its main-thread guard');
+  }
 
   final NativeValueResult<int> invalidWindow = bindings.windowCreate(
     x: 0,
