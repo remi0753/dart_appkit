@@ -162,6 +162,13 @@ its handle.
 Closing a window emits an event but does not release its handle, which keeps
 event identity stable until Dart explicitly disposes it.
 
+Represented file paths and native-tab color markers are optional presentation
+owned by that same `NSWindow`. The bridge accepts only a bounded absolute local
+path for `representedURL`; callers retain responsibility for deciding whether a
+path is trusted. A tab color is an `NSWindowTab.accessoryView` with no public
+native handle. Replacing or clearing either value therefore cannot outlive or
+change the generation of its window handle.
+
 `View` is the reusable content-view base. Native `DaTextView` subclasses
 `DaView`, and the registry records the two actual kinds separately. A text-view
 handle satisfies a generic-view lookup, while a generic view never satisfies a

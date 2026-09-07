@@ -297,6 +297,25 @@ DA_EXPORT int32_t da_window_reply_to_close_request(DaHandle window,
 DA_EXPORT int32_t da_window_set_title(DaHandle window, const char* title,
                                       size_t title_length);
 
+/**
+ * Main thread only. Sets an absolute local path as the window's represented
+ * file, enabling the standard proxy icon/path menu. An empty path clears it.
+ * Non-empty UTF-8 bytes are copied before return and capped at 4096 bytes.
+ */
+DA_EXPORT int32_t da_window_set_represented_file_path(DaHandle window,
+                                                      const char* path,
+                                                      size_t path_length);
+
+/**
+ * Main thread only. Sets or clears the standard native-tab color marker.
+ * has_color must be zero or one. Present components must be finite in [0, 1].
+ * The accessory is retained by AppKit and creates no registry handle.
+ */
+DA_EXPORT int32_t da_window_set_tab_color(DaHandle window,
+                                          int32_t has_color, double red,
+                                          double green, double blue,
+                                          double alpha);
+
 /** Main thread only. Appends tabbed_window to window's native tab group. */
 DA_EXPORT int32_t da_window_add_tabbed_window(DaHandle window,
                                               DaHandle tabbed_window);

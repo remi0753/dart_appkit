@@ -95,6 +95,10 @@ in both FFI `Uint64` calls and the event protocol's signed integer slot.
 - `da_window_close` performs an unconditional programmatic window action but
   does not release ownership. `da_window_request_close` follows the user-facing
   delegate path.
+- `da_window_set_represented_file_path` copies at most 4096 UTF-8 bytes into an
+  absolute local file URL, while an empty input clears it.
+  `da_window_set_tab_color` creates or clears an `NSWindowTab` accessory owned
+  by AppKit. Neither operation inserts a registry object or transfers a handle.
 - `da_release` invalidates exactly one live handle. A second release reports
   `DA_STATUS_INVALID_HANDLE`.
 - `da_release_async` is safe on any thread. It atomically changes one live

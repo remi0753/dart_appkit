@@ -1802,6 +1802,90 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestWindowPresentationMetadata() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+  const std::string path = "/private/tmp/Project \xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
+
+  EXPECT_EQ(da_window_set_represented_file_path(
+                window_handle, path.data(), path.size()),
+            DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.representedURL != nil);
+  EXPECT_TRUE(owner.window.representedURL.isFileURL);
+  EXPECT_TRUE([owner.window.representedURL.path
+      isEqualToString:@"/private/tmp/Project 日本語"]);
+
+  EXPECT_EQ(da_window_set_tab_color(window_handle, 1, 0.25, 0.5, 0.75, 0.8),
+            DA_STATUS_OK);
+  NSView* marker = owner.window.tab.accessoryView;
+  EXPECT_TRUE(marker != nil);
+  EXPECT_TRUE(marker.wantsLayer);
+  EXPECT_TRUE(std::abs(NSWidth(marker.frame) - 8.0) < 0.001);
+  EXPECT_TRUE(std::abs(NSHeight(marker.frame) - 8.0) < 0.001);
+  EXPECT_TRUE(std::abs(marker.layer.cornerRadius - 4.0) < 0.001);
+  NSColor* color = [[NSColor colorWithCGColor:marker.layer.backgroundColor]
+      colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
+  CGFloat red = 0;
+  CGFloat green = 0;
+  CGFloat blue = 0;
+  CGFloat alpha = 0;
+  [color getRed:&red green:&green blue:&blue alpha:&alpha];
+  EXPECT_TRUE(std::abs(red - 0.25) < 0.001);
+  EXPECT_TRUE(std::abs(green - 0.5) < 0.001);
+  EXPECT_TRUE(std::abs(blue - 0.75) < 0.001);
+  EXPECT_TRUE(std::abs(alpha - 0.8) < 0.001);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+
+  EXPECT_EQ(da_window_set_represented_file_path(window_handle, nullptr, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.representedURL == nil);
+  EXPECT_EQ(da_window_set_tab_color(window_handle, 0, 9, 9, 9, 9),
+            DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.tab.accessoryView == nil);
+
+  const std::string relative = "private/tmp";
+  EXPECT_EQ(da_window_set_represented_file_path(
+                window_handle, relative.data(), relative.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string oversized(4097, 'a');
+  EXPECT_EQ(da_window_set_represented_file_path(
+                window_handle, oversized.data(), oversized.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string embedded_nul("/tmp/a\0b", 8);
+  EXPECT_EQ(da_window_set_represented_file_path(
+                window_handle, embedded_nul.data(), embedded_nul.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_tab_color(window_handle, 2, 0, 0, 0, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_tab_color(
+                window_handle, 1, std::numeric_limits<double>::quiet_NaN(), 0,
+                0, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_tab_color(window_handle, 1, 0, 0, 1.01, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const DaHandle view_handle = CreateView();
+  EXPECT_EQ(da_window_set_represented_file_path(view_handle, nullptr, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_set_tab_color(view_handle, 0, 0, 0, 0, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(
+        da_window_set_represented_file_path(window_handle, nullptr, 0));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(view_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_tab_color(window_handle, 0, 0, 0, 0, 0),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 }  // namespace
 
 int main() {
@@ -1826,6 +1910,7 @@ int main() {
     TestInputEvents();
     TestScrollInputEvent();
     TestKeyEventRouting();
+    TestWindowPresentationMetadata();
     TestNativeTabsSplitViewsAndFirstResponder();
     dart_appkit::ResetBridgeForTesting();
   }

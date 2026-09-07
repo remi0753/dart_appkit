@@ -131,6 +131,22 @@ typedef _HandleOperationReplyNative = Int32 Function(Uint64, Int64, Int32);
 typedef _HandleOperationReplyDart = int Function(int, int, int);
 typedef _HandleStringNative = Int32 Function(Uint64, Pointer<Uint8>, Size);
 typedef _HandleStringDart = int Function(int, Pointer<Uint8>, int);
+typedef _HandleBoolFourDoublesNative = Int32 Function(
+  Uint64,
+  Int32,
+  Double,
+  Double,
+  Double,
+  Double,
+);
+typedef _HandleBoolFourDoublesDart = int Function(
+  int,
+  int,
+  double,
+  double,
+  double,
+  double,
+);
 typedef _TwoHandlesNative = Int32 Function(Uint64, Uint64);
 typedef _TwoHandlesDart = int Function(int, int);
 typedef _ThreeHandlesNative = Int32 Function(Uint64, Uint64, Uint64);
@@ -408,9 +424,33 @@ _TwoHandlesDart? _lookupWindowAddTabbedWindow(DynamicLibrary library) {
   }
 }
 
+_HandleBoolFourDoublesDart? _lookupHandleBoolFourDoubles(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library.lookupFunction<
+      _HandleBoolFourDoublesNative,
+      _HandleBoolFourDoublesDart
+    >(symbol);
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleStatusDart? _lookupHandleStatus(DynamicLibrary library, String symbol) {
   try {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleStringDart? _lookupHandleString(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_HandleStringNative, _HandleStringDart>(
       symbol,
     );
   } on ArgumentError {
@@ -525,6 +565,14 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_window_set_title',
           ),
+      _windowSetRepresentedFilePath = _lookupHandleString(
+        library,
+        'da_window_set_represented_file_path',
+      ),
+      _windowSetTabColor = _lookupHandleBoolFourDoubles(
+        library,
+        'da_window_set_tab_color',
+      ),
       _windowAddTabbedWindow = _lookupWindowAddTabbedWindow(library),
       _windowRemoveFromTabGroup = _lookupHandleStatus(
         library,
@@ -632,6 +680,8 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleBoolStatusDart? _windowKeyEventRouting;
   final _HandleOperationReplyDart? _windowCloseReply;
   final _HandleStringDart _windowSetTitle;
+  final _HandleStringDart? _windowSetRepresentedFilePath;
+  final _HandleBoolFourDoublesDart? _windowSetTabColor;
   final _TwoHandlesDart? _windowAddTabbedWindow;
   final _HandleStatusDart? _windowRemoveFromTabGroup;
   final _HandleStatusDart? _windowSelectTab;
@@ -1212,6 +1262,41 @@ final class FfiNativeBindings implements NativeBindings {
       _withUtf8(title, (Pointer<Uint8> pointer, int length) {
         return _callResult(_windowSetTitle(handle, pointer, length));
       });
+
+  @override
+  NativeCallResult windowSetRepresentedFilePath(int handle, String? path) {
+    final _HandleStringDart? function = _windowSetRepresentedFilePath;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support represented file paths',
+      );
+    }
+    return _withUtf8(path ?? '', (Pointer<Uint8> pointer, int length) {
+      return _callResult(function(handle, pointer, length));
+    });
+  }
+
+  @override
+  NativeCallResult windowSetTabColor({
+    required int handle,
+    required bool hasColor,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  }) {
+    final _HandleBoolFourDoublesDart? function = _windowSetTabColor;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support native tab colors',
+      );
+    }
+    return _callResult(
+      function(handle, hasColor ? 1 : 0, red, green, blue, alpha),
+    );
+  }
 
   @override
   NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle) {

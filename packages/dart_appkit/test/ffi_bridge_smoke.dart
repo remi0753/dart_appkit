@@ -92,6 +92,24 @@ void main(List<String> arguments) {
   if (tabGroup.isSuccess || tabGroup.status != 5 || tabGroup.message.isEmpty) {
     _fail('window-tab FFI did not preserve its main-thread guard');
   }
+  final NativeCallResult representedPath = bindings
+      .windowSetRepresentedFilePath(1, '/private/tmp');
+  final NativeCallResult tabColor = bindings.windowSetTabColor(
+    handle: 1,
+    hasColor: true,
+    red: 1,
+    green: 0,
+    blue: 0,
+    alpha: 1,
+  );
+  if (representedPath.isSuccess ||
+      representedPath.status != 5 ||
+      representedPath.message.isEmpty ||
+      tabColor.isSuccess ||
+      tabColor.status != 5 ||
+      tabColor.message.isEmpty) {
+    _fail('window metadata FFI did not preserve its main-thread guard');
+  }
 
   final NativeValueResult<int> invalidWindow = bindings.windowCreate(
     x: 0,

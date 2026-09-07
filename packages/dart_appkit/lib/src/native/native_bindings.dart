@@ -96,6 +96,15 @@ abstract interface class NativeBindings {
     required bool allow,
   });
   NativeCallResult windowSetTitle(int handle, String title);
+  NativeCallResult windowSetRepresentedFilePath(int handle, String? path);
+  NativeCallResult windowSetTabColor({
+    required int handle,
+    required bool hasColor,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  });
   NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle);
   NativeCallResult windowRemoveFromTabGroup(int handle);
   NativeCallResult windowSelectTab(int handle);

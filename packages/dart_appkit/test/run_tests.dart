@@ -187,6 +187,98 @@ Future<void> _testGenericViewBoundary() async {
   await raw.close();
 }
 
+Future<void> _testWindowPresentationMetadataApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'Metadata',
+  );
+  final WindowTabColor color = WindowTabColor(
+    red: 0.25,
+    green: 0.5,
+    blue: 0.75,
+    alpha: 0.8,
+  );
+
+  window
+    ..representedFilePath = '/private/tmp/Project 日本語 😀'
+    ..tabColor = color;
+  _expect(
+    window.representedFilePath == '/private/tmp/Project 日本語 😀' &&
+        window.tabColor == color &&
+        bindings.windowRepresentedFilePaths.values.single ==
+            '/private/tmp/Project 日本語 😀' &&
+        bindings.windowTabColors.values.single.join(',') == '0.25,0.5,0.75,0.8',
+    'represented path and tab color are copied and cached',
+  );
+  final int operationCount = bindings.operations.length;
+  window
+    ..representedFilePath = '/private/tmp/Project 日本語 😀'
+    ..tabColor = WindowTabColor(red: 0.25, green: 0.5, blue: 0.75, alpha: 0.8);
+  _expect(
+    bindings.operations.length == operationCount,
+    'equal window metadata updates are native no-ops',
+  );
+
+  await _expectThrows<ArgumentError>(() => window.representedFilePath = 'tmp');
+  await _expectThrows<ArgumentError>(() => window.representedFilePath = '');
+  await _expectThrows<ArgumentError>(
+    () => window.representedFilePath = '/tmp/\u0000invalid',
+  );
+  await _expectThrows<ArgumentError>(
+    () => window.representedFilePath = '/tmp/\ud800invalid',
+  );
+  await _expectThrows<ArgumentError>(
+    () => window.representedFilePath =
+        '/${List<String>.filled(4097, 'a').join()}',
+  );
+  await _expectThrows<RangeError>(
+    () => WindowTabColor(red: double.nan, green: 0, blue: 0),
+  );
+  await _expectThrows<RangeError>(
+    () => WindowTabColor(red: 0, green: 0, blue: 1.01),
+  );
+  _expect(
+    window.representedFilePath == '/private/tmp/Project 日本語 😀' &&
+        window.tabColor == color,
+    'invalid updates leave cached metadata unchanged',
+  );
+
+  bindings.failNextOperation = 'windowSetRepresentedFilePath';
+  await _expectThrows<AppKitNativeException>(
+    () => window.representedFilePath = '/private/tmp/other',
+  );
+  bindings.failNextOperation = 'windowSetTabColor';
+  await _expectThrows<AppKitNativeException>(
+    () => window.tabColor = WindowTabColor(red: 1, green: 0, blue: 0),
+  );
+  _expect(
+    window.representedFilePath == '/private/tmp/Project 日本語 😀' &&
+        window.tabColor == color,
+    'native failures leave cached metadata unchanged',
+  );
+
+  window
+    ..representedFilePath = null
+    ..tabColor = null;
+  _expect(
+    window.representedFilePath == null &&
+        window.tabColor == null &&
+        bindings.windowRepresentedFilePaths.isEmpty &&
+        bindings.windowTabColors.isEmpty,
+    'optional presentation metadata clears without extra handles',
+  );
+  window.dispose();
+  await _expectThrows<StateError>(() => window.representedFilePath);
+  await _expectThrows<StateError>(() => window.tabColor);
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testNativeTabsSplitViewAndFocusApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -1407,6 +1499,10 @@ Future<void> main() async {
   await _test(
     'native tabs, split views, and explicit focus',
     _testNativeTabsSplitViewAndFocusApi,
+  );
+  await _test(
+    'window represented path and native-tab color',
+    _testWindowPresentationMetadataApi,
   );
   await _test('key event routing policy', _testKeyEventRoutingPolicy);
   await _test(

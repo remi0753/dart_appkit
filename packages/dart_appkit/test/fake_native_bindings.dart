@@ -41,6 +41,8 @@ final class FakeNativeBindings implements NativeBindings {
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
+  final Map<int, String> windowRepresentedFilePaths = <int, String>{};
+  final Map<int, List<double>> windowTabColors = <int, List<double>>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, List<Uint8List>> customViewOperations =
@@ -400,6 +402,39 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeCallResult windowSetRepresentedFilePath(int handle, String? path) {
+    final NativeCallResult result = _status('windowSetRepresentedFilePath');
+    if (result.isSuccess) {
+      if (path == null) {
+        windowRepresentedFilePaths.remove(handle);
+      } else {
+        windowRepresentedFilePaths[handle] = path;
+      }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSetTabColor({
+    required int handle,
+    required bool hasColor,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  }) {
+    final NativeCallResult result = _status('windowSetTabColor');
+    if (result.isSuccess) {
+      if (hasColor) {
+        windowTabColors[handle] = <double>[red, green, blue, alpha];
+      } else {
+        windowTabColors.remove(handle);
+      }
+    }
+    return result;
+  }
+
+  @override
   NativeCallResult windowAddTabbedWindow(int handle, int tabbedWindowHandle) {
     final NativeCallResult result = _status('windowAddTabbedWindow');
     if (!result.isSuccess) return result;
@@ -613,6 +648,8 @@ final class FakeNativeBindings implements NativeBindings {
     if (result.isSuccess) {
       objects.remove(handle);
       windowTitles.remove(handle);
+      windowRepresentedFilePaths.remove(handle);
+      windowTabColors.remove(handle);
       texts.remove(handle);
       customViewProviders.remove(handle);
       customViewOperations.remove(handle);

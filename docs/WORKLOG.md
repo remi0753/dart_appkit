@@ -3,6 +3,57 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-07 — represented paths and native-tab color markers
+
+### Purpose and boundary
+
+Expose two generic `NSWindow` presentation primitives required by a terminal
+consumer without moving terminal metadata or trust policy into this package.
+An optional absolute represented file path uses the standard proxy-icon/path
+menu. An optional bounded sRGB color uses a small `NSWindowTab` accessory. Both
+remain properties of the existing window and create no additional registry
+handle.
+
+### Scope and verification plan
+
+- Add additive, optional FFI lookups and legacy failure behavior without
+  changing ABI or event protocol versions.
+- Validate main-thread, window-handle generation/type, UTF-8 absolute path,
+  4096-byte path cap, and finite unit color components in the native bridge.
+- Cache only successful set/replace/clear operations in the Dart `Window` and
+  validate equivalent Dart input before crossing FFI.
+- Exercise Objective-C++ state, FFI main-thread errors, legacy symbol absence,
+  fake bindings, failure atomicity, disposal, formatting, analysis, and the
+  complete repository gate before committing.
+
+### Results
+
+- Added cached `Window.representedFilePath` and `Window.tabColor` public state,
+  pre-FFI validation, equality no-ops, failure atomicity, and disposal reset.
+  Legacy images discover both new functions optionally and return the existing
+  unsupported status rather than failing image construction.
+- Added C ABI and Objective-C++ operations that retain proxy/tab presentation
+  under the existing `NSWindow`. Direct native coverage verifies the file URL,
+  Unicode path, exact sRGB components, marker geometry, set/clear, input limits,
+  wrong kind/thread/stale generation, and unchanged registry count.
+- The first focused native build found that the current macOS SDK declares
+  `-[NSColor getRed:green:blue:alpha:]` with a `void` return, while the test had
+  treated it as a Boolean. The test now calls the method and checks all four
+  output components; no bridge or public API behavior changed.
+- The rerun passed the native bridge test, Dart analysis/API/launcher tests,
+  FFI main-thread smoke, and legacy missing-symbol smoke. The complete
+  repository gate remained to be run before commit.
+- `DART_SUPPRESS_ANALYTICS=true CI=true make test` passed scaffold/contract
+  validation, every bridge/runner/runtime/capability/PTY native test, every
+  package analyzer and Dart suite, the example build, FFI main-thread smoke,
+  and legacy event-bridge smoke. All changed Dart sources were formatted.
+- Final path validation accepts well-formed non-BMP filenames (covered by an
+  emoji path) while rejecting an isolated UTF-16 surrogate before FFI. The
+  complete gate passed again after this correction.
+- Diff review found no additional registry object, synchronous Dart callback,
+  terminal policy, or unrelated generated artifact. This AppKit subtask is
+  complete and ready for its independent consumer-pinned commit.
+
 ## 2026-09-03 — T8 started: same-group isolate lifecycle contract
 
 ### Purpose and background

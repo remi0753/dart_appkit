@@ -146,6 +146,13 @@ per-child logical minimum extents, and supports equalize and one-child zoom.
 After installing the split root as content, `Window.makeFirstResponder` can
 target any attached descendant view.
 
+`Window.representedFilePath` sets or clears an absolute local path through the
+standard `NSWindow.representedURL` proxy-icon/path-menu surface. `Window.tabColor`
+sets or clears a small native tab accessory marker using bounded sRGB
+components. Both values are copied, cached by the Dart wrapper, main-thread
+checked, and retained by the existing window; neither allocates a new registry
+handle or assigns product-specific trust policy to AppKit.
+
 Windows default to `KeyEventRouting.dartAndAppKit`, which mirrors key events to
 Dart and retains ordinary AppKit responder behavior. Raw-input surfaces can set
 `window.keyEventRouting = KeyEventRouting.dartOnly`; native main-menu key

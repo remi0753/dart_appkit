@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -1328,6 +1329,99 @@ int32_t da_window_set_title(DaHandle window, const char* title,
   }
   owner.window.title = copied_title;
   return DA_STATUS_OK;
+}
+
+int32_t da_window_set_represented_file_path(DaHandle window, const char* path,
+                                            size_t path_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (path_length > 4096) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "represented file path is too large");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  NSString* copied_path = dart_appkit::CopyUtf8(path, path_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (path_length == 0) {
+    owner.window.representedURL = nil;
+    return DA_STATUS_OK;
+  }
+  if (std::memchr(path, 0, path_length) != nullptr ||
+      !copied_path.isAbsolutePath) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "represented file path must be a non-empty absolute path");
+  }
+  @try {
+    owner.window.representedURL =
+        [NSURL fileURLWithPath:copied_path isDirectory:NO];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "represented file path update failed");
+  }
+}
+
+int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
+                                double red, double green, double blue,
+                                double alpha) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (has_color != 0 && has_color != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "has_color must be 0 or 1");
+  }
+  if (has_color == 1 &&
+      (!std::isfinite(red) || !std::isfinite(green) ||
+       !std::isfinite(blue) || !std::isfinite(alpha) || red < 0.0 ||
+       red > 1.0 || green < 0.0 || green > 1.0 || blue < 0.0 || blue > 1.0 ||
+       alpha < 0.0 || alpha > 1.0)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "tab color components must be finite values from zero to one");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  @try {
+    if (has_color == 0) {
+      owner.window.tab.accessoryView = nil;
+      return DA_STATUS_OK;
+    }
+    NSView* marker = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 8, 8)];
+    marker.translatesAutoresizingMaskIntoConstraints = NO;
+    marker.wantsLayer = YES;
+    marker.layer.backgroundColor =
+        [NSColor colorWithSRGBRed:red green:green blue:blue alpha:alpha].CGColor;
+    marker.layer.cornerRadius = 4;
+    [[marker.widthAnchor constraintEqualToConstant:8] setActive:YES];
+    [[marker.heightAnchor constraintEqualToConstant:8] setActive:YES];
+    owner.window.tab.accessoryView = marker;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native tab color update failed");
+  }
 }
 
 int32_t da_window_add_tabbed_window(DaHandle window,

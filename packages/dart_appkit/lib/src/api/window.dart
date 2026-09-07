@@ -12,6 +12,53 @@ enum KeyEventRouting {
   appKitOnly,
 }
 
+/// Immutable sRGB components for one native window-tab marker.
+final class WindowTabColor {
+  factory WindowTabColor({
+    required double red,
+    required double green,
+    required double blue,
+    double alpha = 1,
+  }) {
+    for (final MapEntry<String, double> component in <String, double>{
+      'red': red,
+      'green': green,
+      'blue': blue,
+      'alpha': alpha,
+    }.entries) {
+      if (!component.value.isFinite ||
+          component.value < 0 ||
+          component.value > 1) {
+        throw RangeError.range(component.value, 0, 1, component.key);
+      }
+    }
+    return WindowTabColor._(red: red, green: green, blue: blue, alpha: alpha);
+  }
+
+  const WindowTabColor._({
+    required this.red,
+    required this.green,
+    required this.blue,
+    required this.alpha,
+  });
+
+  final double red;
+  final double green;
+  final double blue;
+  final double alpha;
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowTabColor &&
+      other.red == red &&
+      other.green == green &&
+      other.blue == blue &&
+      other.alpha == alpha;
+
+  @override
+  int get hashCode => Object.hash(red, green, blue, alpha);
+}
+
 final class Window extends _NativeResource {
   factory Window({required Rect frame, required String title}) {
     final AppKitApplication application = AppKitApplication._requireCurrent();
@@ -46,6 +93,8 @@ final class Window extends _NativeResource {
   bool _occluded = true;
   bool _defersCloseRequests = false;
   KeyEventRouting _keyEventRouting = KeyEventRouting.dartAndAppKit;
+  String? _representedFilePath;
+  WindowTabColor? _tabColor;
   double? _backingScaleFactor;
   AppKitScreen? _screen;
 
@@ -92,6 +141,52 @@ final class Window extends _NativeResource {
     ensureAlive();
     _checkCall(_bindings.windowSetTitle(_handle, value), 'Window.title');
     _title = value;
+  }
+
+  /// Absolute local path represented by the standard window proxy icon.
+  String? get representedFilePath {
+    ensureAlive();
+    return _representedFilePath;
+  }
+
+  set representedFilePath(String? value) {
+    ensureAlive();
+    if (value != null && !_isValidRepresentedFilePath(value)) {
+      throw ArgumentError.value(
+        value,
+        'representedFilePath',
+        'must be a valid absolute UTF-8 path of at most 4096 bytes',
+      );
+    }
+    if (_representedFilePath == value) return;
+    _checkCall(
+      _bindings.windowSetRepresentedFilePath(_handle, value),
+      'Window.representedFilePath',
+    );
+    _representedFilePath = value;
+  }
+
+  /// Optional color shown as a native tab accessory marker.
+  WindowTabColor? get tabColor {
+    ensureAlive();
+    return _tabColor;
+  }
+
+  set tabColor(WindowTabColor? value) {
+    ensureAlive();
+    if (_tabColor == value) return;
+    _checkCall(
+      _bindings.windowSetTabColor(
+        handle: _handle,
+        hasColor: value != null,
+        red: value?.red ?? 0,
+        green: value?.green ?? 0,
+        blue: value?.blue ?? 0,
+        alpha: value?.alpha ?? 0,
+      ),
+      'Window.tabColor',
+    );
+    _tabColor = value;
   }
 
   void addTabbedWindow(Window tabbedWindow) {
@@ -296,6 +391,27 @@ final class Window extends _NativeResource {
     _contentView = null;
     _defersCloseRequests = false;
     _keyEventRouting = KeyEventRouting.dartAndAppKit;
+    _representedFilePath = null;
+    _tabColor = null;
     unawaited(_eventController.close());
+  }
+
+  static bool _isValidRepresentedFilePath(String value) {
+    if (!value.startsWith('/') || value.isEmpty) return false;
+    final List<int> codeUnits = value.codeUnits;
+    for (var index = 0; index < codeUnits.length; index++) {
+      final int codeUnit = codeUnits[index];
+      if (codeUnit == 0) return false;
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+        if (++index >= codeUnits.length ||
+            codeUnits[index] < 0xdc00 ||
+            codeUnits[index] > 0xdfff) {
+          return false;
+        }
+      } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+        return false;
+      }
+    }
+    return utf8.encode(value).length <= 4096;
   }
 }
