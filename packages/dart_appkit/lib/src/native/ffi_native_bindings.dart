@@ -123,6 +123,8 @@ typedef _WindowCreateDart = int Function(
   int,
   Pointer<Uint64>,
 );
+typedef _HandleRectNative = Int32 Function(Uint64, _DaRectNative);
+typedef _HandleRectDart = int Function(int, _DaRectNative);
 typedef _HandleStatusNative = Int32 Function(Uint64);
 typedef _HandleStatusDart = int Function(int);
 typedef _HandleBoolStatusNative = Int32 Function(Uint64, Int32);
@@ -255,6 +257,14 @@ _HandleStatusDart? _lookupWindowRequestClose(DynamicLibrary library) {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
       'da_window_request_close',
     );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_HandleRectDart? _lookupHandleRect(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_HandleRectNative, _HandleRectDart>(symbol);
   } on ArgumentError {
     return null;
   }
@@ -557,6 +567,11 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStatusNative, _HandleStatusDart>(
             'da_window_close',
           ),
+      _windowSetFrame = _lookupHandleRect(library, 'da_window_set_frame'),
+      _windowSetFullscreen = _lookupHandleInt(
+        library,
+        'da_window_set_fullscreen',
+      ),
       _windowRequestClose = _lookupWindowRequestClose(library),
       _windowCloseDeferral = _lookupWindowCloseDeferral(library),
       _windowKeyEventRouting = _lookupWindowKeyEventRouting(library),
@@ -675,6 +690,8 @@ final class FfiNativeBindings implements NativeBindings {
   final _WindowCreateDart _windowCreate;
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
+  final _HandleRectDart? _windowSetFrame;
+  final _HandleBoolStatusDart? _windowSetFullscreen;
   final _HandleStatusDart? _windowRequestClose;
   final _HandleBoolStatusDart? _windowCloseDeferral;
   final _HandleBoolStatusDart? _windowKeyEventRouting;
@@ -1204,6 +1221,47 @@ final class FfiNativeBindings implements NativeBindings {
 
   @override
   NativeCallResult windowClose(int handle) => _callResult(_windowClose(handle));
+
+  @override
+  NativeCallResult windowSetFrame({
+    required int handle,
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) {
+    final _HandleRectDart? function = _windowSetFrame;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support window frame mutation',
+      );
+    }
+    final Pointer<_DaRectNative> rectPointer = _malloc(sizeOf<_DaRectNative>())
+        .cast<_DaRectNative>();
+    try {
+      rectPointer.ref
+        ..x = x
+        ..y = y
+        ..width = width
+        ..height = height;
+      return _callResult(function(handle, rectPointer.ref));
+    } finally {
+      _free(rectPointer.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult windowSetFullscreen(int handle, bool enabled) {
+    final _HandleBoolStatusDart? function = _windowSetFullscreen;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support native fullscreen',
+      );
+    }
+    return _callResult(function(handle, enabled ? 1 : 0));
+  }
 
   @override
   NativeCallResult windowRequestClose(int handle) {

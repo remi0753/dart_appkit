@@ -93,6 +93,9 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return true;
     case DA_EVENT_SCROLL_WHEEL:
       return protocol_version >= 5;
+    case DA_EVENT_WINDOW_FRAME_CHANGED:
+    case DA_EVENT_WINDOW_FULLSCREEN_CHANGED:
+      return protocol_version >= 6;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

@@ -5,7 +5,7 @@ _Static_assert(sizeof(DaHandle) == 8, "DaHandle must be 64-bit");
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 5,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 6,
                "unexpected current event protocol version");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");

@@ -77,13 +77,13 @@ final class Window extends _NativeResource {
     return window;
   }
 
-  Window._(this._application, int handle, this.frame, this._title)
+  Window._(this._application, int handle, this._frame, this._title)
     : _eventController = StreamController<WindowEvent>.broadcast(sync: true),
       super(_application._bindings, handle);
 
   final AppKitApplication _application;
   final StreamController<WindowEvent> _eventController;
-  final Rect frame;
+  Rect _frame;
 
   String _title;
   View? _contentView;
@@ -97,6 +97,8 @@ final class Window extends _NativeResource {
   WindowTabColor? _tabColor;
   double? _backingScaleFactor;
   AppKitScreen? _screen;
+  bool _fullscreen = false;
+  bool? _requestedFullscreen;
 
   Stream<WindowEvent> get events => _eventController.stream;
 
@@ -131,6 +133,36 @@ final class Window extends _NativeResource {
   Stream<WindowScreenChangedEvent> get onScreenChanged => events
       .where((WindowEvent event) => event is WindowScreenChangedEvent)
       .map((WindowEvent event) => event as WindowScreenChangedEvent);
+
+  Stream<WindowFrameChangedEvent> get onFrameChanged => events
+      .where((WindowEvent event) => event is WindowFrameChangedEvent)
+      .map((WindowEvent event) => event as WindowFrameChangedEvent);
+
+  Stream<WindowFullscreenChangedEvent> get onFullscreenChanged => events
+      .where((WindowEvent event) => event is WindowFullscreenChangedEvent)
+      .map((WindowEvent event) => event as WindowFullscreenChangedEvent);
+
+  Rect get frame {
+    ensureAlive();
+    return _frame;
+  }
+
+  set frame(Rect value) {
+    ensureAlive();
+    _validateFrame(value);
+    if (_frame == value) return;
+    _checkCall(
+      _bindings.windowSetFrame(
+        handle: _handle,
+        x: value.left,
+        y: value.top,
+        width: value.width,
+        height: value.height,
+      ),
+      'Window.frame',
+    );
+    _frame = value;
+  }
 
   String get title {
     ensureAlive();
@@ -261,6 +293,24 @@ final class Window extends _NativeResource {
   bool get isOccluded => _occluded;
   double? get backingScaleFactor => _backingScaleFactor;
   AppKitScreen? get screen => _screen;
+  bool get isFullscreen => _fullscreen;
+
+  /// Requests native fullscreen entry or exit.
+  ///
+  /// Completion is asynchronous; [isFullscreen] changes only when AppKit
+  /// publishes the corresponding [WindowFullscreenChangedEvent].
+  void setFullscreen(bool enabled) {
+    ensureAlive();
+    if (_requestedFullscreen == enabled ||
+        _requestedFullscreen == null && _fullscreen == enabled) {
+      return;
+    }
+    _checkCall(
+      _bindings.windowSetFullscreen(_handle, enabled),
+      'Window.setFullscreen',
+    );
+    _requestedFullscreen = enabled;
+  }
 
   bool get defersCloseRequests => _defersCloseRequests;
 
@@ -365,6 +415,11 @@ final class Window extends _NativeResource {
         _backingScaleFactor = backingScaleFactor;
       case WindowScreenChangedEvent(:final screen):
         _screen = screen;
+      case WindowFrameChangedEvent(:final frame):
+        _frame = frame;
+      case WindowFullscreenChangedEvent(:final isFullscreen):
+        _fullscreen = isFullscreen;
+        _requestedFullscreen = null;
       case WindowCloseRequestedEvent() ||
           WindowResizedEvent() ||
           AppKitMouseEvent() ||
@@ -393,6 +448,8 @@ final class Window extends _NativeResource {
     _keyEventRouting = KeyEventRouting.dartAndAppKit;
     _representedFilePath = null;
     _tabColor = null;
+    _fullscreen = false;
+    _requestedFullscreen = null;
     unawaited(_eventController.close());
   }
 
@@ -413,5 +470,20 @@ final class Window extends _NativeResource {
       }
     }
     return utf8.encode(value).length <= 4096;
+  }
+
+  static void _validateFrame(Rect value) {
+    if (!value.left.isFinite ||
+        !value.top.isFinite ||
+        !value.width.isFinite ||
+        !value.height.isFinite ||
+        value.width <= 0 ||
+        value.height <= 0) {
+      throw ArgumentError.value(
+        value,
+        'frame',
+        'must have finite coordinates and positive finite dimensions',
+      );
+    }
   }
 }

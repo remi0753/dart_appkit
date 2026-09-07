@@ -113,6 +113,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 2:
     case 3:
     case 4:
+    case 5:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -147,11 +148,24 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       SetDouble(&values[payload_offset], event.width);
       SetDouble(&values[payload_offset + 1], event.height);
       break;
+    case DA_EVENT_WINDOW_FRAME_CHANGED:
+      if (!std::isfinite(event.x) || !std::isfinite(event.y) ||
+          !std::isfinite(event.width) || !std::isfinite(event.height) ||
+          event.width <= 0.0 || event.height <= 0.0) {
+        return false;
+      }
+      length += 4;
+      SetDouble(&values[payload_offset], event.x);
+      SetDouble(&values[payload_offset + 1], event.y);
+      SetDouble(&values[payload_offset + 2], event.width);
+      SetDouble(&values[payload_offset + 3], event.height);
+      break;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
     case DA_EVENT_APPLICATION_ACTIVE_CHANGED:
     case DA_EVENT_APPLICATION_REOPEN_REQUESTED:
+    case DA_EVENT_WINDOW_FULLSCREEN_CHANGED:
       length += 1;
       SetBool(&values[payload_offset], event.state);
       break;

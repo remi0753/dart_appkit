@@ -1190,6 +1190,50 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
   }
 }
 
+int32_t da_window_set_frame(DaHandle window, DaRect frame) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  const int32_t rect_status = dart_appkit::ValidateRect(frame);
+  if (rect_status != DA_STATUS_OK) {
+    return rect_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  [owner.window setFrame:NSMakeRect(frame.x, frame.y, frame.width, frame.height)
+                 display:YES];
+  [owner daPostFrame:owner.window.frame];
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_set_fullscreen(DaHandle window, int32_t enabled) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (enabled != 0 && enabled != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "enabled must be 0 or 1");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (![owner daSetFullscreen:enabled == 1]) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "opposite fullscreen request is pending completion");
+  }
+  return DA_STATUS_OK;
+}
+
 int32_t da_window_show(DaHandle window) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 5;
+const int dartAppKitCurrentEventProtocolVersion = 6;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 
@@ -87,6 +87,14 @@ abstract interface class NativeBindings {
   });
   NativeCallResult windowShow(int handle);
   NativeCallResult windowClose(int handle);
+  NativeCallResult windowSetFrame({
+    required int handle,
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  });
+  NativeCallResult windowSetFullscreen(int handle, bool enabled);
   NativeCallResult windowRequestClose(int handle);
   NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled);
   NativeCallResult windowSetKeyEventRouting(int handle, int routing);

@@ -75,6 +75,11 @@ void main(List<String> arguments) {
     _fail('legacy bridge did not reject the additive external URL API');
   }
   if (bindings.windowAddTabbedWindow(1, 2).status != 8 ||
+      bindings
+              .windowSetFrame(handle: 1, x: 0, y: 0, width: 640, height: 480)
+              .status !=
+          8 ||
+      bindings.windowSetFullscreen(1, true).status != 8 ||
       bindings.windowSetRepresentedFilePath(1, '/tmp').status != 8 ||
       bindings
               .windowSetTabColor(

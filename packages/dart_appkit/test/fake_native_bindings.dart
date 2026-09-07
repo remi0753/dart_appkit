@@ -41,6 +41,8 @@ final class FakeNativeBindings implements NativeBindings {
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
+  final Map<int, List<double>> windowFrames = <int, List<double>>{};
+  final Map<int, bool> windowFullscreenStates = <int, bool>{};
   final Map<int, String> windowRepresentedFilePaths = <int, String>{};
   final Map<int, List<double>> windowTabColors = <int, List<double>>{};
   final Map<int, String> texts = <int, String>{};
@@ -339,6 +341,8 @@ final class FakeNativeBindings implements NativeBindings {
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.window;
       windowTitles[handle] = title;
+      windowFrames[handle] = <double>[x, y, width, height];
+      windowFullscreenStates[handle] = false;
       windowKeyEventRoutings[handle] = 0;
     }
     return result;
@@ -349,6 +353,28 @@ final class FakeNativeBindings implements NativeBindings {
 
   @override
   NativeCallResult windowClose(int handle) => _status('windowClose');
+
+  @override
+  NativeCallResult windowSetFrame({
+    required int handle,
+    required double x,
+    required double y,
+    required double width,
+    required double height,
+  }) {
+    final NativeCallResult result = _status('windowSetFrame');
+    if (result.isSuccess) {
+      windowFrames[handle] = <double>[x, y, width, height];
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSetFullscreen(int handle, bool enabled) {
+    final NativeCallResult result = _status('windowSetFullscreen');
+    if (result.isSuccess) windowFullscreenStates[handle] = enabled;
+    return result;
+  }
 
   @override
   NativeCallResult windowRequestClose(int handle) {
@@ -648,6 +674,8 @@ final class FakeNativeBindings implements NativeBindings {
     if (result.isSuccess) {
       objects.remove(handle);
       windowTitles.remove(handle);
+      windowFrames.remove(handle);
+      windowFullscreenStates.remove(handle);
       windowRepresentedFilePaths.remove(handle);
       windowTabColors.remove(handle);
       texts.remove(handle);

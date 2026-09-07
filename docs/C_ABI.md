@@ -166,7 +166,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2, 3, and 4 use the six-field common prefix:
+Versions 2 through 6 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -180,11 +180,13 @@ Versions 2, 3, and 4 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 4 use nanoseconds.
+  microseconds; versions 2 through 6 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 4 is current. Version-specific event types are suppressed for an
-  older negotiated sink.
+- Version 6 is current. Version 3 adds window state, version 4 adds lifecycle
+  decisions and menu actions, version 5 adds precision scroll, and version 6
+  adds outer-frame and native-fullscreen state. Version-specific types are
+  suppressed for an older negotiated sink.
 
 Payloads:
 
@@ -198,7 +200,10 @@ Payloads:
 | `WINDOW_BACKING_SCALE_CHANGED` | `scaleFactor: finite positive double` |
 | `WINDOW_SCREEN_CHANGED` | `hasScreen: bool, displayId: int, frame x/y/width/height: double, visible frame x/y/width/height: double` |
 | `WINDOW_CLOSE_REQUESTED` | none; positive operation ID in the prefix |
+| `WINDOW_FRAME_CHANGED` | `x/y/width/height: finite double`; dimensions are positive |
+| `WINDOW_FULLSCREEN_CHANGED` | `isFullscreen: bool` |
 | mouse down/up/moved/dragged | `x: double, y: double, button: int, modifiers: int, clickCount: int` |
+| `SCROLL_WHEEL` | content `x/y`, precise `deltaX/deltaY`, scroll/momentum phase, device inversion, and modifiers |
 | key down/up | `keyCode: int, modifiers: int, isRepeat: bool, characters: string, charactersIgnoringModifiers: string` |
 | `APPLICATION_ACTIVE_CHANGED` | `isActive: bool` |
 | `APPLICATION_REOPEN_REQUESTED` | `hasVisibleWindows: bool` |
@@ -210,6 +215,17 @@ Coordinates use the content view's top-left origin. Modifier values use stable
 Screen rectangles are global AppKit coordinates and may have negative origins.
 An absent screen has a zero identifier and zero rectangles; a present screen
 has a positive identifier and positive dimensions.
+
+`da_window_set_frame` validates a finite outer frame with positive dimensions,
+then asks AppKit to replace it. Native move, resize, and fullscreen callbacks
+publish deduplicated `WINDOW_FRAME_CHANGED` records. `da_window_set_fullscreen`
+accepts only 0 or 1 and starts AppKit's asynchronous native transition. A
+request matching the current or pending target is idempotent; an opposite
+target while a transition is pending returns `DA_STATUS_INVALID_ARGUMENT`.
+The observed state is reported only by a deduplicated
+`WINDOW_FULLSCREEN_CHANGED` record after an enter, exit, or failure callback.
+Both functions are additive symbols; a current Dart client loaded against a
+legacy image returns `DA_STATUS_UNSUPPORTED_VERSION`.
 
 The event poster is injected internally by the Runner. No AppKit delegate enters
 an isolate or invokes a Dart closure synchronously. A post that cannot be queued

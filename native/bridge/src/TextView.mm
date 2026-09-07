@@ -589,6 +589,62 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   }
 }
 
+- (void)daPostFrame:(NSRect)frame {
+  const bool valid = std::isfinite(frame.origin.x) &&
+                     std::isfinite(frame.origin.y) &&
+                     std::isfinite(frame.size.width) &&
+                     std::isfinite(frame.size.height) &&
+                     frame.size.width > 0.0 && frame.size.height > 0.0;
+  if (self.daHandle == 0 || !valid ||
+      (_hasFrameState && NSEqualRects(_lastFrame, frame))) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_FRAME_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.x = frame.origin.x;
+  event.y = frame.origin.y;
+  event.width = frame.size.width;
+  event.height = frame.size.height;
+  if (dart_appkit::PostEvent(event)) {
+    _hasFrameState = YES;
+    _lastFrame = frame;
+  }
+}
+
+- (void)daPostFullscreenState:(BOOL)isFullscreen {
+  if (self.daHandle == 0 ||
+      (_hasFullscreenState && _lastFullscreenState == isFullscreen)) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_WINDOW_FULLSCREEN_CHANGED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.state = isFullscreen;
+  if (dart_appkit::PostEvent(event)) {
+    _hasFullscreenState = YES;
+    _lastFullscreenState = isFullscreen;
+  }
+}
+
+- (BOOL)daSetFullscreen:(BOOL)enabled {
+  const BOOL current =
+      (self.window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  if (_fullscreenTransitionPending) {
+    return _pendingFullscreenTarget == enabled;
+  }
+  if (current == enabled) {
+    [self daPostFullscreenState:current];
+    return YES;
+  }
+  _fullscreenTransitionPending = YES;
+  _pendingFullscreenTarget = enabled;
+  [self.window toggleFullScreen:nil];
+  return YES;
+}
+
 - (void)daPostCurrentWindowState {
   [self daPostFocusState:self.window.isKeyWindow];
   [self daPostVisibilityState:self.window.isVisible &&
@@ -597,6 +653,9 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
                               NSWindowOcclusionStateVisible) == 0];
   [self daPostBackingScaleFactor:self.window.backingScaleFactor];
   [self daPostScreen:self.window.screen];
+  [self daPostFrame:self.window.frame];
+  [self daPostFullscreenState:
+            (self.window.styleMask & NSWindowStyleMaskFullScreen) != 0];
 }
 
 - (void)windowDidBecomeKey:(NSNotification*)notification {
@@ -635,6 +694,37 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   [self daPostScreen:self.window.screen];
 }
 
+- (void)windowDidMove:(NSNotification*)notification {
+  (void)notification;
+  [self daPostFrame:self.window.frame];
+}
+
+- (void)windowDidEnterFullScreen:(NSNotification*)notification {
+  (void)notification;
+  _fullscreenTransitionPending = NO;
+  [self daPostFrame:self.window.frame];
+  [self daPostFullscreenState:YES];
+}
+
+- (void)windowDidExitFullScreen:(NSNotification*)notification {
+  (void)notification;
+  _fullscreenTransitionPending = NO;
+  [self daPostFrame:self.window.frame];
+  [self daPostFullscreenState:NO];
+}
+
+- (void)windowDidFailToEnterFullScreen:(NSWindow*)window {
+  (void)window;
+  _fullscreenTransitionPending = NO;
+  [self daPostFullscreenState:NO];
+}
+
+- (void)windowDidFailToExitFullScreen:(NSWindow*)window {
+  (void)window;
+  _fullscreenTransitionPending = NO;
+  [self daPostFullscreenState:YES];
+}
+
 - (void)windowWillClose:(NSNotification*)notification {
   (void)notification;
   if (self.daHandle == 0) {
@@ -662,6 +752,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   event.width = size.width;
   event.height = size.height;
   dart_appkit::PostEvent(event);
+  [self daPostFrame:self.window.frame];
 }
 
 @end

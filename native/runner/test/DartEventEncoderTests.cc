@@ -148,6 +148,27 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectInt(values[12], DA_SCROLL_PHASE_BEGAN);
     ExpectBool(values[13], false);
     ExpectInt(values[14], DA_MODIFIER_SHIFT);
+  } else if (g_expected_case == 9) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(10));
+    ExpectInt(values[0], 6);
+    ExpectInt(values[1], DA_EVENT_WINDOW_FRAME_CHANGED);
+    ExpectInt(values[2], (static_cast<int64_t>(7) << 32) | 3);
+    ExpectInt(values[3], 7);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectDouble(values[6], -1200.0);
+    ExpectDouble(values[7], 80.0);
+    ExpectDouble(values[8], 920.0);
+    ExpectDouble(values[9], 580.0);
+  } else if (g_expected_case == 10) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(7));
+    ExpectInt(values[0], 6);
+    ExpectInt(values[1], DA_EVENT_WINDOW_FULLSCREEN_CHANGED);
+    ExpectInt(values[2], (static_cast<int64_t>(7) << 32) | 3);
+    ExpectInt(values[3], 7);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectBool(values[6], true);
   } else {
     EXPECT_TRUE(false);
   }
@@ -224,8 +245,29 @@ int main() {
   g_expected_case = 8;
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 5, event));
 
+  event.type = DA_EVENT_WINDOW_FRAME_CHANGED;
+  event.x = -1200.0;
+  event.y = 80.0;
+  event.width = 920.0;
+  event.height = 580.0;
+  g_expected_case = 9;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 6, event));
+
+  event.type = DA_EVENT_WINDOW_FULLSCREEN_CHANGED;
+  event.state = true;
+  g_expected_case = 10;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 6, event));
+
   const int accepted_posts = g_post_count;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 4, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 5, event));
+  event.type = DA_EVENT_WINDOW_FRAME_CHANGED;
+  event.width = 0.0;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 6, event));
+  event.width = 920.0;
+  event.x = std::numeric_limits<double>::infinity();
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 6, event));
+  event.x = -1200.0;
+  event.type = DA_EVENT_SCROLL_WHEEL;
   event.scroll_phase = 3;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 5, event));
   event.scroll_phase = DA_SCROLL_PHASE_CHANGED;
@@ -259,7 +301,7 @@ int main() {
   event.operation_id = 1;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 1, event));
   event.operation_id = 0;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 6, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

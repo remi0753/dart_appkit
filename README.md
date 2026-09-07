@@ -10,16 +10,19 @@ generic, text, registered native-provider, and two-child split views, explicit
 first-responder selection, menus and menu-item actions, periodic `Timer`
 updates, lifecycle/window/input events, 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
-per-window key-event routing, and a restart-based developer command.
+per-window key-event routing, mutable outer frames, asynchronous native
+fullscreen state, and a restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
 the original event set with source generation, nanosecond monotonic time, and
 operation identity. Version 3 adds focus, visibility, occlusion,
-backing-scale, and screen state. Current Dart/native pairs negotiate version 4,
-which adds application active/reopen/termination and user-close request events
-plus menu-item actions while preserving older records. The Dart API decodes all
-four versions.
+backing-scale, and screen state. Version 4 adds application
+active/reopen/termination and user-close request events
+plus menu-item actions while preserving older records. Version 5 adds precision
+scroll input. Current Dart/native pairs negotiate version 6, which adds outer
+window-frame and native-fullscreen state events. The Dart API strictly decodes
+all six versions and suppresses newer records for older negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other
@@ -152,6 +155,14 @@ sets or clears a small native tab accessory marker using bounded sRGB
 components. Both values are copied, cached by the Dart wrapper, main-thread
 checked, and retained by the existing window; neither allocates a new registry
 handle or assigns product-specific trust policy to AppKit.
+
+`Window.frame` is a mutable, finite, positive outer-frame value. Native move and
+resize callbacks publish the resulting AppKit frame, including coordinates on
+screens with negative origins. `Window.setFullscreen` requests AppKit's native
+asynchronous transition; `isFullscreen` changes only when a deduplicated
+completion event arrives. Repeating the current or pending target is a no-op,
+while an opposite request during a transition is rejected instead of guessing
+at AppKit's eventual state.
 
 Windows default to `KeyEventRouting.dartAndAppKit`, which mirrors key events to
 Dart and retains ordinary AppKit responder behavior. Raw-input surfaces can set

@@ -210,6 +210,34 @@ final class WindowScreenChangedEvent extends WindowEvent {
   final AppKitScreen? screen;
 }
 
+final class WindowFrameChangedEvent extends WindowEvent {
+  const WindowFrameChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion = 6,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.frame,
+  });
+
+  final Rect frame;
+}
+
+final class WindowFullscreenChangedEvent extends WindowEvent {
+  const WindowFullscreenChangedEvent({
+    required super.windowHandle,
+    required super.monotonicMicros,
+    super.protocolVersion = 6,
+    super.sourceGeneration,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.isFullscreen,
+  });
+
+  final bool isFullscreen;
+}
+
 enum AppKitMouseEventKind { down, up, moved, dragged }
 
 final class AppKitMouseEvent extends WindowEvent {
@@ -360,11 +388,13 @@ final class _EventCodec {
   static const int _windowBackingScaleChanged = 6;
   static const int _windowScreenChanged = 7;
   static const int _windowCloseRequested = 8;
+  static const int _windowFrameChanged = 9;
   static const int _mouseDown = 10;
   static const int _mouseUp = 11;
   static const int _mouseMoved = 12;
   static const int _mouseDragged = 13;
   static const int _scrollWheel = 14;
+  static const int _windowFullscreenChanged = 15;
   static const int _keyDown = 20;
   static const int _keyUp = 21;
   static const int _applicationActiveChanged = 30;
@@ -549,6 +579,41 @@ final class _EventCodec {
           operationId: operationId,
           screen: _screen(message, payloadOffset),
         );
+      case _windowFrameChanged:
+        _requireVersionSix(version, 'window frame changed');
+        _expectLength(message, payloadOffset + 4, 'window frame changed');
+        final Rect frame = Rect.fromLTWH(
+          _finiteNumber(message, payloadOffset, 'frameLeft'),
+          _finiteNumber(message, payloadOffset + 1, 'frameTop'),
+          _finiteNumber(message, payloadOffset + 2, 'frameWidth'),
+          _finiteNumber(message, payloadOffset + 3, 'frameHeight'),
+        );
+        if (frame.width <= 0 || frame.height <= 0) {
+          throw const FormatException(
+            'window frame dimensions must be positive',
+          );
+        }
+        return WindowFrameChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          frame: frame,
+        );
+      case _windowFullscreenChanged:
+        _requireVersionSix(version, 'window fullscreen changed');
+        _expectLength(message, payloadOffset + 1, 'window fullscreen changed');
+        return WindowFullscreenChangedEvent(
+          windowHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          isFullscreen: _boolean(message, payloadOffset, 'isFullscreen'),
+        );
       case _mouseDown:
       case _mouseUp:
       case _mouseMoved:
@@ -726,6 +791,12 @@ final class _EventCodec {
   static void _requireVersionFive(int version, String eventName) {
     if (version < 5) {
       throw FormatException('$eventName requires native event protocol 5');
+    }
+  }
+
+  static void _requireVersionSix(int version, String eventName) {
+    if (version < 6) {
+      throw FormatException('$eventName requires native event protocol 6');
     }
   }
 

@@ -81,16 +81,18 @@ version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
 `[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2
-through 4 use
+through 6 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
 ...payload]`. Version 3 adds window focus, visibility, occlusion,
 backing-scale, and screen events. Those types are suppressed before posting to
 a version-1/2 sink. Version 4 adds application active/reopen/termination,
 user-close request, and menu-action records; these are suppressed for v1-v3.
+Version 5 adds precision scroll records and version 6 adds outer-frame and
+native-fullscreen state records; each is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
 operation ID zero, while deferred close and termination requests carry a
-positive reply identity. The Dart decoder accepts all four versions, preserves
+positive reply identity. The Dart decoder accepts all six versions, preserves
 the existing `monotonicMicros` API, and exposes exact negotiated metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
@@ -99,12 +101,20 @@ field order and timestamp unit. The Runner owns the shared encoder; consuming
 AOT hosts use the same encoder to prevent JIT/AOT wire drift.
 
 After `makeKeyAndOrderFront:`, the window owner posts one deduplicated snapshot
-of key focus, normalized visibility, occlusion, backing scale, and associated
-screen. Delegate callbacks post later transitions. Visibility means
+of key focus, normalized visibility, occlusion, backing scale, associated
+screen, outer frame, and native fullscreen state. Delegate callbacks post later
+transitions. Visibility means
 `isVisible && !isMiniaturized`; occlusion independently means that
 `NSWindowOcclusionStateVisible` is absent. Screen events carry an explicit
 presence bit, the unsigned `NSScreenNumber` value widened to 64 bits, and full
 plus visible frames in global AppKit point coordinates.
+
+Frame mutation is synchronous at the C ABI boundary, but the authoritative
+observed frame is also published from AppKit move/resize/fullscreen callbacks.
+Fullscreen mutation is only a request: repeated current or pending targets are
+idempotent, an opposite target while AppKit is transitioning is rejected, and
+the Dart cache changes only after the enter/exit or failure callback publishes
+the observed state. Neither callback synchronously enters Dart.
 
 Event-port registration posts an application-active snapshot, after which
 AppDelegate posts active/resign and reopen transitions. User close and

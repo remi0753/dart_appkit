@@ -96,6 +96,10 @@ Future<void> main(List<String> arguments) async {
                 ? 'screen unavailable'
                 : 'screen ${screen.displayId} frame=${screen.frame}',
           );
+        case WindowFrameChangedEvent(:final frame):
+          stdout.writeln('window frame $frame');
+        case WindowFullscreenChangedEvent(:final isFullscreen):
+          stdout.writeln('fullscreen $isFullscreen');
         case AppKitMouseEvent(:final kind, :final x, :final y, :final button):
           stdout.writeln(
             'mouse ${kind.name} button=$button '

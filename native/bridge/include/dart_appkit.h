@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)5)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)6)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -87,11 +87,13 @@ typedef enum DaEventType {
   DA_EVENT_WINDOW_BACKING_SCALE_CHANGED = 6,
   DA_EVENT_WINDOW_SCREEN_CHANGED = 7,
   DA_EVENT_WINDOW_CLOSE_REQUESTED = 8,
+  DA_EVENT_WINDOW_FRAME_CHANGED = 9,
   DA_EVENT_MOUSE_DOWN = 10,
   DA_EVENT_MOUSE_UP = 11,
   DA_EVENT_MOUSE_MOVED = 12,
   DA_EVENT_MOUSE_DRAGGED = 13,
   DA_EVENT_SCROLL_WHEEL = 14,
+  DA_EVENT_WINDOW_FULLSCREEN_CHANGED = 15,
   DA_EVENT_KEY_DOWN = 20,
   DA_EVENT_KEY_UP = 21,
   DA_EVENT_APPLICATION_ACTIVE_CHANGED = 30,
@@ -256,6 +258,17 @@ DA_EXPORT int32_t da_menu_item_perform_action(DaHandle item);
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_create(DaRect frame, const char* title,
                                    size_t title_length, DaHandle* out_window);
+
+/** Main thread only. Replaces the finite positive outer window frame. */
+DA_EXPORT int32_t da_window_set_frame(DaHandle window, DaRect frame);
+
+/**
+ * Main thread only. Requests native AppKit fullscreen entry or exit.
+ *
+ * enabled must be 0 or 1. Completion is asynchronous and is reported by
+ * DA_EVENT_WINDOW_FULLSCREEN_CHANGED under event protocol version 6.
+ */
+DA_EXPORT int32_t da_window_set_fullscreen(DaHandle window, int32_t enabled);
 
 /** Main thread only. */
 DA_EXPORT int32_t da_window_show(DaHandle window);

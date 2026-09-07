@@ -92,6 +92,22 @@ void main(List<String> arguments) {
   if (tabGroup.isSuccess || tabGroup.status != 5 || tabGroup.message.isEmpty) {
     _fail('window-tab FFI did not preserve its main-thread guard');
   }
+  final NativeCallResult windowFrame = bindings.windowSetFrame(
+    handle: 1,
+    x: 10,
+    y: 20,
+    width: 640,
+    height: 480,
+  );
+  final NativeCallResult fullscreen = bindings.windowSetFullscreen(1, true);
+  if (windowFrame.isSuccess ||
+      windowFrame.status != 5 ||
+      windowFrame.message.isEmpty ||
+      fullscreen.isSuccess ||
+      fullscreen.status != 5 ||
+      fullscreen.message.isEmpty) {
+    _fail('window placement FFI did not preserve its main-thread guard');
+  }
   final NativeCallResult representedPath = bindings
       .windowSetRepresentedFilePath(1, '/private/tmp');
   final NativeCallResult tabColor = bindings.windowSetTabColor(

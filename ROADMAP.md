@@ -56,8 +56,9 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   既存pipelineへ統合することである。
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
-  event protocol v5のprecision scroll、boundedなplain-text pasteboard read、allowlist付き
-  外部URL起動、capability loading、PTY、process exit 0に加え、terminal rendererのC/C++ ABI、
+  event protocol v5のprecision scrollとv6のouter-frame／native-fullscreen state、
+  boundedなplain-text pasteboard read、allowlist付き外部URL起動、capability loading、PTY、
+  process exit 0に加え、terminal rendererのC/C++ ABI、
   CoreText font／shape／top-down raster、Metal readback／submission、atlas reset、failure state、
   renderer metrics、Dart facade、bounded `NSTextInputClient` event、candidate geometry、
   deterministic input-source matrix、読み取り専用AppKit accessibilityである。
@@ -94,6 +95,7 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 固定styleのWindow生成、表示、title変更、programmatic close、user close request、
   close deferralを実装。
 - resize、focus、visibility、occlusion、backing scale、接続screenの状態イベントを実装。
+- outer frameの変更と観測、および非同期native fullscreen要求と完了イベントを実装。
 - 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装。
 - dependencyが登録したnative `NSView` を `View.custom()` で生成できる仕組みを実装。
 - Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、`http`、`https`、
@@ -108,7 +110,7 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   `appKitOnly` をWindow単位で選択可能にした。
 - event protocol v5に、flipped content座標、pixel精度delta、通常／momentum phase、
   device inversion、modifierを持つWindow発生元の `AppKitScrollEvent` を追加。
-- input、window、application eventをversion 1〜5でstrict decode／routeし、旧protocolでは
+- input、window、application eventをversion 1〜6でstrict decode／routeし、旧protocolでは
   新しいeventを安全に除外する仕組みを実装。
 
 ### [x] B4 — MenuとプレーンテキストPasteboard
@@ -213,7 +215,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - empty／populated atlas reset、stale／active-slot rejection、生成時failure分類、drawable miss、
   明示的presentation retry、command encoding／completion fault、fault後のadmission停止、
   GPU timing／atlas upload metricsをdeterministic fault injection込みで検証。
-- event protocol v5のscroll encoder／strict Dart decoder／旧protocol filtering、64 MiB
+- event protocol v5のscrollとv6のframe／fullscreen encoder／strict Dart decoder／
+  旧protocol filtering、64 MiB
   pasteboard read上限、外部URLのDart/native二重validationとLaunch Services recorderを検証。
 - terminal text inputについて、staged raw／preedit／commit／cancel、candidate geometry更新、
   overflow／bound、ASCII・CJK・emoji・modifier・repeatのdeterministic input-source matrixを検証。
@@ -339,7 +342,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   device inversion、modifierを持つtyped `AppKitScrollEvent` を追加した。
 - `KeyEventRouting.appKitOnly` を追加し、menu shortcut処理後のkeyをDartのWindow eventへ
   重複配送せず、first-responder／`NSTextInputClient` chainだけへ渡せるようにした。
-- v1〜v5のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
+- v1〜v6のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
 
 未実装:
 

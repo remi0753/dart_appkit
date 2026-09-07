@@ -83,8 +83,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 5 &&
-        app.eventProtocolVersion == 5,
+        bindings.requestedMaximumEventProtocolVersion == 6 &&
+        app.eventProtocolVersion == 6,
     'current event protocol negotiation',
   );
 
@@ -275,6 +275,74 @@ Future<void> _testWindowPresentationMetadataApi() async {
   window.dispose();
   await _expectThrows<StateError>(() => window.representedFilePath);
   await _expectThrows<StateError>(() => window.tabColor);
+  await app.terminate();
+  await raw.close();
+}
+
+Future<void> _testWindowFrameAndFullscreenApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (7 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window window = Window(
+    frame: const Rect.fromLTWH(20, 30, 640, 480),
+    title: 'Placement',
+  );
+  final int handle = bindings.objects.keys.single;
+  const Rect moved = Rect.fromLTWH(-1200, 80, 920, 580);
+
+  final int beforeNoOp = bindings.operations.length;
+  window.frame = window.frame;
+  _expect(
+    bindings.operations.length == beforeNoOp,
+    'equal frame mutation is a native no-op',
+  );
+  window.frame = moved;
+  _expect(
+    window.frame == moved &&
+        bindings.windowFrames[handle]!.join(',') == '-1200.0,80.0,920.0,580.0',
+    'finite outer frame is copied and cached',
+  );
+  await _expectThrows<ArgumentError>(
+    () => window.frame = const Rect.fromLTWH(0, 0, 0, 100),
+  );
+  await _expectThrows<ArgumentError>(
+    () => window.frame = Rect.fromLTWH(double.nan, 0, 100, 100),
+  );
+  bindings.failNextOperation = 'windowSetFrame';
+  await _expectThrows<AppKitNativeException>(
+    () => window.frame = const Rect.fromLTWH(1, 2, 300, 200),
+  );
+  _expect(
+    window.frame == moved,
+    'native frame failure retains cached geometry',
+  );
+
+  window.setFullscreen(true);
+  final int afterFullscreenRequest = bindings.operations.length;
+  window.setFullscreen(true);
+  _expect(
+    !window.isFullscreen &&
+        bindings.windowFullscreenStates[handle] == true &&
+        bindings.operations.length == afterFullscreenRequest,
+    'fullscreen request is deduplicated while observed state remains async',
+  );
+  raw.add(<Object?>[6, 15, handle, 7, 400000, 0, true]);
+  _expect(window.isFullscreen, 'fullscreen completion updates cached state');
+  window.setFullscreen(false);
+  _expect(
+    bindings.windowFullscreenStates[handle] == false,
+    'fullscreen exit request reaches the native boundary',
+  );
+  bindings.failNextOperation = 'windowSetFullscreen';
+  await _expectThrows<AppKitNativeException>(() => window.setFullscreen(true));
+  _expect(window.isFullscreen, 'failed exit/request does not invent state');
+
+  window.dispose();
+  await _expectThrows<StateError>(() => window.frame);
+  await _expectThrows<StateError>(() => window.setFullscreen(false));
   await app.terminate();
   await raw.close();
 }
@@ -721,6 +789,10 @@ Future<void> _testWindowStateEvents() async {
             window.backingScaleFactor == backingScaleFactor;
       case WindowScreenChangedEvent(:final screen):
         cachedStateWasCurrent &= window.screen == screen;
+      case WindowFrameChangedEvent(:final frame):
+        cachedStateWasCurrent &= window.frame == frame;
+      case WindowFullscreenChangedEvent(:final isFullscreen):
+        cachedStateWasCurrent &= window.isFullscreen == isFullscreen;
       case WindowClosedEvent() ||
           WindowCloseRequestedEvent() ||
           WindowResizedEvent() ||
@@ -737,6 +809,8 @@ Future<void> _testWindowStateEvents() async {
   var occlusionCount = 0;
   var backingScaleCount = 0;
   var screenCount = 0;
+  var frameCount = 0;
+  var fullscreenCount = 0;
   final List<StreamSubscription<WindowEvent>> subscriptions =
       <StreamSubscription<WindowEvent>>[
         window.onFocusChanged.listen(
@@ -753,6 +827,12 @@ Future<void> _testWindowStateEvents() async {
         ),
         window.onScreenChanged.listen(
           (WindowScreenChangedEvent event) => ++screenCount,
+        ),
+        window.onFrameChanged.listen(
+          (WindowFrameChangedEvent event) => ++frameCount,
+        ),
+        window.onFullscreenChanged.listen(
+          (WindowFullscreenChangedEvent event) => ++fullscreenCount,
         ),
       ];
 
@@ -778,7 +858,9 @@ Future<void> _testWindowStateEvents() async {
       25.0,
       1920.0,
       1055.0,
-    ]);
+    ])
+    ..add(<Object?>[6, 9, handle, 7, 304001, 0, -1200.0, 80.0, 920.0, 580.0])
+    ..add(<Object?>[6, 15, handle, 7, 304002, 0, true]);
 
   const AppKitScreen expectedScreen = AppKitScreen(
     displayId: 55,
@@ -790,13 +872,20 @@ Future<void> _testWindowStateEvents() async {
   _expect(!window.isOccluded, 'occlusion state cached');
   _expect(window.backingScaleFactor == 2.0, 'backing scale cached');
   _expect(window.screen == expectedScreen, 'screen state cached');
+  _expect(
+    window.frame == const Rect.fromLTWH(-1200, 80, 920, 580),
+    'outer frame state cached',
+  );
+  _expect(window.isFullscreen, 'fullscreen state cached');
   _expect(cachedStateWasCurrent, 'state updated before application observer');
   _expect(
     focusCount == 1 &&
         visibilityCount == 1 &&
         occlusionCount == 1 &&
         backingScaleCount == 1 &&
-        screenCount == 1,
+        screenCount == 1 &&
+        frameCount == 1 &&
+        fullscreenCount == 1,
     'typed state streams',
   );
 
@@ -820,7 +909,7 @@ Future<void> _testWindowStateEvents() async {
   ]);
   _expect(window.screen == null, 'absent screen cached');
   _expect(screenCount == 2, 'absent screen event routed');
-  _expect(appEvents.length == 6, 'all state events reach application');
+  _expect(appEvents.length == 8, 'all state events reach application');
 
   raw
     ..add(<Object?>[2, 3, handle, 7, 306000, 0, true])
@@ -881,9 +970,13 @@ Future<void> _testWindowStateEvents() async {
       0.0,
       100.0,
       100.0,
-    ]);
+    ])
+    ..add(<Object?>[5, 9, handle, 7, 314000, 0, 0.0, 0.0, 100.0, 100.0])
+    ..add(<Object?>[6, 9, handle, 7, 315000, 0, 0.0, 0.0, 0.0, 100.0])
+    ..add(<Object?>[6, 15, handle, 7, 316000, 0, 1])
+    ..add(<Object?>[6, 15, handle, 7, 317000, 0]);
   _expect(
-    streamErrors.length == 8 &&
+    streamErrors.length == 12 &&
         streamErrors.every((Object error) => error is FormatException),
     'malformed state events are surfaced',
   );
@@ -1503,6 +1596,10 @@ Future<void> main() async {
   await _test(
     'window represented path and native-tab color',
     _testWindowPresentationMetadataApi,
+  );
+  await _test(
+    'window frame and asynchronous fullscreen state',
+    _testWindowFrameAndFullscreenApi,
   );
   await _test('key event routing policy', _testKeyEventRoutingPolicy);
   await _test(

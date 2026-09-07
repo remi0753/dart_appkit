@@ -3,6 +3,76 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-07 — mutable window frames and native fullscreen state
+
+### Purpose and boundary
+
+Provide the generic AppKit primitives needed by a consumer to restore and track
+window placement without moving product restoration policy into this package.
+The bridge owns only a finite positive outer frame, the currently observed
+native fullscreen state, and AppKit's asynchronous transition lifecycle. Screen
+selection, placement migration, persistence, terminal hierarchy, and reopen
+policy remain consumer responsibilities.
+
+### Scope and decisions
+
+- Add optional ABI-v1 symbols for synchronous frame mutation and asynchronous
+  fullscreen requests. Current Dart bindings discover them lazily and report
+  the established unsupported-version status against an older native image.
+- Extend the independently negotiated event protocol to version 6 with strict,
+  immutable outer-frame and fullscreen-state records. Version 1 through 5
+  layouts remain byte-for-byte unchanged, and v6-only records are suppressed
+  for older sinks.
+- Publish a deduplicated frame/fullscreen snapshot after a window is shown and
+  publish later move, resize, fullscreen-completion, and transition-failure
+  observations from `NSWindowDelegate`. No delegate synchronously enters Dart.
+- Treat a request matching the observed or pending fullscreen target as an
+  idempotent success. Reject an opposite target during a native transition so
+  Dart cannot cache a guessed state; update `Window.isFullscreen` only from the
+  observed completion event.
+- Keep `Window.frame` failure-atomic and validate finite coordinates plus
+  positive finite dimensions at both Dart and native boundaries. Negative
+  origins remain valid for multi-screen AppKit coordinates.
+
+### Tests and findings
+
+- Native bridge coverage verifies frame set/deduplication, fullscreen current
+  state, show-time snapshots, transition callbacks, invalid values, wrong
+  handle kind, wrong thread, stale generation, and v5 filtering of both new
+  event types. The shared runner encoder covers exact v6 records, malformed
+  frame values, and v5 suppression.
+- Dart coverage verifies public typed events/streams, cache-before-observer
+  ordering, frame mutation/deduplication/failure atomicity, pending fullscreen
+  behavior, malformed records, disposal, fake bindings, FFI thread guards, and
+  legacy missing-symbol failures.
+- The first focused native run exposed three obsolete fixture assumptions:
+  protocol 6 was still expected to be unsupported, changing a frame also emits
+  the pre-existing content-resize event, and the current scroll capture now
+  carries the negotiated protocol rather than literal version 5. Updating only
+  those expectations made the bridge, encoder, and Dart suites pass; no product
+  contract was weakened.
+- A later callback-coverage addition first passed `nil` to delegate parameters
+  annotated nonnull by the current macOS SDK, which the warning-as-error build
+  correctly rejected. The fixture now supplies real enter/exit notifications
+  and the owned window to failure callbacks; production code was unaffected.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test
+  event-encoder-test dart-test` passes, including warning-clean Objective-C++,
+  the C/C++ public header checks, Dart analysis, API tests, and launcher tests.
+  The first complete-gate invocation could not link its first test executable
+  because the managed workspace denied writes to this adjacent repository's
+  `build/` directory; this was an execution-environment restriction, not a
+  compiler or test failure. Re-running the identical command with the required
+  scoped permission succeeded.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold
+  validation; warning-clean C11/C++20 headers and native bridge, runner,
+  runtime, capability, renderer, and PTY tests; Dart analysis and tests for all
+  packages; manifest JIT/AOT assembly; hello-window Kernel compilation; FFI
+  main-thread coverage; and the legacy-event bridge fallback.
+- Final diff review found no change to C ABI version, no synchronous native-to-
+  Dart callback, no product restoration policy, and no generated artifact in
+  the tracked change. The event version is the only wire-contract increment,
+  and exact v1-v5 behavior remains covered.
+
 ## 2026-09-07 — represented paths and native-tab color markers
 
 ### Purpose and boundary

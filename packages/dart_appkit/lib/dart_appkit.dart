@@ -38,6 +38,8 @@ export 'src/api.dart'
         WindowCloseRequestedEvent,
         WindowEvent,
         WindowFocusChangedEvent,
+        WindowFrameChangedEvent,
+        WindowFullscreenChangedEvent,
         WindowOcclusionChangedEvent,
         WindowResizedEvent,
         WindowScreenChangedEvent,

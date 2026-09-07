@@ -480,6 +480,21 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(5));
 
+  event.type = DA_EVENT_WINDOW_FRAME_CHANGED;
+  event.x = 10.0;
+  event.y = -20.0;
+  event.width = 640.0;
+  event.height = 480.0;
+  const size_t before_version_six_frame = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_six_frame);
+
+  event.type = DA_EVENT_WINDOW_FULLSCREEN_CHANGED;
+  event.state = true;
+  const size_t before_version_six_fullscreen = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_six_fullscreen);
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 3, &selected_version),
@@ -513,7 +528,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 6, 6, &selected_version),
+      da_application_set_event_port_versioned(4242, 7, 7, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1358,8 +1373,13 @@ void TestWindowStateEvents() {
   [owner daPostBackingScaleFactor:2.0];
   [owner daPostScreen:nil];
   [owner daPostScreen:nil];
+  const DaRect moved_frame = {-1200.0, 80.0, 920.0, 580.0};
+  EXPECT_EQ(da_window_set_frame(window_handle, moved_frame), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_frame(window_handle, moved_frame), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_fullscreen(window_handle, 0), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_fullscreen(window_handle, 0), DA_STATUS_OK);
 
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(5));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(8));
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_FOCUS_CHANGED),
             static_cast<size_t>(1));
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_VISIBILITY_CHANGED),
@@ -1369,6 +1389,12 @@ void TestWindowStateEvents() {
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_BACKING_SCALE_CHANGED),
             static_cast<size_t>(1));
   EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_FRAME_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_FULLSCREEN_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_WINDOW_RESIZED),
             static_cast<size_t>(1));
   for (size_t index = 0; index < capture.events.size(); ++index) {
     EXPECT_EQ(capture.protocol_versions[index],
@@ -1382,20 +1408,47 @@ void TestWindowStateEvents() {
   EXPECT_TRUE(std::abs(capture.events[3].backing_scale_factor - 2.0) < 0.001);
   EXPECT_TRUE(!capture.events[4].has_screen);
   EXPECT_EQ(capture.events[4].screen_id, static_cast<int64_t>(0));
+  EXPECT_TRUE(std::abs(capture.events[6].x + 1200.0) < 0.001);
+  EXPECT_TRUE(std::abs(capture.events[6].y - 80.0) < 0.001);
+  EXPECT_TRUE(std::abs(capture.events[6].width - 920.0) < 0.001);
+  EXPECT_TRUE(std::abs(capture.events[6].height - 580.0) < 0.001);
+  EXPECT_TRUE(!capture.events[7].state);
+
+  EXPECT_EQ(da_window_set_fullscreen(window_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_frame(window_handle,
+                                DaRect{0.0, 0.0, 0.0, 100.0}),
+            DA_STATUS_INVALID_ARGUMENT);
+  const DaHandle wrong_kind = CreateView();
+  EXPECT_EQ(da_window_set_frame(wrong_kind, moved_frame),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_set_fullscreen(wrong_kind, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  std::atomic<int32_t> frame_worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> fullscreen_worker_status{DA_STATUS_OK};
+  std::thread state_worker([&]() {
+    frame_worker_status.store(da_window_set_frame(window_handle, moved_frame));
+    fullscreen_worker_status.store(
+        da_window_set_fullscreen(window_handle, 0));
+  });
+  state_worker.join();
+  EXPECT_EQ(frame_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(fullscreen_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
 
   [owner daPostFocusState:NO];
   [owner daPostVisibilityState:NO];
   [owner daPostOcclusionState:YES];
   [owner daPostBackingScaleFactor:1.0];
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(9));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(12));
   [owner daPostBackingScaleFactor:0.0];
   [owner daPostBackingScaleFactor:std::numeric_limits<double>::quiet_NaN()];
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(9));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(12));
 
   NSScreen* screen = NSScreen.screens.firstObject;
   if (screen != nil) {
     [owner daPostScreen:screen];
-    EXPECT_EQ(capture.events.size(), static_cast<size_t>(10));
+    EXPECT_EQ(capture.events.size(), static_cast<size_t>(13));
     const dart_appkit::NativeEvent& screen_event = capture.events.back();
     EXPECT_EQ(screen_event.type, DA_EVENT_WINDOW_SCREEN_CHANGED);
     EXPECT_TRUE(screen_event.has_screen);
@@ -1405,9 +1458,37 @@ void TestWindowStateEvents() {
     EXPECT_TRUE(screen_event.visible_screen_width > 0.0);
     EXPECT_TRUE(screen_event.visible_screen_height > 0.0);
     [owner daPostScreen:screen];
-    EXPECT_EQ(capture.events.size(), static_cast<size_t>(10));
+    EXPECT_EQ(capture.events.size(), static_cast<size_t>(13));
   }
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_window_set_frame(window_handle, moved_frame),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_window_set_fullscreen(window_handle, 0),
+            DA_STATUS_INVALID_HANDLE);
+
+  Capture transition_capture;
+  ResetWithCurrentCapture(&transition_capture);
+  const DaHandle transition_window = CreateWindow();
+  DaWindowOwner* transition_owner = OwnerFor(transition_window);
+  [transition_owner daPostFullscreenState:NO];
+  id<NSWindowDelegate> transition_delegate = transition_owner;
+  NSNotification* enter_notification = [NSNotification
+      notificationWithName:NSWindowDidEnterFullScreenNotification
+                    object:transition_owner.window];
+  NSNotification* exit_notification = [NSNotification
+      notificationWithName:NSWindowDidExitFullScreenNotification
+                    object:transition_owner.window];
+  [transition_delegate windowDidEnterFullScreen:enter_notification];
+  [transition_delegate windowDidEnterFullScreen:enter_notification];
+  [transition_delegate windowDidExitFullScreen:exit_notification];
+  [transition_delegate windowDidExitFullScreen:exit_notification];
+  [transition_delegate windowDidFailToEnterFullScreen:transition_owner.window];
+  [transition_delegate windowDidFailToExitFullScreen:transition_owner.window];
+  EXPECT_EQ(
+      CountEvents(transition_capture, DA_EVENT_WINDOW_FULLSCREEN_CHANGED),
+      static_cast<size_t>(4));
+  EXPECT_TRUE(transition_capture.events.back().state);
+  EXPECT_EQ(da_release(transition_window), DA_STATUS_OK);
 
   Capture snapshot_capture;
   ResetWithCurrentCapture(&snapshot_capture);
@@ -1424,6 +1505,11 @@ void TestWindowStateEvents() {
       static_cast<size_t>(1));
   EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_SCREEN_CHANGED),
             static_cast<size_t>(1));
+  EXPECT_EQ(CountEvents(snapshot_capture, DA_EVENT_WINDOW_FRAME_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(
+      CountEvents(snapshot_capture, DA_EVENT_WINDOW_FULLSCREEN_CHANGED),
+      static_cast<size_t>(1));
   const size_t snapshot_size = snapshot_capture.events.size();
   [OwnerFor(shown_window) daPostCurrentWindowState];
   EXPECT_EQ(snapshot_capture.events.size(), snapshot_size);
@@ -1532,7 +1618,8 @@ void TestScrollInputEvent() {
   [owner.window daPostInputEvent:scroll];
 
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(5));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
   const dart_appkit::NativeEvent& event = capture.events[0];
   EXPECT_EQ(event.type, DA_EVENT_SCROLL_WHEEL);
   EXPECT_TRUE(std::abs(event.x - 12.5) < 0.001);
