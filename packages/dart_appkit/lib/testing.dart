@@ -2,4 +2,7 @@
 library;
 
 export 'src/api.dart'
-    show injectRawAppKitEventForTesting, nativeWindowHandleForTesting;
+    show
+        attachApplicationForTesting,
+        injectRawAppKitEventForTesting,
+        nativeWindowHandleForTesting;

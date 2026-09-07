@@ -54,6 +54,26 @@ handle.
   terminal policy, or unrelated generated artifact. This AppKit subtask is
   complete and ready for its independent consumer-pinned commit.
 
+### Consumer export correction
+
+The first terminal-consumer analyzer run after commit `5e085cf` found that
+`WindowTabColor` was present in `src/api.dart` and all package tests but absent
+from the curated `package:dart_appkit/dart_appkit.dart` export list. No FFI or
+native behavior failed. The public symbol is now exported, and the primary Dart
+API test imports the public library rather than the internal source library so
+this consumer boundary is covered directly. This correction requires a normal
+follow-up commit; the prior commit will not be amended.
+
+The first public-import test run then exposed that the package's documented
+testing library exported raw-event injection but not its existing application
+attachment helper. That helper is now exported only from `testing.dart`, and
+the API test accesses it through the explicit testing namespace while all
+production types continue to come from the public production library.
+
+The public-import Dart test and complete repository gate now pass with no
+analyzer issue. This follow-up changes only curated exports and test coverage;
+the previously verified C ABI and native implementation are unchanged.
+
 ## 2026-09-03 — T8 started: same-group isolate lifecycle contract
 
 ### Purpose and background

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dart_appkit/src/api.dart';
+import 'package:dart_appkit/dart_appkit.dart';
 import 'package:dart_appkit/testing.dart' as testing;
 
 import 'fake_native_bindings.dart';
@@ -46,7 +46,7 @@ Future<AppKitApplication> _attach(
   FakeNativeBindings bindings,
   StreamController<Object?> rawEvents,
 ) {
-  return attachApplicationForTesting(
+  return testing.attachApplicationForTesting(
     bindings: bindings,
     events: rawEvents.stream,
   );
