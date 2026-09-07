@@ -1165,6 +1165,8 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
                   styleMask:style
                     backing:NSBackingStoreBuffered
                       defer:NO];
+    [window setFrame:NSMakeRect(frame.x, frame.y, frame.width, frame.height)
+             display:NO];
     window.title = copied_title;
     window.releasedWhenClosed = NO;
     window.acceptsMouseMovedEvents = YES;

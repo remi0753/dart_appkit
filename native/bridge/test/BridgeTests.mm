@@ -1362,6 +1362,11 @@ void TestWindowStateEvents() {
   ResetWithCurrentCapture(&capture);
   const DaHandle window_handle = CreateWindow();
   DaWindowOwner* owner = OwnerFor(window_handle);
+  const NSRect created_frame = owner.window.frame;
+  EXPECT_TRUE(std::abs(created_frame.origin.x - 100.0) < 0.001);
+  EXPECT_TRUE(std::abs(created_frame.origin.y - 100.0) < 0.001);
+  EXPECT_TRUE(std::abs(created_frame.size.width - 640.0) < 0.001);
+  EXPECT_TRUE(std::abs(created_frame.size.height - 480.0) < 0.001);
 
   [owner daPostFocusState:YES];
   [owner daPostFocusState:YES];

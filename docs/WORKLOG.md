@@ -94,6 +94,33 @@ will be committed normally rather than amending the substrate commit. Focused
 `DART_SUPPRESS_ANALYTICS=true CI=true make test` both pass after the correction,
 including every native, Dart, JIT/AOT manifest, FFI, and legacy-image gate.
 
+### Consumer outer-frame creation correction
+
+The terminal restoration acceptance exposed a remaining inconsistency in the
+same public frame contract. `da_window_create` passed the requested rectangle
+to `initWithContentRect`, so the native outer frame included title-bar and
+border insets, while the cached Dart constructor value and later
+`da_window_set_frame` calls treated the rectangle as the outer frame. A real
+fullscreen exit therefore sometimes reported a larger window than the
+pre-fullscreen cached value, depending on whether the show-time frame event had
+arrived before the consumer captured its safe placement.
+
+Creation now normalizes the new native window to the requested outer frame
+before installing its owner, handle, or delegate. This cannot publish an extra
+event and changes no ABI or event ordering. The native window-state fixture
+checks all four components of the initial outer frame so constructor and setter
+semantics cannot diverge again. Focused and complete verification results are
+recorded below after execution.
+
+`DART_SUPPRESS_ANALYTICS=true CI=true make native-test` passed the
+warning-clean Objective-C++ bridge suite. The complete
+`DART_SUPPRESS_ANALYTICS=true CI=true make test` gate also passed scaffold and
+header validation, every bridge/runner/runtime/capability/renderer/PTY native
+suite, all Dart analysis and tests, JIT/AOT manifest assembly, Kernel
+compilation, real FFI loading, and the legacy-event fallback. Diff review found
+only the pre-owner frame normalization, its exact native assertion, and this
+evidence record; no generated build output is tracked.
+
 ## 2026-09-07 — represented paths and native-tab color markers
 
 ### Purpose and boundary
