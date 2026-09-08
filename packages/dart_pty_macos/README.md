@@ -35,6 +35,13 @@ The Dart native facade acknowledges a copied OUTPUT event only after its
 synchronous stream delivery returns, so a consumer can make the configured
 watermarks represent work it has actually accepted rather than merely a queued
 listener message.
+`PtyCommand.readBatchesPerEventLoopTurn` accepts zero or a limit from one to
+eight. Zero is the default and preserves immediate ACK and existing native read
+behavior. With a nonzero limit, native delivery retains at most one unacknowledged
+batch; the Dart facade immediately acknowledges the first `limit - 1`
+synchronously consumed batches and schedules the limit-th ACK on a later event
+turn. Consumers can therefore choose their own fairness/throughput budget
+without imposing terminal-specific scheduling on other applications.
 
 `PtyProcess.close()` starts the graceful SIGHUP/deadline policy.
 `PtyProcess.forceClose()` is a separate lifecycle operation that remains valid

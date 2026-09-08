@@ -80,14 +80,27 @@ Future<void> main(List<String> arguments) async {
     _expectThrows<RangeError>(
       () => PtyCommand(executable: '/bin/zsh', readBatchBytes: 64 * 1024 + 1),
     );
+    _expectThrows<RangeError>(
+      () => PtyCommand(executable: '/bin/zsh', readBatchesPerEventLoopTurn: -1),
+    );
+    _expectThrows<RangeError>(
+      () => PtyCommand(executable: '/bin/zsh', readBatchesPerEventLoopTurn: 9),
+    );
     _expect(
       PtyCommand(executable: '/bin/zsh').readBatchBytes == 64 * 1024 &&
+          PtyCommand(executable: '/bin/zsh').readBatchesPerEventLoopTurn == 0 &&
           PtyCommand(
                 executable: '/bin/zsh',
                 readBatchBytes: 4 * 1024,
+                readBatchesPerEventLoopTurn: 4,
               ).readBatchBytes ==
-              4 * 1024,
-      'default and consumer-specific read batches are retained',
+              4 * 1024 &&
+          PtyCommand(
+                executable: '/bin/zsh',
+                readBatchesPerEventLoopTurn: 4,
+              ).readBatchesPerEventLoopTurn ==
+              4,
+      'default and consumer-specific read scheduling is retained',
     );
     _expectThrows<ArgumentError>(
       () => PtyCommand(
@@ -258,6 +271,92 @@ Future<void> main(List<String> arguments) async {
     await process.dispose();
     _expect(_liveSessionCount() == 0, 'real native session is released');
   });
+
+  await _test(
+    'cooperative read batches enforce a configurable Dart turn limit',
+    () async {
+      final PtyProcess process = await startPty(
+        PtyCommand(
+          executable: '/bin/sh',
+          arguments: const <String>[
+            '-c',
+            "/bin/stty -echo; printf __DPTY_COOPERATIVE_READY__; "
+                "IFS= read -r ready; "
+                "/usr/bin/head -c 1048576 /dev/zero | "
+                "/usr/bin/tr '\\000' x",
+          ],
+          includeParentEnvironment: false,
+          readBatchBytes: 4 * 1024,
+          readBatchesPerEventLoopTurn: 4,
+        ),
+        readHighWaterBytes: 4 * 1024,
+        readLowWaterBytes: 0,
+      );
+      var callbackCount = 0;
+      var outputBytes = 0;
+      var eventTurnRequired = false;
+      var exceededTurnLimit = false;
+      var maximumBatchBytes = 0;
+      var measuring = false;
+      final StringBuffer startupOutput = StringBuffer();
+      final Completer<void> ready = Completer<void>();
+      final StreamSubscription<Uint8List> subscription = process.output.listen((
+        Uint8List bytes,
+      ) {
+        if (eventTurnRequired) {
+          exceededTurnLimit = true;
+        }
+        ++callbackCount;
+        if (callbackCount % 4 == 0) {
+          eventTurnRequired = true;
+          Timer.run(() {
+            eventTurnRequired = false;
+          });
+        }
+        if (!measuring) {
+          startupOutput.write(utf8.decode(bytes, allowMalformed: true));
+          if (startupOutput.toString().contains('__DPTY_COOPERATIVE_READY__')) {
+            measuring = true;
+            ready.complete();
+          }
+          return;
+        }
+        outputBytes += bytes.length;
+        if (bytes.length > maximumBatchBytes) {
+          maximumBatchBytes = bytes.length;
+        }
+      });
+      await ready.future.timeout(const Duration(seconds: 3));
+      _expect(
+        process.write(Uint8List.fromList(<int>[0x0a])) ==
+            PtyWriteResult.accepted,
+        'cooperative output starts only after its listener is installed',
+      );
+      final PtyExit exit = await process.exit.timeout(
+        const Duration(seconds: 10),
+      );
+      final PtyStats? stats = process.finalStats;
+      await subscription.cancel();
+      await process.dispose();
+      _expect(
+        exit.exitCode == 0 &&
+            outputBytes == 1024 * 1024 &&
+            callbackCount > 1 &&
+            maximumBatchBytes <= 4 * 1024 &&
+            stats?.readBatches == callbackCount &&
+            stats?.readPauseCount == callbackCount &&
+            (stats?.maxReadInFlightBytes ?? 4 * 1024 + 1) <= 4 * 1024 &&
+            !exceededTurnLimit,
+        'one event-loop turn separates each bounded four-callback group: '
+        'exit=${exit.exitCode} bytes=$outputBytes callbacks=$callbackCount '
+        'max_batch=$maximumBatchBytes exceeded_limit=$exceededTurnLimit',
+      );
+      _expect(
+        _liveSessionCount() == 0,
+        'cooperative native session is released',
+      );
+    },
+  );
 
   await _test('closed parent stdin cannot alias child PTY stdin', () async {
     final Process helper = await Process.start(

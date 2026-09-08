@@ -119,6 +119,9 @@ typedef struct DptySessionConfigV1 {
   // Zero preserves the 64 KiB default. Nonzero values cap one OUTPUT event
   // without changing the aggregate read watermarks or ordered ACK contract.
   size_t read_batch_bytes;
+  // Zero preserves existing delivery. Values 1..8 serialize native OUTPUT
+  // batches and let the Dart facade yield after this many consumer callbacks.
+  uint32_t read_batches_per_event_loop_turn;
 } DptySessionConfigV1;
 
 typedef struct DptySessionStatsV1 {

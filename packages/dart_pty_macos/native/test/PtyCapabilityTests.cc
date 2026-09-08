@@ -207,13 +207,17 @@ DptySessionHandle Create(Api* api, Events* events, const char* executable,
                          size_t low_water = 128 * 1024,
                          size_t write_capacity = 64 * 1024,
                          bool diagnostics = false, size_t read_batch = 0,
-                         bool legacy_config_prefix = false) {
+                         bool legacy_config_prefix = false,
+                         bool previous_config_prefix = false,
+                         uint32_t read_batches_per_event_loop_turn = 0) {
   const char* environment[] = {"PATH=/usr/bin:/bin", "TERM=xterm-256color",
                                "HOME=/private/tmp"};
   DptySessionConfigV1 config = {};
-  config.struct_size = legacy_config_prefix
-                           ? offsetof(DptySessionConfigV1, read_batch_bytes)
-                           : sizeof(config);
+  config.struct_size =
+      legacy_config_prefix ? offsetof(DptySessionConfigV1, read_batch_bytes)
+      : previous_config_prefix
+          ? offsetof(DptySessionConfigV1, read_batches_per_event_loop_turn)
+          : sizeof(config);
   config.abi_version = DPTY_ABI_VERSION;
   config.executable = executable;
   config.arguments = arguments.data();
@@ -230,6 +234,7 @@ DptySessionHandle Create(Api* api, Events* events, const char* executable,
   config.callback_context = events;
   config.diagnostics_enabled = diagnostics ? 1 : 0;
   config.read_batch_bytes = read_batch;
+  config.read_batches_per_event_loop_turn = read_batches_per_event_loop_turn;
   DptySessionHandle session = 0;
   Expect(api->create(&config, &session) == DPTY_STATUS_OK,
          "session configuration is copied");
@@ -245,7 +250,7 @@ void TestReadBatchConfiguration(Api* api) {
       "printf __DPTY_BATCH_COMPLETE__"};
   const DptySessionHandle configured =
       Create(api, &configured_events, "/bin/sh", configured_arguments,
-             256 * 1024, 128 * 1024, 64 * 1024, false, 4 * 1024);
+             256 * 1024, 128 * 1024, 64 * 1024, false, 4 * 1024, false, true);
   Expect(api->start(configured) == DPTY_STATUS_OK,
          "configured read-batch session starts");
   Expect(WaitForMarker(&configured_events, "__DPTY_BATCH_COMPLETE__",
@@ -259,7 +264,7 @@ void TestReadBatchConfiguration(Api* api) {
     Expect(configured_events.maximum_output_batch > 0 &&
                configured_events.maximum_output_batch <= 4 * 1024 &&
                configured_events.x_bytes >= 1024 * 1024,
-           "configured output callbacks obey the smaller exact bound");
+           "previous config prefix preserves its read-batch bound");
   }
   Expect(api->destroy(configured) == DPTY_STATUS_OK,
          "configured read-batch session is destroyed");

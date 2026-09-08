@@ -83,6 +83,9 @@ final class _SessionConfig extends Struct {
 
   @Size()
   external int readBatchBytes;
+
+  @Uint32()
+  external int readBatchesPerEventLoopTurn;
 }
 
 final class _NativeStats extends Struct {
@@ -647,7 +650,8 @@ final class MacosPtyBackend implements PtyBackend {
         ..callback = _eventCallback.nativeFunction
         ..callbackContext = nullptr
         ..diagnosticsEnabled = enableDiagnostics ? 1 : 0
-        ..readBatchBytes = command.readBatchBytes;
+        ..readBatchBytes = command.readBatchBytes
+        ..readBatchesPerEventLoopTurn = command.readBatchesPerEventLoopTurn;
       final Pointer<Uint64> output = arena<Uint64>();
       final int createStatus = _functions.sessionCreate(config, output);
       if (createStatus != _statusOk || output.value == 0) {
@@ -659,6 +663,7 @@ final class MacosPtyBackend implements PtyBackend {
       final _MacosPtyProcess process = _MacosPtyProcess(
         output.value,
         _functions,
+        readBatchesPerEventLoopTurn: command.readBatchesPerEventLoopTurn,
       );
       _sessions[output.value] = process;
       _refreshCallbackKeepAlive();
@@ -681,10 +686,15 @@ final class MacosPtyBackend implements PtyBackend {
 }
 
 final class _MacosPtyProcess implements PtyProcess {
-  _MacosPtyProcess(this._handle, this._functions);
+  _MacosPtyProcess(
+    this._handle,
+    this._functions, {
+    required int readBatchesPerEventLoopTurn,
+  }) : _readBatchesPerEventLoopTurn = readBatchesPerEventLoopTurn;
 
   final int _handle;
   final _PtyFunctions _functions;
+  final int _readBatchesPerEventLoopTurn;
   final Completer<void> _started = Completer<void>();
   final Completer<PtyExit> _exit = Completer<PtyExit>();
   final StreamController<Uint8List> _output = StreamController<Uint8List>(
@@ -695,6 +705,7 @@ final class _MacosPtyProcess implements PtyProcess {
   int _pid = -1;
   bool _finished = false;
   bool _disposed = false;
+  int _readBatchesSinceEventLoopYield = 0;
   PtyStats? _finalStats;
 
   @override
@@ -861,11 +872,22 @@ final class _MacosPtyProcess implements PtyProcess {
     if (!_finished) {
       _output.add(bytes);
     }
-    final int status = _functions.sessionAckOutput(
-      _handle,
-      sequence,
-      bytes.length,
-    );
+    if (_readBatchesPerEventLoopTurn > 0) {
+      ++_readBatchesSinceEventLoopYield;
+      if (_readBatchesSinceEventLoopYield >= _readBatchesPerEventLoopTurn) {
+        _readBatchesSinceEventLoopYield = 0;
+        Timer.run(() => _acknowledgeOutput(sequence, bytes.length));
+        return;
+      }
+    }
+    _acknowledgeOutput(sequence, bytes.length);
+  }
+
+  void _acknowledgeOutput(int sequence, int length) {
+    if (_finished) {
+      return;
+    }
+    final int status = _functions.sessionAckOutput(_handle, sequence, length);
     if (status != _statusOk) {
       _didFail(
         PtyException(

@@ -38,6 +38,7 @@ final class PtyCommand {
     this.workingDirectory,
     this.loginShell = false,
     this.readBatchBytes = defaultReadBatchBytes,
+    this.readBatchesPerEventLoopTurn = 0,
   }) : arguments = List<String>.unmodifiable(arguments),
        environment = Map<String, String>.unmodifiable(environment) {
     if (!executable.startsWith('/') || executable.contains('\u0000')) {
@@ -53,6 +54,15 @@ final class PtyCommand {
         1,
         maximumReadBatchBytes,
         'readBatchBytes',
+      );
+    }
+    if (readBatchesPerEventLoopTurn < 0 ||
+        readBatchesPerEventLoopTurn > maximumReadBatchesPerEventLoopTurn) {
+      throw RangeError.range(
+        readBatchesPerEventLoopTurn,
+        0,
+        maximumReadBatchesPerEventLoopTurn,
+        'readBatchesPerEventLoopTurn',
       );
     }
     final String? directory = workingDirectory;
@@ -94,9 +104,11 @@ final class PtyCommand {
   final String? workingDirectory;
   final bool loginShell;
   final int readBatchBytes;
+  final int readBatchesPerEventLoopTurn;
 
   static const int defaultReadBatchBytes = 64 * 1024;
   static const int maximumReadBatchBytes = 64 * 1024;
+  static const int maximumReadBatchesPerEventLoopTurn = 8;
 }
 
 enum PtySignal { interrupt, suspend, quit, hangup, terminate, kill }

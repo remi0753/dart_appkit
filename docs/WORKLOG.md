@@ -2299,3 +2299,92 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   every package analysis and Dart suite, launcher/Kernel compilation, FFI
   smoke, and legacy-event fallback all remained green. Native code compiled
   warning-clean under C11/C++20 and the worktree diff passed whitespace checks.
+
+## 2026-09-09 — Cooperative Dart event turns between bounded PTY batches
+
+- The consuming terminal's isolated Developer JIT and Release AOT 100 MiB
+  cross-pane gates passed after 4 KiB delivery and consumer-completed ACK, but
+  a complete runtime matrix reproduced Release AOT input starvation: 1022984
+  microseconds during flood versus a 23901-microsecond same-launch idle
+  baseline (42.801x). The input still preceded flood completion and all native
+  credit, render scheduling, frame, and cleanup bounds held.
+- A 4 KiB high-water mark limits retained bytes but immediate ACK on the same
+  Dart native-listener event lets the reactor enqueue the same port's successor
+  indefinitely. That does not guarantee a ready timer or another PTY port a
+  turn. `PtyCommand.yieldBetweenReadBatches` therefore adds an opt-in Dart
+  facade policy: synchronous consumer delivery still finishes first, then the
+  ordered ACK runs on a later event-loop turn. The default remains false, and
+  the C ABI/native reactor are unchanged.
+- The initial implementation paired equal batch/high-water sizes and zero low
+  water with the deferred ACK. Its new real 1 MiB/4 KiB test was intended to
+  pin the false default, true opt-in, exact one-turn separation, byte/batch
+  bounds, exit, and zero live-session cleanup before the full consumer matrix.
+- The first focused test rejected the assumption that equal byte batch/high
+  water alone means one outstanding event. It received 1025 callbacks for
+  1048578 bytes with a 1024-byte natural maximum and observed adjacent
+  callbacks without the timer barrier. The extra two bytes were the input line
+  echoed before the child applied `stty -echo`; more importantly, partial
+  `read(2)` results let the native reactor fill 4 KiB with several events before
+  Dart handled the first one.
+- The size-prefixed config therefore appends an opt-in cooperative flag. Native
+  reads pause before publishing each opted-in batch and resume only after its
+  ordered ACK; the Dart facade defers that ACK by one event turn. A config
+  prefix ending before the new flag still retains the previously added
+  `read_batch_bytes`, while the older prefix retains the 64 KiB default. The
+  real test now waits for an echo-disabled readiness marker before releasing
+  its exact 1 MiB payload, so byte accounting and turn separation are both
+  deterministic.
+- Warning-clean native and Dart focused suites pass with the one-batch pause,
+  deferred ACK, readiness handshake, exact 1 MiB accounting, and all existing
+  lifecycle cases. Aggregating immediately available nonblocking reads into
+  the configured 4 KiB batch also passed those suites, but did not restore
+  product throughput: Developer JIT met the fairness gate at 8186 versus 25606
+  microseconds (0.320x), then the complete hierarchy still exceeded its 120
+  second outer deadline after the flood.
+- The next bounded design would retain exactly one native batch in flight,
+  ACK the first three synchronously consumed callbacks immediately, and defer
+  every fourth ACK to the next Dart event turn. This caps one port's chain at
+  four parser callbacks while reducing timer turns by four. The edit was not
+  applied because automated safety review requested explicit user approval for
+  the immediate/deferred ACK interaction; the worktree remains at the slower
+  one-yield-per-batch implementation pending that approval.
+- The user explicitly approved the maximum-four-callback design and required
+  `dart_appkit` to remain a flexible general-purpose library. The public option
+  is therefore `readBatchesPerEventLoopTurn`, not a terminal-specific boolean:
+  zero preserves every prior consumer's immediate ACK/native delivery, while
+  values one through eight select an application-owned fairness budget. The
+  terminal alone opts in and currently passes two; no package default changes.
+- For any nonzero limit, native retains at most one unacknowledged batch. The
+  facade ACKs the first `limit - 1` synchronous deliveries immediately and
+  defers only the limit-th ACK. Thus limit one is the conservative prior trial,
+  limit four bounds a port to four callbacks, and limit eight offers a larger
+  throughput budget without changing byte order. Real coverage also correlates
+  callback count with native batch/pause stats and maximum in-flight bytes.
+- Focused native and Dart PTY suites passed the configurable limit. The first
+  Developer JIT product rerun then completed the exact 100 MiB fairness work at
+  27115 microseconds versus a 26539-microsecond baseline (1.022x), but failed
+  final cleanup with native destroy status 3. The native exit loop considered
+  any in-flight byte count below the high-water mark to be sufficient capacity
+  for `FinishExit`; a final partial batch can satisfy that condition while it
+  is still unacknowledged, so exit publication raced the deferred ACK and
+  `CanDestroy` correctly refused the nonempty outstanding queue.
+- Exit must instead wait for `outstanding_` to be empty after EOF. Cooperative
+  delivery already marks each batch read-paused, so its existing watermark ACK
+  wake is sufficient; ordinary delivery retains its bounded reactor poll. This
+  generic lifecycle correction keeps every payload owned until its exact ACK
+  without adding cross-thread exit state.
+- Focused PTY suites passed that correction and the next Developer JIT product
+  run proved exact cleanup, but its four-callback consumer sample varied to
+  57337 versus 24357 microseconds (2.355x). The reusable package retains its
+  configurable zero-through-eight API; the terminal consumer is free to choose
+  two for greater latency margin while other applications keep zero or select
+  their own tested budget.
+- The terminal's two-callback selection passed the real four-pane hierarchy in
+  both supported runtimes with exact 100 MiB accounting and clean native
+  teardown. Developer JIT measured 27210 versus 26221 microseconds (1.038x),
+  and Release AOT measured 23723 versus 25299 microseconds (0.938x).
+- `make test` passed the complete adjacent repository after the configurable
+  API and outstanding-empty exit correction, including warning-clean native
+  bridge tests, all package analyzers, the real configurable-turn PTY case,
+  AppKit API tests, launcher tests, and FFI smoke tests. Formatting reported no
+  source changes.

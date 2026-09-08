@@ -79,6 +79,7 @@ struct OwnedConfig {
   size_t read_high_water = 0;
   size_t read_low_water = 0;
   size_t read_batch = kDefaultReadBatchBytes;
+  uint32_t read_batches_per_event_loop_turn = 0;
   size_t write_capacity = 0;
   dpty_event_callback_v1 callback = nullptr;
   void* callback_context = nullptr;
@@ -88,7 +89,11 @@ struct OwnedConfig {
 bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
   constexpr size_t kMinimumConfigSize =
       offsetof(DptySessionConfigV1, read_batch_bytes);
+  constexpr size_t kReadBatchConfigSize =
+      offsetof(DptySessionConfigV1, read_batches_per_event_loop_turn);
   const bool has_read_batch =
+      source != nullptr && source->struct_size >= kReadBatchConfigSize;
+  const bool has_read_turn_limit =
       source != nullptr && source->struct_size >= sizeof(DptySessionConfigV1);
   if (source == nullptr || target == nullptr ||
       source->struct_size < kMinimumConfigSize ||
@@ -104,7 +109,9 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
       source->write_capacity_bytes == 0 ||
       source->write_capacity_bytes > kMaximumQueueBytes ||
       source->diagnostics_enabled > 1 ||
-      (has_read_batch && source->read_batch_bytes > kDefaultReadBatchBytes)) {
+      (has_read_batch && source->read_batch_bytes > kDefaultReadBatchBytes) ||
+      (has_read_turn_limit &&
+       source->read_batches_per_event_loop_turn > kMaximumReadBatchesPerTurn)) {
     (void)SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
                    "PTY session configuration is invalid");
     return false;
@@ -155,6 +162,8 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
   target->read_batch = has_read_batch && source->read_batch_bytes != 0
                            ? source->read_batch_bytes
                            : kDefaultReadBatchBytes;
+  target->read_batches_per_event_loop_turn =
+      has_read_turn_limit ? source->read_batches_per_event_loop_turn : 0;
   target->write_capacity = source->write_capacity_bytes;
   target->callback = source->callback;
   target->callback_context = source->callback_context;
@@ -715,13 +724,15 @@ class Session final : public std::enable_shared_from_this<Session> {
       if (child_completed_) {
         ReadAvailable();
         bool outstanding_capacity = false;
+        bool outstanding_empty = false;
         {
           const std::lock_guard<std::mutex> lock(mutex_);
           outstanding_capacity =
               read_in_flight_bytes_ < config_.read_high_water;
+          outstanding_empty = outstanding_.empty();
         }
         if (master_eof_ || !outstanding_capacity) {
-          if (!outstanding_capacity) {
+          if (!outstanding_empty) {
             continue;
           }
           FinishExit();
@@ -825,12 +836,45 @@ class Session final : public std::enable_shared_from_this<Session> {
         return;
       }
       std::vector<uint8_t> bytes(available);
-      const ssize_t count = read(master_fd_, bytes.data(), bytes.size());
-      if (count > 0) {
-        bytes.resize(static_cast<size_t>(count));
+      size_t collected = 0;
+      size_t read_attempts = 0;
+      bool terminal_read = false;
+      for (;;) {
+        const ssize_t count = read(master_fd_, bytes.data() + collected,
+                                   bytes.size() - collected);
+        if (count > 0) {
+          collected += static_cast<size_t>(count);
+          ++read_attempts;
+          if (config_.read_batches_per_event_loop_turn == 0 ||
+              collected == bytes.size() ||
+              read_attempts >= kMaximumReadBatchesPerTurn) {
+            break;
+          }
+          continue;
+        }
+        if (count == 0 || (count < 0 && errno == EIO)) {
+          terminal_read = true;
+          break;
+        }
+        if (errno == EINTR) {
+          continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          break;
+        }
+        terminal_read = true;
+        break;
+      }
+      if (terminal_read) {
+        master_eof_ = true;
+        SetReadEnabled(false);
+      }
+      if (collected > 0) {
+        bytes.resize(collected);
         uint64_t sequence = 0;
         const uint8_t* data = nullptr;
         size_t length = 0;
+        bool yield_after_batch = false;
         {
           const std::lock_guard<std::mutex> lock(mutex_);
           sequence = next_sequence_++;
@@ -843,9 +887,23 @@ class Session final : public std::enable_shared_from_this<Session> {
           ++read_batches_;
           max_read_in_flight_bytes_ =
               std::max(max_read_in_flight_bytes_, read_in_flight_bytes_);
+          if (config_.read_batches_per_event_loop_turn != 0) {
+            read_paused_ = true;
+            ++read_pause_count_;
+            yield_after_batch = true;
+          }
+        }
+        if (yield_after_batch) {
+          SetReadEnabled(false);
         }
         Emit(DPTY_EVENT_OUTPUT, sequence, data, length, 0, 0, 0);
         ++batches;
+        if (yield_after_batch) {
+          return;
+        }
+        if (terminal_read) {
+          return;
+        }
         if (batches >= kMaximumReadBatchesPerTurn) {
           read_retry_requested_ = true;
           Wake();
@@ -853,19 +911,9 @@ class Session final : public std::enable_shared_from_this<Session> {
         }
         continue;
       }
-      if (count == 0 || (count < 0 && errno == EIO)) {
-        master_eof_ = true;
-        SetReadEnabled(false);
+      if (terminal_read) {
         return;
       }
-      if (errno == EINTR) {
-        continue;
-      }
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        return;
-      }
-      master_eof_ = true;
-      SetReadEnabled(false);
       return;
     }
   }
