@@ -432,6 +432,12 @@ DA_EXPORT int32_t da_debug_is_main_thread(int32_t* out_is_main_thread);
 /** Main thread only. Returns the number of live registry handles. */
 DA_EXPORT int32_t da_debug_live_object_count(uint64_t* out_count);
 
+/**
+ * Main thread only. Test hook that enters the ordinary deferred application
+ * termination decision without terminating the host process.
+ */
+DA_EXPORT int32_t da_debug_request_application_termination(void);
+
 #if defined(__cplusplus)
 }  // extern "C"
 #endif

@@ -30,6 +30,7 @@ final class FakeNativeBindings implements NativeBindings {
   int? requestedMaximumEventProtocolVersion;
   bool terminateCalled = false;
   bool applicationTerminationDeferral = false;
+  int debugApplicationTerminationRequestCount = 0;
   int? applicationTerminationReplyOperationId;
   bool? applicationTerminationReplyAllow;
   bool externalUrlOpenResult = true;
@@ -157,6 +158,17 @@ final class FakeNativeBindings implements NativeBindings {
     if (result.isSuccess) {
       applicationTerminationReplyOperationId = operationId;
       applicationTerminationReplyAllow = allow;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult debugRequestApplicationTermination() {
+    final NativeCallResult result = _status(
+      'debugRequestApplicationTermination',
+    );
+    if (result.isSuccess) {
+      debugApplicationTerminationRequestCount++;
     }
     return result;
   }

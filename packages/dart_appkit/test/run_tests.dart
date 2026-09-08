@@ -1046,6 +1046,11 @@ Future<void> _testLifecycleRequestEvents() async {
         bindings.windowCloseDeferrals[handle] == true,
     'native lifecycle deferral enabled',
   );
+  testing.requestApplicationTerminationForTesting(app);
+  _expect(
+    bindings.debugApplicationTerminationRequestCount == 1,
+    'test-only application termination request forwarded',
+  );
   window.requestClose();
   _expect(
     bindings.windowCloseRequests.single == handle,

@@ -563,8 +563,7 @@ void TestLifecycleRequests() {
   EXPECT_EQ(da_application_set_termination_request_deferral(2),
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_application_set_termination_request_deferral(1), DA_STATUS_OK);
-  EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
-              dart_appkit::ApplicationTerminationDecision::kTerminateLater);
+  EXPECT_EQ(da_debug_request_application_termination(), DA_STATUS_OK);
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
   const int64_t termination_operation = capture.events.back().operation_id;
   EXPECT_EQ(capture.events.back().type,

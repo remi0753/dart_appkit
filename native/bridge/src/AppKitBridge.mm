@@ -1919,3 +1919,18 @@ int32_t da_debug_live_object_count(uint64_t* out_count) {
       static_cast<uint64_t>(dart_appkit::ObjectRegistry::Shared().live_count());
   return DA_STATUS_OK;
 }
+
+int32_t da_debug_request_application_termination(void) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (dart_appkit::HandleApplicationShouldTerminate() !=
+      dart_appkit::ApplicationTerminationDecision::kTerminateLater) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "debug application termination requires active deferral and event port");
+  }
+  return DA_STATUS_OK;
+}

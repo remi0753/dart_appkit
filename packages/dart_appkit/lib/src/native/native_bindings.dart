@@ -142,6 +142,7 @@ abstract interface class NativeBindings {
   NativeCallResult release(int handle);
   NativeValueResult<int> debugIsMainThread();
   NativeValueResult<int> debugLiveObjectCount();
+  NativeCallResult debugRequestApplicationTermination();
 
   void attachFinalizer(Finalizable value, int handle, Object detachKey);
   void detachFinalizer(Object detachKey);

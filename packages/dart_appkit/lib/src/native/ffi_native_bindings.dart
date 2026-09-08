@@ -240,6 +240,16 @@ _OperationReplyDart? _lookupApplicationTerminationReply(
   }
 }
 
+_NoArgsStatusDart? _lookupNoArgsStatus(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_NoArgsStatusNative, _NoArgsStatusDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _ExternalUrlOpenDart? _lookupApplicationOpenExternalUrl(
   DynamicLibrary library,
 ) {
@@ -542,6 +552,10 @@ final class FfiNativeBindings implements NativeBindings {
       _applicationTerminationReply = _lookupApplicationTerminationReply(
         library,
       ),
+      _debugRequestApplicationTermination = _lookupNoArgsStatus(
+        library,
+        'da_debug_request_application_termination',
+      ),
       _applicationOpenExternalUrl = _lookupApplicationOpenExternalUrl(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
@@ -674,6 +688,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _NoArgsStatusDart _terminate;
   final _BoolStatusDart? _applicationTerminationDeferral;
   final _OperationReplyDart? _applicationTerminationReply;
+  final _NoArgsStatusDart? _debugRequestApplicationTermination;
   final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
@@ -874,6 +889,18 @@ final class FfiNativeBindings implements NativeBindings {
       );
     }
     return _callResult(function(operationId, allow ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult debugRequestApplicationTermination() {
+    final _NoArgsStatusDart? function = _debugRequestApplicationTermination;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support debug termination requests',
+      );
+    }
+    return _callResult(function());
   }
 
   @override

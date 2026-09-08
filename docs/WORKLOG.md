@@ -2230,3 +2230,17 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   diagnostics, and external-reap recovery. The complete `make test` also
   passes all bridge, Runner, runtime, renderer, PTY, package, launcher, Kernel,
   FFI, and legacy-event checks.
+
+## 2026-09-08 — Test-only deferred application-termination request
+
+- Purpose: let a real product integration fixture enter AppKit's native
+  deferred application-termination state and validate its operation-ID reply
+  without terminating the host before the fixture can inspect atomic refusal.
+- The main-thread-only `da_debug_request_application_termination` calls the
+  same `HandleApplicationShouldTerminate` state machine as the runtime
+  delegate, requires it to return terminate-later, and never enables the
+  programmatic termination bypass. It is exposed to Dart only through
+  `package:dart_appkit/testing.dart`.
+- The hook adds no event or payload type and leaves `DA_ABI_VERSION` and event
+  protocol v6 unchanged. FFI lookup is optional so an older bridge fails with
+  typed unsupported status only when the test hook is requested.

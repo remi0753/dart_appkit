@@ -378,3 +378,16 @@ void injectRawAppKitEventForTesting(
 ///
 /// This hook is exported only from `package:dart_appkit/testing.dart`.
 int nativeWindowHandleForTesting(Window window) => window._handle;
+
+/// Enters the real native deferred-termination state machine without asking
+/// the host process to exit. Exported only from `package:dart_appkit/testing.dart`.
+void requestApplicationTerminationForTesting(AppKitApplication application) {
+  if (!identical(AppKitApplication._current, application) ||
+      application._terminated) {
+    throw StateError('the supplied AppKit application is not attached');
+  }
+  _checkCall(
+    application._bindings.debugRequestApplicationTermination(),
+    'requestApplicationTerminationForTesting',
+  );
+}

@@ -194,6 +194,12 @@ Versions 2 through 6 use the six-field common prefix:
   adds outer-frame and native-fullscreen state. Version-specific types are
   suppressed for an older negotiated sink.
 
+`da_debug_request_application_termination` is a main-thread, test-only entry
+to the same deferred application decision and operation-ID state used by the
+AppKit delegate. It requires active deferral and a current event port, never
+sets the programmatic-termination bypass, and does not itself terminate the
+host. The Dart wrapper exports it only from `package:dart_appkit/testing.dart`.
+
 Payloads:
 
 | Event | Payload after the version-specific common prefix |
