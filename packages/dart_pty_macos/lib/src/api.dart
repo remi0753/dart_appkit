@@ -37,6 +37,7 @@ final class PtyCommand {
     this.includeParentEnvironment = true,
     this.workingDirectory,
     this.loginShell = false,
+    this.readBatchBytes = defaultReadBatchBytes,
   }) : arguments = List<String>.unmodifiable(arguments),
        environment = Map<String, String>.unmodifiable(environment) {
     if (!executable.startsWith('/') || executable.contains('\u0000')) {
@@ -44,6 +45,14 @@ final class PtyCommand {
         executable,
         'executable',
         'must be an absolute path without NUL',
+      );
+    }
+    if (readBatchBytes <= 0 || readBatchBytes > maximumReadBatchBytes) {
+      throw RangeError.range(
+        readBatchBytes,
+        1,
+        maximumReadBatchBytes,
+        'readBatchBytes',
       );
     }
     final String? directory = workingDirectory;
@@ -84,6 +93,10 @@ final class PtyCommand {
   final bool includeParentEnvironment;
   final String? workingDirectory;
   final bool loginShell;
+  final int readBatchBytes;
+
+  static const int defaultReadBatchBytes = 64 * 1024;
+  static const int maximumReadBatchBytes = 64 * 1024;
 }
 
 enum PtySignal { interrupt, suspend, quit, hangup, terminate, kill }

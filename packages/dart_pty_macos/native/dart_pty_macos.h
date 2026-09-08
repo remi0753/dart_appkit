@@ -116,6 +116,9 @@ typedef struct DptySessionConfigV1 {
   dpty_event_callback_v1 callback;
   void* callback_context;
   uint32_t diagnostics_enabled;
+  // Zero preserves the 64 KiB default. Nonzero values cap one OUTPUT event
+  // without changing the aggregate read watermarks or ordered ACK contract.
+  size_t read_batch_bytes;
 } DptySessionConfigV1;
 
 typedef struct DptySessionStatsV1 {
@@ -169,9 +172,9 @@ __attribute__((visibility("default"))) int32_t dpty_session_write(
 
 // The tracked variant also returns an opaque request ID which correlates the
 // write diagnostic events. The ID is zero when the write is rejected.
-__attribute__((visibility("default"))) int32_t dpty_session_write_tracked(
-    DptySessionHandle session, const uint8_t* bytes, size_t length,
-    uint64_t* out_request_id);
+__attribute__((visibility("default"))) int32_t
+dpty_session_write_tracked(DptySessionHandle session, const uint8_t* bytes,
+                           size_t length, uint64_t* out_request_id);
 
 __attribute__((visibility("default"))) int32_t dpty_session_ack_output(
     DptySessionHandle session, uint64_t sequence, size_t length);

@@ -32,7 +32,7 @@ namespace {
 constexpr size_t kMaximumStringBytes = 1024 * 1024;
 constexpr size_t kMaximumVectorEntries = 16 * 1024;
 constexpr size_t kMaximumQueueBytes = 64 * 1024 * 1024;
-constexpr size_t kReadBatchBytes = 64 * 1024;
+constexpr size_t kDefaultReadBatchBytes = 64 * 1024;
 constexpr size_t kMaximumReadBatchesPerTurn = 8;
 constexpr size_t kMaximumWriteBatchesPerTurn = 8;
 constexpr size_t kMaximumWriteBytesPerTurn = 512 * 1024;
@@ -78,6 +78,7 @@ struct OwnedConfig {
   uint16_t columns = 0;
   size_t read_high_water = 0;
   size_t read_low_water = 0;
+  size_t read_batch = kDefaultReadBatchBytes;
   size_t write_capacity = 0;
   dpty_event_callback_v1 callback = nullptr;
   void* callback_context = nullptr;
@@ -85,8 +86,12 @@ struct OwnedConfig {
 };
 
 bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
+  constexpr size_t kMinimumConfigSize =
+      offsetof(DptySessionConfigV1, read_batch_bytes);
+  const bool has_read_batch =
+      source != nullptr && source->struct_size >= sizeof(DptySessionConfigV1);
   if (source == nullptr || target == nullptr ||
-      source->struct_size < sizeof(DptySessionConfigV1) ||
+      source->struct_size < kMinimumConfigSize ||
       source->abi_version != DPTY_ABI_VERSION || source->callback == nullptr ||
       source->arguments == nullptr || source->argument_count == 0 ||
       source->argument_count > kMaximumVectorEntries ||
@@ -98,7 +103,8 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
       source->read_high_water_bytes > kMaximumQueueBytes ||
       source->write_capacity_bytes == 0 ||
       source->write_capacity_bytes > kMaximumQueueBytes ||
-      source->diagnostics_enabled > 1) {
+      source->diagnostics_enabled > 1 ||
+      (has_read_batch && source->read_batch_bytes > kDefaultReadBatchBytes)) {
     (void)SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
                    "PTY session configuration is invalid");
     return false;
@@ -146,6 +152,9 @@ bool CopyConfig(const DptySessionConfigV1* source, OwnedConfig* target) {
   target->columns = source->initial_columns;
   target->read_high_water = source->read_high_water_bytes;
   target->read_low_water = source->read_low_water_bytes;
+  target->read_batch = has_read_batch && source->read_batch_bytes != 0
+                           ? source->read_batch_bytes
+                           : kDefaultReadBatchBytes;
   target->write_capacity = source->write_capacity_bytes;
   target->callback = source->callback;
   target->callback_context = source->callback_context;
@@ -690,10 +699,10 @@ class Session final : public std::enable_shared_from_this<Session> {
           } else if (events[index].filter == EVFILT_WRITE) {
             FlushWrites();
           } else if (events[index].filter == EVFILT_PROC) {
-            ObserveProcessExitReady(static_cast<pid_t>(events[index].ident),
-                                    static_cast<int64_t>(events[index].data),
-                                    (events[index].fflags &
-                                     NOTE_EXITSTATUS) != 0);
+            ObserveProcessExitReady(
+                static_cast<pid_t>(events[index].ident),
+                static_cast<int64_t>(events[index].data),
+                (events[index].fflags & NOTE_EXITSTATUS) != 0);
             ReapChild();
           }
         }
@@ -807,7 +816,7 @@ class Session final : public std::enable_shared_from_this<Session> {
           }
           pause_read = true;
         } else {
-          available = std::min(kReadBatchBytes,
+          available = std::min(config_.read_batch,
                                config_.read_high_water - read_in_flight_bytes_);
         }
       }
@@ -984,9 +993,8 @@ class Session final : public std::enable_shared_from_this<Session> {
     errno = 0;
     const int result = kill(target, signal);
     const int32_t system_error = result == 0 ? 0 : errno;
-    EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
-                   static_cast<size_t>(signal), static_cast<int64_t>(target),
-                   result, system_error);
+    EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0, static_cast<size_t>(signal),
+                   static_cast<int64_t>(target), result, system_error);
     return result;
   }
 
@@ -1004,9 +1012,8 @@ class Session final : public std::enable_shared_from_this<Session> {
     if (child > 0) {
       (void)DeliverSignal(child, signal);
     } else if (foreground <= 0) {
-      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
-                     static_cast<size_t>(signal), 0, -1,
-                     errno == 0 ? ESRCH : errno);
+      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0, static_cast<size_t>(signal),
+                     0, -1, errno == 0 ? ESRCH : errno);
     }
   }
 
@@ -1030,8 +1037,8 @@ class Session final : public std::enable_shared_from_this<Session> {
       (void)DeliverSignal(child, signal);
     }
     if (foreground <= 0 && child <= 0) {
-      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0,
-                     static_cast<size_t>(signal), 0, -1, ESRCH);
+      EmitDiagnostic(DPTY_EVENT_SIGNAL_DELIVERY, 0, static_cast<size_t>(signal),
+                     0, -1, ESRCH);
     }
   }
 
@@ -1374,9 +1381,8 @@ dpty_session_write_tracked(DptySessionHandle session, const uint8_t* bytes,
   }
   *out_request_id = 0;
   const std::shared_ptr<Session> value = LookupSession(session);
-  return value == nullptr
-             ? DPTY_STATUS_INVALID_HANDLE
-             : value->WriteTracked(bytes, length, out_request_id);
+  return value == nullptr ? DPTY_STATUS_INVALID_HANDLE
+                          : value->WriteTracked(bytes, length, out_request_id);
 }
 
 extern "C" __attribute__((visibility("default"))) int32_t

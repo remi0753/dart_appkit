@@ -2244,3 +2244,58 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - The hook adds no event or payload type and leaves `DA_ABI_VERSION` and event
   protocol v6 unchanged. FFI lookup is optional so an older bridge fails with
   typed unsupported status only when the test hook is requested.
+
+## 2026-09-08 — Bounded PTY delivery for UI-isolate parsing
+
+- A four-pane terminal product acceptance found that one 64 KiB visible-output
+  delivery occupied synchronous parser and transcript processing for 162070
+  microseconds in Developer JIT, versus a 23476-microsecond same-launch idle
+  input-to-Metal baseline. The existing native queue and reactor-turn bounds
+  prevented growth but did not meet the consumer's 2x cross-pane latency gate.
+- A global reduction was rejected because the existing throughput contract
+  requires 64 KiB burst deliveries. Instead, ABI-v5's size-prefixed session
+  config gains an optional suffix bound: an old prefix, zero, or an ordinary
+  command preserves 64 KiB, while a synchronous parser consumer can select
+  4 KiB. The ABI version, ordered ACK protocol, configurable 1 MiB/512 KiB read
+  watermarks, queue caps, and eight-read reactor-turn budget are unchanged.
+- Native capability acceptance now pins the 64 KiB default, a 4 KiB command,
+  and an old config prefix. Dart coverage pins command validation and defaults;
+  focused PTY native/Dart tests and the consuming 100 MiB Developer JIT product
+  gate are required before this prerequisite is complete.
+- The first native formatting command resolved the PATH-provided Chromium
+  wrapper and exited because this repository is not a Chromium checkout; it
+  changed no file. Formatting is repeated with Xcode's concrete clang-format
+  binary. Dart formatting completed with no changes.
+- The first focused native run rejected an assertion that a default burst must
+  produce an exactly 64 KiB callback. A PTY `read(2)` may legitimately return a
+  smaller available chunk, so the contract is an upper/default configuration,
+  not a minimum observed event. The corrected test requires a positive event at
+  or below 64 KiB. This also showed that an 8 KiB consumer request can remain
+  above the platform's natural chunk; the terminal selects 4 KiB and the
+  configured native fixture requires every event to stay at or below 4 KiB.
+- The corrected native contract then passed, as did package analysis and the
+  first seven Dart PTY cases. The pre-existing competing-reaper case reached
+  the correct exit status but did not observe its race-dependent
+  `externalReapObserved` event before calling `firstWhere`; the batch changes do
+  not touch reap/event ordering. It is rerun once to distinguish an existing
+  race from a reproducible regression before changing that coverage.
+- The immediate focused Dart-only rerun passed all ten cases, including the
+  competing-reaper event, without a source change. The transient race is
+  recorded but not hidden by weakening its assertion.
+- The first terminal Developer JIT rerun with only the 512-byte delivery cap
+  still measured 168436 microseconds against a 28246-microsecond idle baseline
+  (5.964x). The listener facade acknowledged native data before synchronously
+  publishing it, so the reactor could refill its 1 MiB credit while parser work
+  remained queued. ACK now occurs after the synchronous stream delivery
+  returns. The terminal consumer pairs its 4 KiB delivery with a 4 KiB/0
+  high/low watermark, admitting the next native chunk only after the current
+  parser callback has returned; ordinary consumers keep existing defaults.
+- Focused native and Dart PTY suites pass after post-consumer ACK and the 4 KiB
+  one-batch terminal setting. The consuming Developer JIT hierarchy also
+  passed its unchanged 2x 100 MiB flood gate in 16626 ms with every existing
+  focus, IME, metadata, Close/Quit, cleanup, and worker assertion retained.
+- Complete `make test` passes after the PTY change: scaffold, bridge, Runner,
+  message pump/event encoder, runtime/capability/renderer/native PTY contracts,
+  every package analysis and Dart suite, launcher/Kernel compilation, FFI
+  smoke, and legacy-event fallback all remained green. Native code compiled
+  warning-clean under C11/C++20 and the worktree diff passed whitespace checks.

@@ -80,6 +80,9 @@ final class _SessionConfig extends Struct {
 
   @Uint32()
   external int diagnosticsEnabled;
+
+  @Size()
+  external int readBatchBytes;
 }
 
 final class _NativeStats extends Struct {
@@ -643,7 +646,8 @@ final class MacosPtyBackend implements PtyBackend {
         ..writeCapacityBytes = writeCapacityBytes
         ..callback = _eventCallback.nativeFunction
         ..callbackContext = nullptr
-        ..diagnosticsEnabled = enableDiagnostics ? 1 : 0;
+        ..diagnosticsEnabled = enableDiagnostics ? 1 : 0
+        ..readBatchBytes = command.readBatchBytes;
       final Pointer<Uint64> output = arena<Uint64>();
       final int createStatus = _functions.sessionCreate(config, output);
       if (createStatus != _statusOk || output.value == 0) {
@@ -854,6 +858,9 @@ final class _MacosPtyProcess implements PtyProcess {
   }
 
   void _didOutput(int sequence, Uint8List bytes) {
+    if (!_finished) {
+      _output.add(bytes);
+    }
     final int status = _functions.sessionAckOutput(
       _handle,
       sequence,
@@ -867,9 +874,6 @@ final class _MacosPtyProcess implements PtyProcess {
         ),
       );
       return;
-    }
-    if (!_finished) {
-      _output.add(bytes);
     }
   }
 

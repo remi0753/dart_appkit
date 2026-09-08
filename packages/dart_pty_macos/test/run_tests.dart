@@ -74,6 +74,21 @@ Future<void> main(List<String> arguments) async {
   }
   await _test('public command and queue validation', () async {
     _expectThrows<ArgumentError>(() => PtyCommand(executable: 'zsh'));
+    _expectThrows<RangeError>(
+      () => PtyCommand(executable: '/bin/zsh', readBatchBytes: 0),
+    );
+    _expectThrows<RangeError>(
+      () => PtyCommand(executable: '/bin/zsh', readBatchBytes: 64 * 1024 + 1),
+    );
+    _expect(
+      PtyCommand(executable: '/bin/zsh').readBatchBytes == 64 * 1024 &&
+          PtyCommand(
+                executable: '/bin/zsh',
+                readBatchBytes: 4 * 1024,
+              ).readBatchBytes ==
+              4 * 1024,
+      'default and consumer-specific read batches are retained',
+    );
     _expectThrows<ArgumentError>(
       () => PtyCommand(
         executable: '/bin/zsh',

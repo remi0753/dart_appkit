@@ -10,7 +10,8 @@ The v5 `dpty_*` C ABI provides:
 - copied argv, environment, working directory, and initial size before fork;
 - an isolated C child branch using only audited async-signal-safe operations;
 - one kqueue reactor thread per session;
-- output chunks no larger than 64 KiB retained until ordered ACK;
+- output chunks no larger than 64 KiB retained until ordered ACK, with a
+  consumer-selectable smaller per-command delivery bound;
 - configurable read high/low watermarks and bounded write admission;
 - foreground process-group signals, `TIOCSWINSZ`, SIGHUP/grace/SIGKILL close;
 - a content-free on-demand child/owning/foreground process-group snapshot;
@@ -24,6 +25,16 @@ The v5 `dpty_*` C ABI provides:
 The Dart facade uses a listener-style native callback so reactor threads enqueue
 events without entering the UI isolate synchronously. `FakePtyBackend` provides
 the same public process surface for deterministic product tests.
+
+`PtyCommand.readBatchBytes` can lower one command's OUTPUT delivery bound from
+the 64 KiB default when its synchronous consumer has a tighter event-loop
+budget. The size-prefixed C config treats an absent suffix or zero as 64 KiB, so
+older ABI-v5 clients retain their established batching behavior. Read
+high/low-watermark backpressure and ordered ACK ownership are unchanged.
+The Dart native facade acknowledges a copied OUTPUT event only after its
+synchronous stream delivery returns, so a consumer can make the configured
+watermarks represent work it has actually accepted rather than merely a queued
+listener message.
 
 `PtyProcess.close()` starts the graceful SIGHUP/deadline policy.
 `PtyProcess.forceClose()` is a separate lifecycle operation that remains valid
