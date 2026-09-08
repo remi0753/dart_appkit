@@ -57,6 +57,8 @@ struct Api {
   int32_t (*close)(DptySessionHandle, uint32_t) = nullptr;
   int32_t (*force_close)(DptySessionHandle) = nullptr;
   int32_t (*stats)(DptySessionHandle, DptySessionStatsV1*) = nullptr;
+  int32_t (*process_snapshot)(DptySessionHandle, DptyProcessSnapshotV1*) =
+      nullptr;
   int32_t (*destroy)(DptySessionHandle) = nullptr;
   uint64_t (*live_count)() = nullptr;
 };
@@ -263,6 +265,20 @@ void TestInteractiveSession(Api* api) {
                  [](const Events& value) { return value.started; }),
          "interactive child starts");
 
+  DptyProcessSnapshotV1 shell_snapshot = {};
+  shell_snapshot.struct_size = sizeof(shell_snapshot);
+  shell_snapshot.abi_version = DPTY_ABI_VERSION;
+  Expect(api->process_snapshot(session, &shell_snapshot) == DPTY_STATUS_OK,
+         "live shell process snapshot is readable");
+  Expect(shell_snapshot.child_pid > 0 &&
+             shell_snapshot.child_process_group == shell_snapshot.child_pid &&
+             shell_snapshot.foreground_process_group ==
+                 shell_snapshot.child_process_group &&
+             shell_snapshot.child_process_group_error == 0 &&
+             shell_snapshot.foreground_process_group_error == 0 &&
+             shell_snapshot.has_exited == 0,
+         "idle shell owns the foreground process group");
+
   std::vector<uint8_t> oversized(64 * 1024 + 1, 'w');
   Expect(api->write(session, oversized.data(), oversized.size()) ==
              DPTY_STATUS_BACKPRESSURED,
@@ -300,7 +316,26 @@ void TestInteractiveSession(Api* api) {
 
   Expect(Write(api, session, "sleep 30\n") == DPTY_STATUS_OK,
          "foreground process starts");
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  DptyProcessSnapshotV1 foreground_snapshot = {};
+  foreground_snapshot.struct_size = sizeof(foreground_snapshot);
+  foreground_snapshot.abi_version = DPTY_ABI_VERSION;
+  bool observed_distinct_foreground = false;
+  const Clock::time_point foreground_deadline =
+      Clock::now() + std::chrono::seconds(3);
+  while (Clock::now() < foreground_deadline) {
+    if (api->process_snapshot(session, &foreground_snapshot) ==
+            DPTY_STATUS_OK &&
+        foreground_snapshot.child_process_group > 0 &&
+        foreground_snapshot.foreground_process_group > 0 &&
+        foreground_snapshot.foreground_process_group !=
+            foreground_snapshot.child_process_group) {
+      observed_distinct_foreground = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  Expect(observed_distinct_foreground,
+         "distinct foreground job process group is observed");
   Expect(api->send_signal(session, DPTY_SIGNAL_INTERRUPT) == DPTY_STATUS_OK,
          "foreground interrupt is queued");
   Expect(Write(api, session, "print -r -- __DPTY_SIGINT__${?}\n") ==
@@ -401,11 +436,24 @@ void TestInteractiveSession(Api* api) {
   Expect(final_stats.max_write_queued_bytes <= 64 * 1024,
          "write queue remains bounded");
   Expect(final_stats.has_exited == 1, "stats report exit");
+  DptyProcessSnapshotV1 exited_snapshot = {};
+  exited_snapshot.struct_size = sizeof(exited_snapshot);
+  exited_snapshot.abi_version = DPTY_ABI_VERSION;
+  Expect(api->process_snapshot(session, &exited_snapshot) == DPTY_STATUS_OK &&
+             exited_snapshot.has_exited == 1 &&
+             exited_snapshot.child_process_group == 0 &&
+             exited_snapshot.foreground_process_group == 0 &&
+             exited_snapshot.child_process_group_error == ENXIO &&
+             exited_snapshot.foreground_process_group_error == ENXIO,
+         "exited snapshot is content-free and unavailable");
   Expect(api->destroy(session) == DPTY_STATUS_OK,
          "finished session is destroyed");
   const uint8_t byte = 0;
   Expect(api->write(session, &byte, 1) == DPTY_STATUS_INVALID_HANDLE,
          "destroyed generation is stale");
+  Expect(api->process_snapshot(session, &exited_snapshot) ==
+             DPTY_STATUS_INVALID_HANDLE,
+         "destroyed process snapshot generation is stale");
   errno = 0;
   Expect(waitpid(static_cast<pid_t>(child_pid), nullptr, WNOHANG) == -1 &&
              errno == ECHILD,
@@ -833,6 +881,8 @@ int main(int argc, const char* argv[]) {
   api.force_close =
       Lookup<decltype(api.force_close)>(image, "dpty_session_force_close");
   api.stats = Lookup<decltype(api.stats)>(image, "dpty_session_get_stats");
+  api.process_snapshot = Lookup<decltype(api.process_snapshot)>(
+      image, "dpty_session_get_process_snapshot");
   api.destroy = Lookup<decltype(api.destroy)>(image, "dpty_session_destroy");
   api.live_count =
       Lookup<decltype(api.live_count)>(image, "dpty_debug_live_session_count");

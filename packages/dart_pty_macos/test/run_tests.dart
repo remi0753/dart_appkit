@@ -113,6 +113,33 @@ Future<void> main(List<String> arguments) async {
     );
     _expect(process.pid == 4000, 'fake PID');
     _expect(identical(backend.commands.single, command), 'command recorded');
+    final PtyProcessSnapshot idleSnapshot = process.processSnapshot();
+    _expect(
+      idleSnapshot.isAvailable &&
+          idleSnapshot.childPid == process.pid &&
+          idleSnapshot.childProcessGroup == process.pid &&
+          idleSnapshot.foregroundProcessGroup == process.pid &&
+          !idleSnapshot.hasDistinctForegroundProcess &&
+          !idleSnapshot.hasExited,
+      'fake idle process snapshot is available',
+    );
+    fake.foregroundProcessGroup = process.pid + 1;
+    _expect(
+      process.processSnapshot().hasDistinctForegroundProcess,
+      'fake distinct foreground process is classified',
+    );
+    fake.foregroundProcessGroupSystemError = 6;
+    final PtyProcessSnapshot unavailableSnapshot = process.processSnapshot();
+    _expect(
+      !unavailableSnapshot.isAvailable &&
+          unavailableSnapshot.foregroundProcessGroup == null &&
+          unavailableSnapshot.foregroundProcessGroupSystemError == 6 &&
+          !unavailableSnapshot.hasDistinctForegroundProcess,
+      'fake foreground lookup failure remains typed and unavailable',
+    );
+    fake
+      ..foregroundProcessGroup = process.pid
+      ..foregroundProcessGroupSystemError = 0;
     _expect(
       process.write(Uint8List.fromList(<int>[1, 2, 3, 4])) ==
           PtyWriteResult.accepted,
@@ -176,7 +203,7 @@ Future<void> main(List<String> arguments) async {
   });
 
   await _test('real Dart listener callback and process lifecycle', () async {
-    _expect(_abiVersion() == 4, 'native asset ABI');
+    _expect(_abiVersion() == 5, 'native asset ABI');
     final PtyProcess process = await startPty(
       PtyCommand(
         executable: '/bin/sh',
@@ -195,6 +222,16 @@ Future<void> main(List<String> arguments) async {
     final Future<List<int>> outputFuture = process.output
         .expand<int>((Uint8List bytes) => bytes)
         .toList();
+    final PtyProcessSnapshot snapshot = process.processSnapshot();
+    _expect(
+      snapshot.childPid == process.pid &&
+          snapshot.childProcessGroup == process.pid &&
+          snapshot.foregroundProcessGroup == process.pid &&
+          snapshot.isAvailable &&
+          !snapshot.hasDistinctForegroundProcess &&
+          !snapshot.hasExited,
+      'real idle shell process snapshot crosses the FFI boundary',
+    );
     final PtyExit exit = await process.exit.timeout(const Duration(seconds: 4));
     final String output = utf8.decode(await outputFuture);
     _expect(exit.exitCode == 9 && exit.signal == null, 'real exit code');

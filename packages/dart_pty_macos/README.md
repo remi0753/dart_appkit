@@ -5,7 +5,7 @@ applications. Native code owns only `forkpty`, the audited child `execve` path,
 master-FD readiness, bounded byte queues, resize/signals, close escalation, and
 child reaping. Dart owns session policy and terminal semantics.
 
-The v4 `dpty_*` C ABI provides:
+The v5 `dpty_*` C ABI provides:
 
 - copied argv, environment, working directory, and initial size before fork;
 - an isolated C child branch using only audited async-signal-safe operations;
@@ -13,6 +13,7 @@ The v4 `dpty_*` C ABI provides:
 - output chunks no larger than 64 KiB retained until ordered ACK;
 - configurable read high/low watermarks and bounded write admission;
 - foreground process-group signals, `TIOCSWINSZ`, SIGHUP/grace/SIGKILL close;
+- a content-free on-demand child/owning/foreground process-group snapshot;
 - idempotent, nonblocking immediate force close before or during graceful close;
 - opt-in, content-free write/control/reap diagnostics with tracked-write IDs;
 - bounded reactor turns so continuous output cannot starve writes or close;
@@ -29,6 +30,12 @@ the same public process surface for deterministic product tests.
 after graceful close starts and asks the reactor to send SIGKILL immediately;
 neither call waits for exit or `waitpid` on the caller thread. Consumers still
 await `exit` when they need proof that reaping completed.
+
+`PtyProcess.processSnapshot()` copies only numeric child/process-group identity,
+per-field syscall errors, and exit state. It never inspects process names,
+arguments, environment, working directories, or terminal content. A consumer
+can distinguish the owning shell group from a foreground job while treating
+an unavailable field conservatively.
 
 `PtyProcess.writeTracked()` returns an opaque request ID for correlating queue
 admission, reactor dequeue, and `write(2)` completion. Passing

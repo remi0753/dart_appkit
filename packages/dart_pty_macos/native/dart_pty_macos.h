@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DPTY_ABI_VERSION 4u
+#define DPTY_ABI_VERSION 5u
 
 #if defined(__cplusplus)
 extern "C" {
@@ -132,6 +132,21 @@ typedef struct DptySessionStatsV1 {
   int32_t has_exited;
 } DptySessionStatsV1;
 
+// Content-free, same-call snapshot used for close/quit policy. Process names,
+// arguments, environment, working directories, and terminal bytes are never
+// inspected or returned. A nonzero per-field error leaves that process-group
+// value at zero without failing the whole snapshot.
+typedef struct DptyProcessSnapshotV1 {
+  size_t struct_size;
+  uint32_t abi_version;
+  int64_t child_pid;
+  int64_t child_process_group;
+  int64_t foreground_process_group;
+  int32_t child_process_group_error;
+  int32_t foreground_process_group_error;
+  int32_t has_exited;
+} DptyProcessSnapshotV1;
+
 typedef struct DptyError {
   int32_t status;
   int32_t system_error;
@@ -179,6 +194,10 @@ dpty_session_force_close(DptySessionHandle session);
 
 __attribute__((visibility("default"))) int32_t dpty_session_get_stats(
     DptySessionHandle session, DptySessionStatsV1* out_stats);
+
+__attribute__((visibility("default"))) int32_t
+dpty_session_get_process_snapshot(DptySessionHandle session,
+                                  DptyProcessSnapshotV1* out_snapshot);
 
 // Valid only after EXIT or ERROR and after all OUTPUT records are acknowledged.
 __attribute__((visibility("default"))) int32_t

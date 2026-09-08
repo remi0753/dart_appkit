@@ -15,9 +15,15 @@ does not consume or renumber the `da_*` ABI.
 working-directory strings are copied before `dpty_session_create` returns.
 Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
 `resize`, `send_signal`, `close`, and `force_close` only enqueue bounded work;
-FD readiness and `waitpid` remain on the session reactor. PTY ABI version 4
-retains the idempotent `force_close` operation and size-prefixed V1 diagnostic
-configuration introduced in v3. `dpty_session_write_tracked` returns an
+FD readiness and `waitpid` remain on the session reactor. PTY ABI version 5
+retains the idempotent `force_close` operation and adds the size-prefixed
+`DptyProcessSnapshotV1`. `dpty_session_get_process_snapshot` copies only child,
+owning-process-group, and foreground-process-group IDs, per-field syscall
+errors, and exit state. It serializes the same-call `getpgid`/`tcgetpgrp`
+observation against master-FD closure and never inspects process names,
+arguments, environment, paths, or terminal content. The size-prefixed V1
+diagnostic configuration introduced in v3 remains unchanged.
+`dpty_session_write_tracked` returns an
 opaque request ID for correlating queue admission, reactor dequeue, and native
 write completion. Diagnostic callbacks contain only fixed scalar counters,
 state flags, process-group/signal results, termios flags/VEOF identity, and

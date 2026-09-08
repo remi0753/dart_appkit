@@ -8,7 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'api.dart';
 
 const String _assetId = 'package:dart_pty_macos/dart_pty_macos.dart';
-const int _abiVersion = 4;
+const int _abiVersion = 5;
 const int _statusOk = 0;
 const int _statusBackpressured = 4;
 const int _eventStarted = 1;
@@ -117,6 +117,32 @@ final class _NativeStats extends Struct {
   external int hasExited;
 }
 
+final class _NativeProcessSnapshot extends Struct {
+  @Size()
+  external int structSize;
+
+  @Uint32()
+  external int abiVersion;
+
+  @Int64()
+  external int childPid;
+
+  @Int64()
+  external int childProcessGroup;
+
+  @Int64()
+  external int foregroundProcessGroup;
+
+  @Int32()
+  external int childProcessGroupError;
+
+  @Int32()
+  external int foregroundProcessGroupError;
+
+  @Int32()
+  external int hasExited;
+}
+
 @Native<Uint32 Function()>(symbol: 'dpty_abi_version', assetId: _assetId)
 external int _nativeAbiVersion();
 
@@ -185,6 +211,15 @@ external int _sessionForceClose(int session);
 )
 external int _sessionGetStats(int session, Pointer<_NativeStats> stats);
 
+@Native<Int32 Function(Uint64, Pointer<_NativeProcessSnapshot>)>(
+  symbol: 'dpty_session_get_process_snapshot',
+  assetId: _assetId,
+)
+external int _sessionGetProcessSnapshot(
+  int session,
+  Pointer<_NativeProcessSnapshot> snapshot,
+);
+
 @Native<Int32 Function(Uint64)>(
   symbol: 'dpty_session_destroy',
   assetId: _assetId,
@@ -225,6 +260,14 @@ typedef _SessionUint32Native = Int32 Function(Uint64, Uint32);
 typedef _SessionUint32Dart = int Function(int, int);
 typedef _SessionStatsNative = Int32 Function(Uint64, Pointer<_NativeStats>);
 typedef _SessionStatsDart = int Function(int, Pointer<_NativeStats>);
+typedef _SessionProcessSnapshotNative = Int32 Function(
+  Uint64,
+  Pointer<_NativeProcessSnapshot>,
+);
+typedef _SessionProcessSnapshotDart = int Function(
+  int,
+  Pointer<_NativeProcessSnapshot>,
+);
 
 final class _PtyFunctions {
   _PtyFunctions.nativeAssets()
@@ -239,6 +282,7 @@ final class _PtyFunctions {
       sessionClose = _sessionClose,
       sessionForceClose = _sessionForceClose,
       sessionGetStats = _sessionGetStats,
+      sessionGetProcessSnapshot = _sessionGetProcessSnapshot,
       sessionDestroy = _sessionDestroy;
 
   _PtyFunctions.dynamic(DynamicLibrary library)
@@ -285,6 +329,11 @@ final class _PtyFunctions {
           .lookupFunction<_SessionStatsNative, _SessionStatsDart>(
             'dpty_session_get_stats',
           ),
+      sessionGetProcessSnapshot = library
+          .lookupFunction<
+            _SessionProcessSnapshotNative,
+            _SessionProcessSnapshotDart
+          >('dpty_session_get_process_snapshot'),
       sessionDestroy = library
           .lookupFunction<_SessionHandleNative, _SessionHandleDart>(
             'dpty_session_destroy',
@@ -301,6 +350,7 @@ final class _PtyFunctions {
   final _SessionUint32Dart sessionClose;
   final _SessionHandleDart sessionForceClose;
   final _SessionStatsDart sessionGetStats;
+  final _SessionProcessSnapshotDart sessionGetProcessSnapshot;
   final _SessionHandleDart sessionDestroy;
 }
 
@@ -657,6 +707,37 @@ final class _MacosPtyProcess implements PtyProcess {
 
   @override
   PtyStats? get finalStats => _finalStats;
+
+  @override
+  PtyProcessSnapshot processSnapshot() {
+    _requireRunning();
+    final Pointer<_NativeProcessSnapshot> snapshot =
+        calloc<_NativeProcessSnapshot>();
+    try {
+      snapshot.ref
+        ..structSize = sizeOf<_NativeProcessSnapshot>()
+        ..abiVersion = _abiVersion;
+      _checkStatus(
+        _functions.sessionGetProcessSnapshot(_handle, snapshot),
+        'PTY process snapshot',
+      );
+      final _NativeProcessSnapshot value = snapshot.ref;
+      return PtyProcessSnapshot(
+        childPid: value.childPid > 0 ? value.childPid : null,
+        childProcessGroup: value.childProcessGroup > 0
+            ? value.childProcessGroup
+            : null,
+        foregroundProcessGroup: value.foregroundProcessGroup > 0
+            ? value.foregroundProcessGroup
+            : null,
+        childProcessGroupSystemError: value.childProcessGroupError,
+        foregroundProcessGroupSystemError: value.foregroundProcessGroupError,
+        hasExited: value.hasExited != 0,
+      );
+    } finally {
+      calloc.free(snapshot);
+    }
+  }
 
   @override
   PtyWriteResult write(Uint8List bytes) {

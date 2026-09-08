@@ -188,12 +188,43 @@ final class PtyStats {
   final bool hasExited;
 }
 
+/// Content-free identity snapshot of one live PTY process hierarchy.
+final class PtyProcessSnapshot {
+  const PtyProcessSnapshot({
+    required this.childPid,
+    required this.childProcessGroup,
+    required this.foregroundProcessGroup,
+    required this.childProcessGroupSystemError,
+    required this.foregroundProcessGroupSystemError,
+    required this.hasExited,
+  });
+
+  final int? childPid;
+  final int? childProcessGroup;
+  final int? foregroundProcessGroup;
+  final int childProcessGroupSystemError;
+  final int foregroundProcessGroupSystemError;
+  final bool hasExited;
+
+  bool get isAvailable =>
+      childPid != null &&
+      childProcessGroup != null &&
+      foregroundProcessGroup != null &&
+      childProcessGroupSystemError == 0 &&
+      foregroundProcessGroupSystemError == 0;
+
+  bool get hasDistinctForegroundProcess =>
+      isAvailable && foregroundProcessGroup != childProcessGroup;
+}
+
 abstract interface class PtyProcess {
   int get pid;
   Stream<Uint8List> get output;
   Stream<PtyDiagnosticEvent> get diagnostics;
   Future<PtyExit> get exit;
   PtyStats? get finalStats;
+
+  PtyProcessSnapshot processSnapshot();
 
   PtyWriteResult write(Uint8List bytes);
   PtyWriteReceipt writeTracked(Uint8List bytes);

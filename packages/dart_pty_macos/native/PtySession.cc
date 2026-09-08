@@ -376,6 +376,49 @@ class Session final : public std::enable_shared_from_this<Session> {
     return DPTY_STATUS_OK;
   }
 
+  int32_t GetProcessSnapshot(DptyProcessSnapshotV1* output) const {
+    if (output == nullptr ||
+        output->struct_size < sizeof(DptyProcessSnapshotV1) ||
+        output->abi_version != DPTY_ABI_VERSION) {
+      return SetError(DPTY_STATUS_INVALID_ARGUMENT, EINVAL,
+                      "PTY process snapshot buffer is incompatible");
+    }
+    output->child_pid = 0;
+    output->child_process_group = 0;
+    output->foreground_process_group = 0;
+    output->child_process_group_error = 0;
+    output->foreground_process_group_error = 0;
+    output->has_exited = 0;
+
+    const std::lock_guard<std::mutex> lock(mutex_);
+    output->has_exited = state_ == State::kFinished ? 1 : 0;
+    const pid_t child = child_pid_;
+    const int master = master_fd_;
+    if (child <= 0 || master < 0 || state_ != State::kRunning) {
+      output->child_pid = child > 0 ? child : 0;
+      output->child_process_group_error = ENXIO;
+      output->foreground_process_group_error = ENXIO;
+      return DPTY_STATUS_OK;
+    }
+
+    output->child_pid = child;
+    errno = 0;
+    const pid_t child_group = getpgid(child);
+    if (child_group > 0) {
+      output->child_process_group = child_group;
+    } else {
+      output->child_process_group_error = errno == 0 ? ESRCH : errno;
+    }
+    errno = 0;
+    const pid_t foreground = tcgetpgrp(master);
+    if (foreground > 0) {
+      output->foreground_process_group = foreground;
+    } else {
+      output->foreground_process_group_error = errno == 0 ? ENOTTY : errno;
+    }
+    return DPTY_STATUS_OK;
+  }
+
   bool CanDestroy() const {
     const std::lock_guard<std::mutex> lock(mutex_);
     return state_ == State::kFinished && outstanding_.empty();
@@ -548,12 +591,12 @@ class Session final : public std::enable_shared_from_this<Session> {
       FinishError(static_cast<DptyStatus>(spawn_status), system_error);
       return;
     }
-    master_fd_ = spawn_result.master_fd;
-    exec_error_fd_ = spawn_result.exec_error_fd;
     {
       const std::lock_guard<std::mutex> lock(mutex_);
+      master_fd_ = spawn_result.master_fd;
       child_pid_ = spawn_result.child_pid;
     }
+    exec_error_fd_ = spawn_result.exec_error_fd;
 
     if (!CheckExec(&system_error)) {
       TerminateAndReap(SIGKILL);
@@ -1104,9 +1147,14 @@ class Session final : public std::enable_shared_from_this<Session> {
       (void)close(exec_error_fd_);
       exec_error_fd_ = -1;
     }
-    if (master_fd_ >= 0) {
-      (void)close(master_fd_);
+    int master = -1;
+    {
+      const std::lock_guard<std::mutex> lock(mutex_);
+      master = master_fd_;
       master_fd_ = -1;
+    }
+    if (master >= 0) {
+      (void)close(master);
     }
   }
 
@@ -1378,6 +1426,15 @@ dpty_session_get_stats(DptySessionHandle session,
   const std::shared_ptr<Session> value = LookupSession(session);
   return value == nullptr ? DPTY_STATUS_INVALID_HANDLE
                           : value->GetStats(out_stats);
+}
+
+extern "C" __attribute__((visibility("default"))) int32_t
+dpty_session_get_process_snapshot(DptySessionHandle session,
+                                  DptyProcessSnapshotV1* out_snapshot) {
+  ClearError();
+  const std::shared_ptr<Session> value = LookupSession(session);
+  return value == nullptr ? DPTY_STATUS_INVALID_HANDLE
+                          : value->GetProcessSnapshot(out_snapshot);
 }
 
 extern "C" __attribute__((visibility("default"))) int32_t

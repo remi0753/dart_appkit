@@ -2203,3 +2203,30 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   additionally requires the view to be the focused first responder, observes
   at least one focused-element notification, and verifies the independently
   retained cursor line and range frame. The focused native suite remains green.
+
+## 2026-09-08 — Content-free PTY foreground-process snapshot
+
+- Purpose: let a Dart application make pane close/quit decisions from current
+  PTY ownership rather than stale diagnostic events or terminal content.
+- PTY ABI v5 adds the size/version-prefixed `DptyProcessSnapshotV1` and
+  `dpty_session_get_process_snapshot`. The same-call result contains only the
+  child PID, its owning process group, the terminal foreground process group,
+  per-field syscall errors, and exit state. It does not inspect or expose a
+  process name, argv, environment, cwd, or terminal bytes.
+- Snapshot reads are serialized against master-FD replacement/closure so a
+  concurrent session exit cannot make `tcgetpgrp` observe a reused descriptor.
+  Individual lookup failure leaves its ID absent and records errno while the
+  overall typed snapshot remains usable for conservative policy.
+- Native coverage observes the idle zsh group, a distinct `sleep` foreground
+  job, exited/unavailable state, and stale-handle rejection. Dart facade and
+  fake-backend coverage pin typed availability and identity semantics.
+- The first format/focused-test invocation was denied before tests because the
+  sandbox could not overwrite this adjacent worktree or update Dart telemetry
+  session metadata. It made no successful formatter change; verification is
+  repeated with telemetry disabled and the required worktree permission.
+- Focused `make dpty-native-test dpty-dart-test` passes warning-clean header and
+  native compilation, child-symbol audit, the native process-group scenarios,
+  real Dart FFI, fake availability/error semantics, lifecycle, force-close,
+  diagnostics, and external-reap recovery. The complete `make test` also
+  passes all bridge, Runner, runtime, renderer, PTY, package, launcher, Kernel,
+  FFI, and legacy-event checks.

@@ -79,6 +79,10 @@ final class FakePtyProcess implements PtyProcess {
   var _nextWriteRequestId = 1;
   var _finished = false;
   PtyStats? _finalStats;
+  int? childProcessGroup;
+  int? foregroundProcessGroup;
+  int childProcessGroupSystemError = 0;
+  int foregroundProcessGroupSystemError = 0;
 
   @override
   Stream<Uint8List> get output => _output.stream;
@@ -91,6 +95,25 @@ final class FakePtyProcess implements PtyProcess {
 
   @override
   PtyStats? get finalStats => _finalStats;
+
+  @override
+  PtyProcessSnapshot processSnapshot() {
+    _requireRunning();
+    childProcessGroup ??= pid;
+    foregroundProcessGroup ??= pid;
+    return PtyProcessSnapshot(
+      childPid: pid,
+      childProcessGroup: childProcessGroupSystemError == 0
+          ? childProcessGroup
+          : null,
+      foregroundProcessGroup: foregroundProcessGroupSystemError == 0
+          ? foregroundProcessGroup
+          : null,
+      childProcessGroupSystemError: childProcessGroupSystemError,
+      foregroundProcessGroupSystemError: foregroundProcessGroupSystemError,
+      hasExited: false,
+    );
+  }
 
   @override
   PtyWriteResult write(Uint8List bytes) {
