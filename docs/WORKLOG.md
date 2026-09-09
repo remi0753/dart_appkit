@@ -3,6 +3,65 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-09 — configurable Runner lifecycle policy
+
+### Purpose and boundary
+
+Remove four product choices from the generic native Runner: activation policy,
+forced launch activation, termination after the last window closes, and whether
+the reopen delegate reports the request as handled. The host still owns AppKit
+startup order and asynchronous lifecycle event delivery; each application
+selects immutable policy before the run loop starts.
+
+### Scope and compatibility plan
+
+- Add a strict optional `runner` manifest object and a corresponding
+  `RunnerConfiguration` value model shared by Developer JIT and Release AOT.
+- Persist the validated settings in the generated bundle Info.plist so both
+  runtime modes consume one startup contract without reserving application
+  command-line arguments.
+- Keep the existing regular/activate/continue/handled behavior as the default
+  for old manifests and for the standalone `dart_appkit:run` launcher.
+- Continue posting reopen requests asynchronously even when the configured
+  AppKit delegate return value is false; no synchronous Dart callback is added.
+- Cover manifest defaults and strict validation, generated bundle metadata,
+  native metadata decoding, and delegate policy values before running the full
+  regression gate.
+
+### Findings and verification
+
+- The generated Info.plist is the immutable handoff point shared by both host
+  modes. This avoids reserving application arguments in Release AOT and also
+  lets a copied bundle retain its validated startup policy.
+- The native decoder accepts an absent dictionary and absent known fields as
+  compatibility defaults, rejects unknown keys, non-boolean values, and
+  unknown activation policies, and applies updates failure-atomically.
+- The first focused compile found Objective-C forward declarations inside the
+  C++ namespace; moving those declarations to global scope fixed the
+  warning-as-error build. The first Dart analysis then found that the new enum
+  was not exported by the package barrel; the public export now includes both
+  Runner manifest types. Both failures are covered by the focused gates.
+- `DART_SUPPRESS_ANALYTICS=true CI=true make runner-configuration-test
+  runner-syntax runtime-dart-test` passes native metadata decoding,
+  warning-clean Runner syntax, Dart analysis, strict manifest parsing, and JIT
+  and AOT bundle assembly tests.
+- `DART_SUPPRESS_ANALYTICS=true CI=true make runtime-jit-runner
+  runtime-aot-runner` builds and links both real generic hosts against the
+  pinned unmodified Engine.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold and
+  C/C++ header checks, all bridge/runner/runtime/capability/renderer/PTY native
+  suites, all Dart analysis and tests, manifest assembly, example Kernel
+  compilation, FFI loading, and legacy event fallback.
+- Final review confirms that lifecycle delegates still post active and reopen
+  records asynchronously, no ABI or event protocol changed, and old manifests
+  preserve the previous behavior exactly.
+
+### Roadmap checkpoint
+
+The Runner lifecycle audit correction is complete. The next ordered correction
+is moving the fixed NSWindow style mask into a safe, configurable
+`WindowConfiguration`.
+
 ## 2026-09-07 — mutable window frames and native fullscreen state
 
 ### Purpose and boundary

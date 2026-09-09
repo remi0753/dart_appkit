@@ -25,8 +25,8 @@ Both modes use the same manifest and `main(List<String>)` application entry.
 The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
-Manifest version 1 contains these required fields plus the optional
-`dartHelpers` and `nativeAssets` arrays:
+Manifest version 1 contains these required fields plus the optional `runner`,
+`dartHelpers`, and `nativeAssets` values:
 
 ```json
 {
@@ -37,6 +37,12 @@ Manifest version 1 contains these required fields plus the optional
     "bundleIdentifier": "dev.example.application",
     "version": "1.0.0",
     "minimumSystemVersion": "14.0"
+  },
+  "runner": {
+    "activationPolicy": "regular",
+    "activateOnLaunch": true,
+    "terminateAfterLastWindowClosed": false,
+    "reopenHandled": true
   },
   "dart": {"entrypoint": "bin/main.dart"},
   "dartHelpers": [
@@ -51,6 +57,13 @@ Manifest version 1 contains these required fields plus the optional
   }
 }
 ```
+
+The immutable `runner` policy is read before the AppKit run loop starts.
+`activationPolicy` accepts `regular`, `accessory`, or `prohibited`; the other
+values control forced launch activation, last-window termination, and the
+delegate's reopen handled result. Omitting the object preserves the historical
+regular/activate/continue/handled behavior. Reopen events remain asynchronous
+and are posted to Dart for either handled result.
 
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized

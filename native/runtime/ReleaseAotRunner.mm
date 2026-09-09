@@ -10,13 +10,13 @@
 #include "DartMessagePump.h"
 #include "ObjectRegistry.h"
 #include "ReleaseAotHost.h"
+#include "RunnerConfiguration.h"
 #include "RuntimeDiagnostics.h"
 #include "RuntimeLifecycle.h"
 
 @interface DartMacosRuntimeReleaseDelegate : NSObject <NSApplicationDelegate> {
  @private
-  std::string snapshot_path_;
-  std::vector<std::string> application_arguments_;
+  dart_appkit::RunnerConfiguration configuration_;
   std::unique_ptr<dart_appkit::DartMessagePump> message_pump_;
   std::unique_ptr<dart_macos_runtime::ReleaseAotHost> dart_host_;
   int exit_code_;
@@ -25,21 +25,18 @@
 
 @property(nonatomic, readonly) int exitCode;
 
-- (instancetype)initWithSnapshotPath:(const std::string&)snapshotPath
-                applicationArguments:
-                    (const std::vector<std::string>&)applicationArguments;
+- (instancetype)initWithConfiguration:
+    (const dart_appkit::RunnerConfiguration&)configuration;
 
 @end
 
 @implementation DartMacosRuntimeReleaseDelegate
 
-- (instancetype)initWithSnapshotPath:(const std::string&)snapshotPath
-                applicationArguments:
-                    (const std::vector<std::string>&)applicationArguments {
+- (instancetype)initWithConfiguration:
+    (const dart_appkit::RunnerConfiguration&)configuration {
   self = [super init];
   if (self != nil) {
-    snapshot_path_ = snapshotPath;
-    application_arguments_ = applicationArguments;
+    configuration_ = configuration;
     exit_code_ = 0;
     did_shutdown_ = NO;
   }
@@ -64,7 +61,8 @@
   }
   dart_host_ =
       std::make_unique<dart_macos_runtime::ReleaseAotHost>(message_pump_.get());
-  if (!dart_host_->Start(snapshot_path_, application_arguments_, &error)) {
+  if (!dart_host_->Start(configuration_.kernel_path,
+                         configuration_.application_arguments, &error)) {
     std::fprintf(stderr, "Release AOT startup failed: %s\n", error.c_str());
     exit_code_ = dart_macos_runtime::kSoftwareExitCode;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -72,12 +70,14 @@
     });
     return;
   }
-  [NSApp activateIgnoringOtherApps:YES];
+  if (configuration_.activate_on_launch) {
+    [NSApp activateIgnoringOtherApps:YES];
+  }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
   (void)sender;
-  return NO;
+  return configuration_.terminate_after_last_window_closed;
 }
 
 - (void)applicationDidBecomeActive:(NSNotification*)notification {
@@ -94,7 +94,7 @@
                     hasVisibleWindows:(BOOL)hasVisibleWindows {
   (void)sender;
   dart_appkit::PostApplicationReopenRequested(hasVisibleWindows);
-  return YES;
+  return configuration_.reopen_handled;
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:
@@ -175,16 +175,25 @@ int main(int argc, const char* argv[]) {
       std::fprintf(stderr, "Release AOT snapshot not found in app bundle\n");
       return dart_macos_runtime::kInputExitCode;
     }
-    std::vector<std::string> arguments;
+    dart_appkit::RunnerConfiguration configuration;
+    configuration.kernel_path = snapshot.fileSystemRepresentation;
     for (int index = 1; index < argc; ++index) {
-      arguments.emplace_back(argv[index]);
+      configuration.application_arguments.emplace_back(argv[index]);
+    }
+    if (!dart_appkit::LoadRunnerConfigurationFromMainBundle(&configuration,
+                                                             &error)) {
+      std::fprintf(stderr, "Runner configuration error: %s\n", error.c_str());
+      return dart_macos_runtime::kInputExitCode;
     }
     NSApplication* application = [NSApplication sharedApplication];
-    application.activationPolicy = NSApplicationActivationPolicyRegular;
+    if (!dart_appkit::ApplyRunnerActivationPolicy(application, configuration,
+                                                   &error)) {
+      std::fprintf(stderr, "Release AOT startup failed: %s\n", error.c_str());
+      return dart_macos_runtime::kSoftwareExitCode;
+    }
     DartMacosRuntimeReleaseDelegate* delegate =
         [[DartMacosRuntimeReleaseDelegate alloc]
-            initWithSnapshotPath:std::string(snapshot.fileSystemRepresentation)
-            applicationArguments:arguments];
+            initWithConfiguration:configuration];
     application.delegate = delegate;
     [application run];
     const int exit_code =

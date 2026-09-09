@@ -243,6 +243,16 @@ Future<void> main() async {
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
+    _expect(
+      manifest.runner.activationPolicy == MacosRunnerActivationPolicy.regular,
+      'runner activation default',
+    );
+    _expect(manifest.runner.activateOnLaunch, 'runner launch default');
+    _expect(
+      !manifest.runner.terminateAfterLastWindowClosed,
+      'runner last-window default',
+    );
+    _expect(manifest.runner.reopenHandled, 'runner reopen default');
 
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
@@ -255,6 +265,43 @@ Future<void> main() async {
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
         _validManifest.replaceFirst('"bin/main.dart"', '"../bin/main.dart"'),
+      );
+    });
+    final MacosApplicationManifest runnerManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst('"dart":', '''"runner": {
+    "activationPolicy": "accessory",
+    "activateOnLaunch": false,
+    "terminateAfterLastWindowClosed": true,
+    "reopenHandled": false
+  },
+  "dart":'''),
+        );
+    _expect(
+      runnerManifest.runner.activationPolicy ==
+          MacosRunnerActivationPolicy.accessory,
+      'runner activation policy',
+    );
+    _expect(!runnerManifest.runner.activateOnLaunch, 'runner launch policy');
+    _expect(
+      runnerManifest.runner.terminateAfterLastWindowClosed,
+      'runner last-window policy',
+    );
+    _expect(!runnerManifest.runner.reopenHandled, 'runner reopen policy');
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst(
+          '"dart":',
+          '"runner": {"activationPolicy": "agent"}, "dart":',
+        ),
+      );
+    });
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst(
+          '"dart":',
+          '"runner": {"activateOnLaunch": 1}, "dart":',
+        ),
       );
     });
     final MacosApplicationManifest capabilityManifest =
@@ -487,6 +534,16 @@ Future<void> main() async {
 
   await _test('Developer JIT manifest-driven assembly', () async {
     final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _validManifest.replaceFirst('"dart":', '''"runner": {
+    "activationPolicy": "prohibited",
+    "activateOnLaunch": false,
+    "terminateAfterLastWindowClosed": true,
+    "reopenHandled": false
+  },
+  "dart":'''),
+    );
     final _FakeExecutor executor = _FakeExecutor();
     final int result = await fixture
         .builder(executor)
@@ -514,6 +571,25 @@ Future<void> main() async {
       File('${bundle.path}/Contents/Resources/assets/message.txt').existsSync(),
       'declared resource is bundled',
     );
+    final String infoPlist = File('${bundle.path}/Contents/Info.plist')
+        .readAsStringSync();
+    _expect(
+      infoPlist.contains('<string>prohibited</string>'),
+      'runner activation policy is bundled',
+    );
+    _expect(
+      infoPlist.contains(
+        '<key>TerminateAfterLastWindowClosed</key>\n    <true/>',
+      ),
+      'runner last-window policy is bundled',
+    );
+    final Map<String, Object?> buildManifest = jsonDecode(
+      File('${bundle.path}/Contents/Resources/runtime-build-manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    final Map<String, Object?> runner =
+        buildManifest['runner']! as Map<String, Object?>;
+    _expect(runner['reopenHandled'] == false, 'runner policy is recorded');
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');
     _expect(launched.arguments.contains('--smoke'), 'arguments forwarded');

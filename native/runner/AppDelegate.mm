@@ -46,12 +46,14 @@
     });
     return;
   }
-  [NSApp activateIgnoringOtherApps:YES];
+  if (configuration_.activate_on_launch) {
+    [NSApp activateIgnoringOtherApps:YES];
+  }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
   (void)sender;
-  return NO;
+  return configuration_.terminate_after_last_window_closed;
 }
 
 - (void)applicationDidBecomeActive:(NSNotification*)notification {
@@ -68,7 +70,7 @@
                     hasVisibleWindows:(BOOL)hasVisibleWindows {
   (void)sender;
   dart_appkit::PostApplicationReopenRequested(hasVisibleWindows);
-  return YES;
+  return configuration_.reopen_handled;
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:

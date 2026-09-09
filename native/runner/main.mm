@@ -23,9 +23,18 @@ int main(int argc, const char* argv[]) {
                 << '\n';
       return dart_appkit::kRunnerInputExitCode;
     }
+    if (!dart_appkit::LoadRunnerConfigurationFromMainBundle(&configuration,
+                                                             &error)) {
+      std::cerr << "Runner configuration error: " << error << '\n';
+      return dart_appkit::kRunnerInputExitCode;
+    }
 
     NSApplication* application = [NSApplication sharedApplication];
-    [application setActivationPolicy:NSApplicationActivationPolicyRegular];
+    if (!dart_appkit::ApplyRunnerActivationPolicy(application, configuration,
+                                                   &error)) {
+      std::cerr << "Runner startup failed: " << error << '\n';
+      return dart_appkit::kRunnerSoftwareExitCode;
+    }
     DartAppKitAppDelegate* delegate =
         [[DartAppKitAppDelegate alloc] initWithConfiguration:configuration];
     application.delegate = delegate;

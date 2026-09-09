@@ -273,6 +273,17 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 
 達成目標: 後続のGUI機能を互換性のある形で追加できる、最小の公開モデルを確定する。
 
+汎用性監査の是正順序:
+
+- [x] Runnerのactivation／launch activation／last-window close／reopen policyを
+  `RunnerConfiguration` とmanifestから選択可能にする。
+- [ ] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
+- [ ] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
+- [ ] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
+- [ ] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
+- [ ] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
+- [ ] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
+
 実装内容:
 
 - AppKit native-control中心のハイブリッド方式を正式な対象モデルとして定義する。

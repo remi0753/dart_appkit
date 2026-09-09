@@ -20,6 +20,22 @@ final class MacosDiagnosticsManifest {
   final String applicationSupportName;
 }
 
+enum MacosRunnerActivationPolicy { regular, accessory, prohibited }
+
+final class MacosRunnerManifest {
+  const MacosRunnerManifest({
+    required this.activationPolicy,
+    required this.activateOnLaunch,
+    required this.terminateAfterLastWindowClosed,
+    required this.reopenHandled,
+  });
+
+  final MacosRunnerActivationPolicy activationPolicy;
+  final bool activateOnLaunch;
+  final bool terminateAfterLastWindowClosed;
+  final bool reopenHandled;
+}
+
 final class MacosNativeCapabilityManifest {
   const MacosNativeCapabilityManifest({
     required this.id,
@@ -74,6 +90,7 @@ final class MacosApplicationManifest {
     required this.nativeAssets,
     required this.nativeCapabilities,
     required this.diagnostics,
+    required this.runner,
   });
 
   factory MacosApplicationManifest.parse(String source) {
@@ -96,7 +113,7 @@ final class MacosApplicationManifest {
         'nativeCapabilities',
         'diagnostics',
       },
-      const <String>{'dartHelpers', 'nativeAssets'},
+      const <String>{'dartHelpers', 'nativeAssets', 'runner'},
       'manifest',
     );
     if (root['schemaVersion'] != 1) {
@@ -118,6 +135,16 @@ final class MacosApplicationManifest {
     }, 'manifest.application');
     final Map<String, Object?> dart = _object(root['dart'], 'manifest.dart');
     _exactKeys(dart, const <String>{'entrypoint'}, 'manifest.dart');
+    final Map<String, Object?> runner = switch (root['runner']) {
+      null => const <String, Object?>{},
+      final Object value => _object(value, 'manifest.runner'),
+    };
+    _requiredAndOptionalKeys(runner, const <String>{}, const <String>{
+      'activationPolicy',
+      'activateOnLaunch',
+      'terminateAfterLastWindowClosed',
+      'reopenHandled',
+    }, 'manifest.runner');
     final Map<String, Object?> diagnostics = _object(
       root['diagnostics'],
       'manifest.diagnostics',
@@ -147,6 +174,31 @@ final class MacosApplicationManifest {
     final String entrypoint = _relativePath(
       _string(dart['entrypoint'], 'dart.entrypoint'),
       'dart.entrypoint',
+    );
+    final MacosRunnerActivationPolicy activationPolicy =
+        switch (runner['activationPolicy']) {
+          null => MacosRunnerActivationPolicy.regular,
+          'regular' => MacosRunnerActivationPolicy.regular,
+          'accessory' => MacosRunnerActivationPolicy.accessory,
+          'prohibited' => MacosRunnerActivationPolicy.prohibited,
+          _ => throw const MacosApplicationManifestException(
+            'runner.activationPolicy must be regular, accessory, or prohibited',
+          ),
+        };
+    final bool activateOnLaunch = _optionalBoolean(
+      runner['activateOnLaunch'],
+      'runner.activateOnLaunch',
+      defaultValue: true,
+    );
+    final bool terminateAfterLastWindowClosed = _optionalBoolean(
+      runner['terminateAfterLastWindowClosed'],
+      'runner.terminateAfterLastWindowClosed',
+      defaultValue: false,
+    );
+    final bool reopenHandled = _optionalBoolean(
+      runner['reopenHandled'],
+      'runner.reopenHandled',
+      defaultValue: true,
     );
     final Object? helperValue = root['dartHelpers'];
     final List<Object?> helperValues = switch (helperValue) {
@@ -276,6 +328,12 @@ final class MacosApplicationManifest {
         enabled: enabledValue,
         applicationSupportName: supportName,
       ),
+      runner: MacosRunnerManifest(
+        activationPolicy: activationPolicy,
+        activateOnLaunch: activateOnLaunch,
+        terminateAfterLastWindowClosed: terminateAfterLastWindowClosed,
+        reopenHandled: reopenHandled,
+      ),
     );
   }
 
@@ -300,6 +358,7 @@ final class MacosApplicationManifest {
   final List<MacosNativeAssetManifest> nativeAssets;
   final List<MacosNativeCapabilityManifest> nativeCapabilities;
   final MacosDiagnosticsManifest diagnostics;
+  final MacosRunnerManifest runner;
 
   static final RegExp _identifier = RegExp(
     r'^[A-Za-z0-9][A-Za-z0-9.-]{2,127}$',
@@ -311,6 +370,20 @@ final class MacosApplicationManifest {
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
+}
+
+bool _optionalBoolean(
+  Object? value,
+  String path, {
+  required bool defaultValue,
+}) {
+  if (value == null) {
+    return defaultValue;
+  }
+  if (value is! bool) {
+    throw MacosApplicationManifestException('$path must be a boolean');
+  }
+  return value;
 }
 
 MacosDartHelperManifest _dartHelper(Object? value, int index) {

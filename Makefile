@@ -48,7 +48,8 @@ RUNNER_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
 	$(PROJECT_ROOT)/native/runner/DartHost.mm \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
-	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc
+	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc \
+	$(PROJECT_ROOT)/native/runner/RunnerConfiguration.mm
 RUNNER_HEADERS := \
 	$(PROJECT_ROOT)/native/runner/AppDelegate.h \
 	$(PROJECT_ROOT)/native/runner/DartEventEncoder.h \
@@ -67,6 +68,9 @@ EVENT_ENCODER_TEST_SOURCES := \
 RUNNER_ARGUMENT_TEST_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc \
 	$(PROJECT_ROOT)/native/runner/test/RunnerArgumentsTests.cc
+RUNNER_CONFIGURATION_TEST_SOURCES := \
+	$(PROJECT_ROOT)/native/runner/RunnerConfiguration.mm \
+	$(PROJECT_ROOT)/native/runner/test/RunnerConfigurationTests.mm
 
 BRIDGE_LIBRARY := $(NATIVE_BUILD_DIR)/libdart_appkit_bridge.dylib
 LEGACY_EVENT_BRIDGE_FIXTURE := \
@@ -75,6 +79,8 @@ NATIVE_TEST_BINARY := $(NATIVE_BUILD_DIR)/bridge_tests
 MESSAGE_PUMP_TEST_BINARY := $(NATIVE_BUILD_DIR)/message_pump_tests
 EVENT_ENCODER_TEST_BINARY := $(NATIVE_BUILD_DIR)/event_encoder_tests
 RUNNER_ARGUMENT_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_argument_tests
+RUNNER_CONFIGURATION_TEST_BINARY := \
+	$(NATIVE_BUILD_DIR)/runner_configuration_tests
 RUNNER_SHELL_TEST_BINARY := $(NATIVE_BUILD_DIR)/runner_shell_test
 RUNNER_BINARY := $(NATIVE_BUILD_DIR)/dart_appkit_runner
 
@@ -93,12 +99,14 @@ RUNTIME_JIT_SOURCES := \
 	$(PROJECT_ROOT)/native/runner/DartHost.mm \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
 	$(PROJECT_ROOT)/native/runner/RunnerArguments.cc \
+	$(PROJECT_ROOT)/native/runner/RunnerConfiguration.mm \
 	$(RUNTIME_COMMON_SOURCES)
 RUNTIME_AOT_SOURCES := \
 	$(PROJECT_ROOT)/native/runtime/ReleaseAotRunner.mm \
 	$(PROJECT_ROOT)/native/runtime/ReleaseAotHost.mm \
 	$(PROJECT_ROOT)/native/runner/DartEventEncoder.cc \
 	$(PROJECT_ROOT)/native/runner/DartMessagePump.mm \
+	$(PROJECT_ROOT)/native/runner/RunnerConfiguration.mm \
 	$(RUNTIME_COMMON_SOURCES)
 RUNTIME_JIT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_developer
 RUNTIME_AOT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_release
@@ -158,7 +166,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-contract-check terminal-renderer-native-test terminal-renderer-dart-test dpty-contract-check dpty-child-audit dpty-native-test dpty-dart-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-contract-check terminal-renderer-native-test terminal-renderer-dart-test dpty-contract-check dpty-child-audit dpty-native-test dpty-dart-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -169,6 +177,7 @@ help:
 	@echo "  make native-test    Build and run native bridge contract tests"
 	@echo "  make runner-syntax  Compile-check Runner against Dart 3.13.2 declarations"
 	@echo "  make runner-argument-test  Test Runner CLI parsing and exit contract"
+	@echo "  make runner-configuration-test  Test Runner bundle policy parsing"
 	@echo "  make runner-shell-test  Link Runner shell and execute pre-VM failures"
 	@echo "  make message-pump-test  Test bounded main-run-loop Dart scheduling"
 	@echo "  make event-encoder-test  Test versioned native event serialization"
@@ -258,6 +267,16 @@ $(RUNNER_ARGUMENT_TEST_BINARY): $(RUNNER_ARGUMENT_TEST_SOURCES) \
 
 runner-argument-test: $(RUNNER_ARGUMENT_TEST_BINARY)
 	@$(RUNNER_ARGUMENT_TEST_BINARY)
+
+$(RUNNER_CONFIGURATION_TEST_BINARY): $(RUNNER_CONFIGURATION_TEST_SOURCES) \
+		$(PROJECT_ROOT)/native/runner/RunnerConfiguration.h
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(OBJCXX_FLAGS) \
+		-I$(PROJECT_ROOT)/native/runner \
+		$(RUNNER_CONFIGURATION_TEST_SOURCES) $(APPKIT_LIBS) -o $@
+
+runner-configuration-test: $(RUNNER_CONFIGURATION_TEST_BINARY)
+	@$(RUNNER_CONFIGURATION_TEST_BINARY)
 
 $(RUNNER_SHELL_TEST_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
 		$(RUNNER_HEADERS) $(RUNNER_SOURCES) $(PROJECT_ROOT)/Makefile
@@ -661,7 +680,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-native-test dpty-native-test runtime-dart-test example-view-dart-test terminal-renderer-dart-test dpty-dart-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-renderer-native-test dpty-native-test runtime-dart-test example-view-dart-test terminal-renderer-dart-test dpty-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \

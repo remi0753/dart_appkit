@@ -703,6 +703,13 @@ final class RuntimeApplicationBuilder {
             'engine': _basename(engineLibrary.path),
             'dartSdkVersion': sdkVersion,
             'dartSdkRevision': sdkRevision,
+            'runner': <String, Object>{
+              'activationPolicy': manifest.runner.activationPolicy.name,
+              'activateOnLaunch': manifest.runner.activateOnLaunch,
+              'terminateAfterLastWindowClosed':
+                  manifest.runner.terminateAfterLastWindowClosed,
+              'reopenHandled': manifest.runner.reopenHandled,
+            },
             'dartHelpers': <Map<String, Object>>[
               for (final MacosDartHelperManifest helper in manifest.dartHelpers)
                 <String, Object>{
@@ -920,6 +927,17 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
   <${manifest.diagnostics.enabled ? 'true' : 'false'}/>
   <key>DMRDiagnosticsApplicationSupportName</key>
   <string>${_xml(manifest.diagnostics.applicationSupportName)}</string>
+  <key>DMRRunnerConfiguration</key>
+  <dict>
+    <key>ActivationPolicy</key>
+    <string>${manifest.runner.activationPolicy.name}</string>
+    <key>ActivateOnLaunch</key>
+    <${manifest.runner.activateOnLaunch ? 'true' : 'false'}/>
+    <key>TerminateAfterLastWindowClosed</key>
+    <${manifest.runner.terminateAfterLastWindowClosed ? 'true' : 'false'}/>
+    <key>ReopenHandled</key>
+    <${manifest.runner.reopenHandled ? 'true' : 'false'}/>
+  </dict>
 </dict>
 </plist>
 ''';
