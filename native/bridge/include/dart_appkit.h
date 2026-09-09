@@ -173,6 +173,16 @@ typedef struct DaTextViewConfiguration {
 #define DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaTextViewConfiguration))
 
+/** Size-prefixed immutable menu creation configuration. */
+typedef struct DaMenuConfiguration {
+  uint64_t struct_size;
+  int32_t auto_enables_items;
+  int32_t reserved;
+} DaMenuConfiguration;
+
+#define DA_MENU_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaMenuConfiguration))
+
 /**
  * Error detail borrowed from thread-local storage.
  *
@@ -375,6 +385,11 @@ DA_EXPORT int32_t da_pasteboard_get_change_count(int64_t* out_change_count);
 /** Main thread only. Creates a menu and copies its UTF-8 title. */
 DA_EXPORT int32_t da_menu_create(const char* title, size_t title_length,
                                  DaHandle* out_menu);
+
+/** Main thread only. Creates a configured menu and copies its UTF-8 title. */
+DA_EXPORT int32_t da_menu_create_configured(
+    const char* title, size_t title_length,
+    const DaMenuConfiguration* configuration, DaHandle* out_menu);
 
 /**
  * Main thread only. Creates an actionable menu item and copies both strings.

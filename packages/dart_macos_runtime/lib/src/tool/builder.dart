@@ -709,6 +709,12 @@ final class RuntimeApplicationBuilder {
               'terminateAfterLastWindowClosed':
                   manifest.runner.terminateAfterLastWindowClosed,
               'reopenHandled': manifest.runner.reopenHandled,
+              'messagePump': <String, Object>{
+                'maxMessagesPerTurn':
+                    manifest.runner.messagePump.maxMessagesPerTurn,
+                'maxTimePerTurnMicros':
+                    manifest.runner.messagePump.maxTimePerTurnMicros,
+              },
             },
             'dartHelpers': <Map<String, Object>>[
               for (final MacosDartHelperManifest helper in manifest.dartHelpers)
@@ -937,6 +943,13 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
     <${manifest.runner.terminateAfterLastWindowClosed ? 'true' : 'false'}/>
     <key>ReopenHandled</key>
     <${manifest.runner.reopenHandled ? 'true' : 'false'}/>
+    <key>MessagePump</key>
+    <dict>
+      <key>MaxMessagesPerTurn</key>
+      <integer>${manifest.runner.messagePump.maxMessagesPerTurn}</integer>
+      <key>MaxTimePerTurnMicros</key>
+      <integer>${manifest.runner.messagePump.maxTimePerTurnMicros}</integer>
+    </dict>
   </dict>
 </dict>
 </plist>

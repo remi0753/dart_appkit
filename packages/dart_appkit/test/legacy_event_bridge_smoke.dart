@@ -212,8 +212,13 @@ void main(List<String> arguments) {
       bindings.splitViewSetZoomedChild(1, -1).status != 8) {
     _fail('legacy bridge did not reject additive tab/split/focus APIs');
   }
-  if (bindings.menuCreate('Menu').status != 8 ||
-      bindings
+  if (bindings.menuCreate('Menu', autoEnablesItems: false).status != 7) {
+    _fail('legacy bridge did not retain explicit-state menu creation');
+  }
+  if (bindings.menuCreate('Menu', autoEnablesItems: true).status != 8) {
+    _fail('legacy bridge accepted an auto-enabling menu');
+  }
+  if (bindings
               .menuItemCreate(title: 'Item', keyEquivalent: 'i', modifiers: 0)
               .status !=
           8 ||

@@ -24,6 +24,7 @@ export 'src/api.dart'
         KeyEventRouting,
         ModifierKeys,
         Menu,
+        MenuConfiguration,
         MenuItem,
         MenuItemInvokedEvent,
         Pasteboard,

@@ -976,6 +976,36 @@ void TestMenus() {
   EXPECT_EQ(da_menu_create(invalid_utf8, sizeof(invalid_utf8), &output),
             DA_STATUS_INVALID_UTF8);
   EXPECT_EQ(output, static_cast<DaHandle>(0));
+  DaMenuConfiguration auto_menu_configuration = {
+      DA_MENU_CONFIGURATION_VERSION_1_SIZE,
+      1,
+      0,
+  };
+  DaHandle auto_menu = 0;
+  EXPECT_EQ(da_menu_create_configured("Auto", 4, &auto_menu_configuration,
+                                      &auto_menu),
+            DA_STATUS_OK);
+  EXPECT_TRUE(MenuFor(auto_menu).autoenablesItems);
+  DaMenuConfiguration invalid_menu_configuration = auto_menu_configuration;
+  invalid_menu_configuration.struct_size = 0;
+  EXPECT_EQ(da_menu_create_configured("Bad", 3, &invalid_menu_configuration,
+                                      &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_menu_configuration = auto_menu_configuration;
+  invalid_menu_configuration.auto_enables_items = 2;
+  EXPECT_EQ(da_menu_create_configured("Bad", 3, &invalid_menu_configuration,
+                                      &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_menu_configuration = auto_menu_configuration;
+  invalid_menu_configuration.reserved = 1;
+  EXPECT_EQ(da_menu_create_configured("Bad", 3, &invalid_menu_configuration,
+                                      &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_create_configured("Bad", 3, nullptr, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_create_configured("Bad", 3, &auto_menu_configuration,
+                                      nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
   output = 99;
   EXPECT_EQ(da_menu_item_create("Invalid", 7, "i", 1, 1ULL << 20, &output),
             DA_STATUS_INVALID_ARGUMENT);
@@ -1059,6 +1089,7 @@ void TestMenus() {
   EXPECT_EQ(da_release(separator), DA_STATUS_OK);
   EXPECT_EQ(da_release(app_item), DA_STATUS_OK);
   EXPECT_EQ(da_release(app_menu), DA_STATUS_OK);
+  EXPECT_EQ(da_release(auto_menu), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 

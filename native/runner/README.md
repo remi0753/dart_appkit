@@ -10,8 +10,10 @@ executable so Dart resolves the public C ABI through
 checks Dart 3.13.2 plus the exact compiled source revision, owns Engine startup
 and teardown, invokes `main(List<String>)`, and serializes native events.
 `DartMessagePump` accepts scheduler callbacks on arbitrary threads but handles
-them only through a main-run-loop source, with limits of 64 messages or 4 ms per
-turn.
+them only through a main-run-loop source. The optional manifest
+`runner.messagePump` object selects the per-turn message and elapsed-time
+budgets. Defaults remain 64 messages and 4000 microseconds; the Runner rejects
+values outside the library hard maxima of 1024 messages and 16000 microseconds.
 
 `test_support/include/dart_engine.h` is a declaration-only copy used solely to
 warning-compile and unit-test source when the released SDK lacks the Engine

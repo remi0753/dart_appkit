@@ -33,7 +33,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Application-owned external URL policy | Dart default/custom typed-policy matrix, native condition recorder after repeated validation, invariant bound/text/thread guards, current and exact-default legacy FFI smoke | Verified |
-| Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
+| Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Configurable base/display-text views | Immutable Dart configurations, native focus/autoresize/font/padding/color validation and state inspection, current/legacy FFI | Verified |
 | Explicit two-pane split helper boundary | `TwoPaneSplitView` current API, deprecated `SplitView` construction alias, nested two-child state tests, and unchanged C ABI | Verified |
@@ -49,7 +49,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Capability-enabled JIT/AOT GUI | Same Dart facade and manifest create the dependency view in both real generic hosts; bundles pass deep signature verification | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
-| Scheduler cannot re-enter and is bounded | FIFO, count-budget, and time-budget message-pump tests | Verified |
+| Scheduler cannot re-enter and has configurable hard-bounded turns | Strict manifest/plist tests plus default/custom/rejected-bound FIFO, count-budget, and time-budget message-pump tests | Verified |
 | Launcher validation, bundle, stdio, arguments, exits | Fake-process workflow plus real bundle run | Verified |
 | Pinned checkout bootstrap is reproducible | First build succeeded; second run synced safely and Ninja reported no work | Verified |
 | Engine dylib and Kernel toolchain match | Architecture, symbols, install name, compiler, and platform checks pass | Verified |

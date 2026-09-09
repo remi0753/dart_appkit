@@ -3,7 +3,6 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -12,13 +11,9 @@
 
 #include "include/dart_api.h"
 #include "include/dart_engine.h"
+#include "RunnerConfiguration.h"
 
 namespace dart_appkit {
-
-struct DartMessagePumpLimits {
-  size_t max_messages_per_turn = 64;
-  std::chrono::microseconds max_time_per_turn = std::chrono::microseconds(4000);
-};
 
 struct DartMessagePumpDebugStats {
   uint64_t accepted_notifications = 0;

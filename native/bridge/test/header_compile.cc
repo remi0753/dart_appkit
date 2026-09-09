@@ -13,6 +13,8 @@ static_assert(std::is_standard_layout_v<DaTextViewConfiguration>);
 static_assert(sizeof(DaViewConfiguration) == 24);
 static_assert(sizeof(DaTextViewColorConfiguration) == 40);
 static_assert(sizeof(DaTextViewConfiguration) == 160);
+static_assert(std::is_standard_layout_v<DaMenuConfiguration>);
+static_assert(sizeof(DaMenuConfiguration) == 16);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
 static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 6);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
@@ -28,6 +30,7 @@ int da_header_compiles_as_cpp() {
   auto* custom_view_create = &da_view_create_custom;
   auto* configured_view_create = &da_view_create_configured;
   auto* configured_text_view_create = &da_text_view_create_configured;
+  auto* configured_menu_create = &da_menu_create_configured;
   auto* custom_view_operation = &da_view_perform_custom_operation;
   auto* external_url_open = &da_application_open_external_url;
   auto* external_url_open_with_policy =
@@ -41,6 +44,7 @@ int da_header_compiles_as_cpp() {
   return rect.height == 480.0 && custom_view_create != nullptr &&
                  configured_view_create != nullptr &&
                  configured_text_view_create != nullptr &&
+                 configured_menu_create != nullptr &&
                  custom_view_operation != nullptr &&
                  external_url_open != nullptr &&
                  external_url_open_with_policy != nullptr &&

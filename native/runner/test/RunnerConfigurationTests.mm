@@ -29,6 +29,10 @@ void TestDefaultsAndMissingMetadata() {
   CHECK(configuration.activate_on_launch);
   CHECK(!configuration.terminate_after_last_window_closed);
   CHECK(configuration.reopen_handled);
+  CHECK(configuration.message_pump_limits.max_messages_per_turn ==
+        dart_appkit::kDefaultDartMessagesPerTurn);
+  CHECK(configuration.message_pump_limits.max_time_per_turn.count() ==
+        dart_appkit::kDefaultDartMessageTimeMicros);
 }
 
 void TestConfiguredValues() {
@@ -38,6 +42,10 @@ void TestConfiguredValues() {
       @"ActivateOnLaunch" : @NO,
       @"TerminateAfterLastWindowClosed" : @YES,
       @"ReopenHandled" : @NO,
+      @"MessagePump" : @{
+        @"MaxMessagesPerTurn" : @17,
+        @"MaxTimePerTurnMicros" : @2500,
+      },
     },
   };
   dart_appkit::RunnerConfiguration configuration;
@@ -49,6 +57,8 @@ void TestConfiguredValues() {
   CHECK(!configuration.activate_on_launch);
   CHECK(configuration.terminate_after_last_window_closed);
   CHECK(!configuration.reopen_handled);
+  CHECK(configuration.message_pump_limits.max_messages_per_turn == 17);
+  CHECK(configuration.message_pump_limits.max_time_per_turn.count() == 2500);
 }
 
 void TestStrictFailureIsAtomic() {
@@ -56,6 +66,7 @@ void TestStrictFailureIsAtomic() {
   configuration.activation_policy =
       dart_appkit::RunnerActivationPolicy::kProhibited;
   configuration.reopen_handled = false;
+  configuration.message_pump_limits.max_messages_per_turn = 23;
   std::string error;
   CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
       @{@"DMRRunnerConfiguration" : @{@"ActivationPolicy" : @"invalid"}},
@@ -64,6 +75,7 @@ void TestStrictFailureIsAtomic() {
   CHECK(configuration.activation_policy ==
         dart_appkit::RunnerActivationPolicy::kProhibited);
   CHECK(!configuration.reopen_handled);
+  CHECK(configuration.message_pump_limits.max_messages_per_turn == 23);
 
   CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
       @{@"DMRRunnerConfiguration" : @{@"Unknown" : @YES}}, &configuration,
@@ -73,6 +85,38 @@ void TestStrictFailureIsAtomic() {
       @{@"DMRRunnerConfiguration" : @{@"ActivateOnLaunch" : @1}},
       &configuration, &error));
   CHECK(error.find("boolean") != std::string::npos);
+  CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
+      @{ @"DMRRunnerConfiguration" : @{ @"MessagePump" : @1 } },
+      &configuration, &error));
+  CHECK(error.find("dictionary") != std::string::npos);
+  CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
+      @{ @"DMRRunnerConfiguration" : @{
+        @"MessagePump" : @{ @"Unknown" : @1 }
+      } },
+      &configuration, &error));
+  CHECK(error.find("unknown key") != std::string::npos);
+  CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
+      @{ @"DMRRunnerConfiguration" : @{
+        @"MessagePump" : @{ @"MaxMessagesPerTurn" : @0 }
+      } },
+      &configuration, &error));
+  CHECK(error.find("hard bounds") != std::string::npos);
+  CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
+      @{ @"DMRRunnerConfiguration" : @{
+        @"MessagePump" : @{
+          @"MaxMessagesPerTurn" :
+              @(dart_appkit::kMaximumDartMessagesPerTurn + 1)
+        }
+      } },
+      &configuration, &error));
+  CHECK(error.find("hard bounds") != std::string::npos);
+  CHECK(!dart_appkit::LoadRunnerConfigurationFromInfoDictionary(
+      @{ @"DMRRunnerConfiguration" : @{
+        @"MessagePump" : @{ @"MaxTimePerTurnMicros" : @1.5 }
+      } },
+      &configuration, &error));
+  CHECK(error.find("integer") != std::string::npos);
+  CHECK(configuration.message_pump_limits.max_messages_per_turn == 23);
 }
 
 }  // namespace

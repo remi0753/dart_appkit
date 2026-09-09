@@ -71,6 +71,7 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, bool> windowCloseDeferrals = <int, bool>{};
   final Map<int, int> windowKeyEventRoutings = <int, int>{};
   final Map<int, String> menuTitles = <int, String>{};
+  final Map<int, bool> menuAutoEnablesItems = <int, bool>{};
   final Map<int, FakeMenuItemState> menuItems = <int, FakeMenuItemState>{};
   final Map<int, List<int>> menuContents = <int, List<int>>{};
   final Map<int, int> submenus = <int, int>{};
@@ -254,12 +255,16 @@ final class FakeNativeBindings implements NativeBindings {
       _value<int>('pasteboardGetChangeCount', pasteboardChangeCount);
 
   @override
-  NativeValueResult<int> menuCreate(String title) {
+  NativeValueResult<int> menuCreate(
+    String title, {
+    required bool autoEnablesItems,
+  }) {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('menuCreate', handle);
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.menu;
       menuTitles[handle] = title;
+      menuAutoEnablesItems[handle] = autoEnablesItems;
       menuContents[handle] = <int>[];
     }
     return result;
@@ -737,6 +742,7 @@ final class FakeNativeBindings implements NativeBindings {
       windowCloseDeferrals.remove(handle);
       windowKeyEventRoutings.remove(handle);
       menuTitles.remove(handle);
+      menuAutoEnablesItems.remove(handle);
       menuItems.remove(handle);
       menuContents.remove(handle);
       submenus.remove(handle);

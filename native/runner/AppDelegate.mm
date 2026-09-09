@@ -26,7 +26,8 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
   (void)notification;
-  message_pump_ = std::make_unique<dart_appkit::DartMessagePump>();
+  message_pump_ = std::make_unique<dart_appkit::DartMessagePump>(
+      configuration_.message_pump_limits);
   std::string error;
   if (!message_pump_->Start(&error)) {
     std::fprintf(stderr, "Runner startup failed: %s\n", error.c_str());

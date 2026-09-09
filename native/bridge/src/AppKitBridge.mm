@@ -1066,8 +1066,9 @@ int32_t da_pasteboard_get_change_count(int64_t* out_change_count) {
   }
 }
 
-int32_t da_menu_create(const char* title, size_t title_length,
-                       DaHandle* out_menu) {
+int32_t da_menu_create_configured(
+    const char* title, size_t title_length,
+    const DaMenuConfiguration* configuration, DaHandle* out_menu) {
   dart_appkit::ClearLastError();
   if (out_menu == nullptr) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
@@ -1078,6 +1079,15 @@ int32_t da_menu_create(const char* title, size_t title_length,
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
+  if (configuration == nullptr ||
+      configuration->struct_size < DA_MENU_CONFIGURATION_VERSION_1_SIZE ||
+      (configuration->auto_enables_items != 0 &&
+       configuration->auto_enables_items != 1) ||
+      configuration->reserved != 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "menu configuration is missing, undersized, or invalid");
+  }
   int32_t status = DA_STATUS_OK;
   NSString* copied_title = dart_appkit::CopyUtf8(title, title_length, &status);
   if (status != DA_STATUS_OK) {
@@ -1085,7 +1095,7 @@ int32_t da_menu_create(const char* title, size_t title_length,
   }
   @try {
     NSMenu* menu = [[NSMenu alloc] initWithTitle:copied_title];
-    menu.autoenablesItems = NO;
+    menu.autoenablesItems = configuration->auto_enables_items == 1;
     const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
         menu, dart_appkit::ObjectKind::kMenu,
         dart_appkit::ThreadDomain::kAppKitMain);
@@ -1100,6 +1110,17 @@ int32_t da_menu_create(const char* title, size_t title_length,
                                          ? exception.reason.UTF8String
                                          : "AppKit menu creation failed");
   }
+}
+
+int32_t da_menu_create(const char* title, size_t title_length,
+                       DaHandle* out_menu) {
+  const DaMenuConfiguration configuration = {
+      DA_MENU_CONFIGURATION_VERSION_1_SIZE,
+      0,
+      0,
+  };
+  return da_menu_create_configured(title, title_length, &configuration,
+                                   out_menu);
 }
 
 int32_t da_menu_item_create(const char* title, size_t title_length,

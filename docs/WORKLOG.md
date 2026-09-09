@@ -3,6 +3,68 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-10 — configurable menu enablement and message-pump budgets
+
+### Purpose and boundary
+
+Move AppKit menu auto-enablement and the Runner's per-turn Dart message count
+and time budgets into application-selected immutable configuration. Keep the
+existing explicit menu state plus 64-message/4000-microsecond behavior as
+compatibility defaults, while retaining library-owned hard bounds that prevent
+an application from monopolizing the main run-loop turn.
+
+### Scope and verification plan
+
+- Add immutable `MenuConfiguration(autoEnablesItems: false)` and a
+  size-prefixed configured menu creation symbol. Old bridges accept only the
+  exact explicit-state default.
+- Add a nested `runner.messagePump` manifest object with positive integer
+  `maxMessagesPerTurn` and `maxTimePerTurnMicros`; default to 64 and 4000.
+- Enforce hard maxima of 1024 messages and 16000 microseconds in manifest
+  parsing, native Runner metadata parsing, and `DartMessagePump.Start` so direct
+  construction cannot bypass the scheduler invariant.
+- Record both values in generated Info.plist and runtime-build-manifest, then
+  construct the Runner pump from the parsed immutable limits.
+- Test Menu default/custom/legacy behavior, strict/atomic manifest and plist
+  parsing, hard-bound pump rejection, configured draining, generated metadata,
+  and complete regressions.
+
+### Findings and verification
+
+- The first focused run passed every native bridge case, then Dart analysis
+  rejected two accesses through the nullable configured-menu allocation kept
+  for cleanup. The allocation now uses a non-null local for initialization and
+  invocation, while the nullable owner remains solely for `finally` cleanup.
+- `MenuConfiguration` is immutable and defaults to explicit item state. Its
+  16-byte size-prefixed C record accepts only boolean zero/one and zero reserved
+  data; the old create symbol delegates to the false default, and Dart uses an
+  old image only for that exact policy.
+- `runner.messagePump` is a strict optional nested object. Both values must be
+  positive integers; application values flow unchanged through the generated
+  Info.plist and runtime-build-manifest into the Runner configuration.
+- The defaults remain 64 messages and 4000 microseconds. The manifest parser,
+  native plist parser, and pump startup independently enforce hard maxima of
+  1024 messages and 16000 microseconds, so direct native construction cannot
+  bypass the run-loop fairness boundary.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test dart-test
+  ffi-smoke runner-configuration-test message-pump-test runtime-dart-test`
+  passes configured/default/invalid Menu creation, current and exact-default
+  legacy FFI, strict and atomic metadata parsing, configured pump draining,
+  both hard bounds, and generated bundle metadata.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold,
+  warning-clean C11/C++20 bridge and Runner builds, all native runtime,
+  capability, renderer, and PTY suites, every Dart analyzer/test suite, example
+  Kernel compilation, current FFI, and legacy fallback.
+- Final source and documentation review plus `git diff --check` pass. ABI and
+  event protocol versions remain unchanged; both additions are optional or
+  additive, and compatibility defaults reproduce the previous behavior.
+
+### Roadmap checkpoint
+
+All seven ordered genericity-audit corrections are complete. The broader G0,
+G10, and G11 roadmap items remain open for their other published completion
+conditions; no later feature work was pulled forward.
+
 ## 2026-09-10 — configurable base and simple text views
 
 ### Purpose and boundary

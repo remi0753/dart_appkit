@@ -9,6 +9,7 @@ export 'src/application_manifest.dart'
         MacosNativeAssetManifest,
         MacosNativeCapabilityManifest,
         MacosRunnerActivationPolicy,
+        MacosRunnerMessagePumpManifest,
         MacosRunnerManifest;
 export 'src/native_capability.dart'
     show MacosNativeCapability, MacosNativeCapabilityException;

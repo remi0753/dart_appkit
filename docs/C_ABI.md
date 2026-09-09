@@ -361,8 +361,12 @@ application.
 
 Menu and item titles plus key equivalents use the same copied UTF-8 convention
 as other bridge strings. Shortcut masks accept only the seven stable
-`DaModifier` bits and translate them to AppKit flags internally. Menus disable
-AppKit auto-enablement so the explicit enabled state remains authoritative.
+`DaModifier` bits and translate them to AppKit flags internally.
+`DaMenuConfiguration` is size-prefixed and selects AppKit auto-enablement when
+the menu is created. Its false compatibility default leaves explicit enabled
+state authoritative; `da_menu_create` remains that exact legacy wrapper.
+Current Dart bindings return unsupported for an auto-enabled menu on an older
+native image rather than silently changing validation policy.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and

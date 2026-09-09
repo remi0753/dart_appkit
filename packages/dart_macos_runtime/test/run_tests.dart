@@ -253,6 +253,11 @@ Future<void> main() async {
       'runner last-window default',
     );
     _expect(manifest.runner.reopenHandled, 'runner reopen default');
+    _expect(
+      manifest.runner.messagePump.maxMessagesPerTurn == 64 &&
+          manifest.runner.messagePump.maxTimePerTurnMicros == 4000,
+      'runner message-pump defaults',
+    );
 
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
@@ -273,7 +278,11 @@ Future<void> main() async {
     "activationPolicy": "accessory",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
-    "reopenHandled": false
+    "reopenHandled": false,
+    "messagePump": {
+      "maxMessagesPerTurn": 17,
+      "maxTimePerTurnMicros": 2500
+    }
   },
   "dart":'''),
         );
@@ -288,6 +297,11 @@ Future<void> main() async {
       'runner last-window policy',
     );
     _expect(!runnerManifest.runner.reopenHandled, 'runner reopen policy');
+    _expect(
+      runnerManifest.runner.messagePump.maxMessagesPerTurn == 17 &&
+          runnerManifest.runner.messagePump.maxTimePerTurnMicros == 2500,
+      'runner message-pump policy',
+    );
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
         _validManifest.replaceFirst(
@@ -296,6 +310,22 @@ Future<void> main() async {
         ),
       );
     });
+    for (final String messagePump in <String>[
+      '{"maxMessagesPerTurn": 0}',
+      '{"maxMessagesPerTurn": 1025}',
+      '{"maxTimePerTurnMicros": 16001}',
+      '{"maxTimePerTurnMicros": 1.5}',
+      '{"unknown": 1}',
+    ]) {
+      _expectThrows<MacosApplicationManifestException>(() {
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"runner": {"messagePump": $messagePump}, "dart":',
+          ),
+        );
+      });
+    }
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
         _validManifest.replaceFirst(
@@ -540,7 +570,11 @@ Future<void> main() async {
     "activationPolicy": "prohibited",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
-    "reopenHandled": false
+    "reopenHandled": false,
+    "messagePump": {
+      "maxMessagesPerTurn": 17,
+      "maxTimePerTurnMicros": 2500
+    }
   },
   "dart":'''),
     );
@@ -583,6 +617,15 @@ Future<void> main() async {
       ),
       'runner last-window policy is bundled',
     );
+    _expect(
+      infoPlist.contains(
+            '<key>MaxMessagesPerTurn</key>\n      <integer>17</integer>',
+          ) &&
+          infoPlist.contains(
+            '<key>MaxTimePerTurnMicros</key>\n      <integer>2500</integer>',
+          ),
+      'runner message-pump policy is bundled',
+    );
     final Map<String, Object?> buildManifest = jsonDecode(
       File('${bundle.path}/Contents/Resources/runtime-build-manifest.json')
           .readAsStringSync(),
@@ -590,6 +633,13 @@ Future<void> main() async {
     final Map<String, Object?> runner =
         buildManifest['runner']! as Map<String, Object?>;
     _expect(runner['reopenHandled'] == false, 'runner policy is recorded');
+    final Map<String, Object?> messagePump =
+        runner['messagePump']! as Map<String, Object?>;
+    _expect(
+      messagePump['maxMessagesPerTurn'] == 17 &&
+          messagePump['maxTimePerTurnMicros'] == 2500,
+      'runner message-pump policy is recorded',
+    );
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');
     _expect(launched.arguments.contains('--smoke'), 'arguments forwarded');

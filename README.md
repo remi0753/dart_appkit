@@ -126,7 +126,9 @@ final window = Window(
 )
   ..contentView = view
   ..show();
-final Menu mainMenu = Menu();
+final Menu mainMenu = Menu(
+  configuration: const MenuConfiguration(autoEnablesItems: false),
+);
 final MenuItem closeItem = MenuItem(
   title: 'Close',
   keyEquivalent: 'w',
@@ -156,6 +158,11 @@ focus and autoresizing behavior. Defaults preserve the original focusable,
 width/height-sizable, monospaced 18-point regular text with 20-point padding,
 label foreground, and window background. Registered custom views remain wholly
 provider-owned.
+
+`MenuConfiguration` selects whether AppKit automatically validates item
+enabled state through its target. The compatibility default is `false`, so
+explicit `MenuItem.isEnabled` updates remain authoritative; applications that
+participate in AppKit validation can opt into auto-enablement per menu.
 
 Native tabs use one `Window` per tab, preserving independent window event and
 content-view ownership. `Window.addTabbedWindow` appends another window to the

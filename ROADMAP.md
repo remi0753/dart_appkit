@@ -284,7 +284,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
 - [x] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
 - [x] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
-- [ ] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
+- [x] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
 
 実装内容:
 
@@ -605,9 +605,9 @@ IME bridgeのboundedな先行実装が動作している。
 達成目標: document app、utility app、複数Window app、menu-bar appに必要なmacOS
 window/application操作を提供する。
 
-進捗: **部分実装**。outer frame、native fullscreen、window tab、最小presentation metadataが
-利用できるが、Window種類とtab／presentationの設定範囲は限定的で、製品lifecycle policy一式も
-まだapplicationから構成できない。
+進捗: **部分実装**。outer frame、native fullscreen、window tab、最小presentation metadata、
+基本window styleとRunner lifecycle policyが利用できるが、Window種類とtab／presentationの
+設定範囲は限定的である。
 
 実装済み:
 
@@ -623,6 +623,10 @@ window/application操作を提供する。
   standard proxy icon／path menuとtab accessory markerへ反映する。
 - boundedなwidth／heightとrectangle／ellipse shapeを持つ `WindowTabAccessory` を実装し、
   旧 `Window.tabColor` を8×8 ellipseの互換helperとして維持する。
+- `WindowConfiguration` でtitled／closable／miniaturizable／resizable styleを選択可能にし、
+  従来の4-style windowを互換defaultとして維持する。
+- 起動前manifest／`RunnerConfiguration` でactivation、launch activation、last-window close、
+  reopen handled policyを選択可能にし、従来挙動を互換defaultとして維持する。
 
 未実装:
 
@@ -631,14 +635,9 @@ window/application操作を提供する。
 - live-resize begin/end、fullscreen transition begin/endなど、完了snapshot以外の状態eventを追加する。
 - tab groupの列挙／順序変更／selected state event、tabbing mode／identifier／overviewなどを追加する。
 - configurable style mask、titlebar、toolbar、transparency、window levelを追加する。
-- 現在すべてのWindowへ固定するtitled／closable／miniaturizable／resizable styleを安全な
-  `WindowConfiguration` のdefaultへ移し、applicationが必要な組み合わせを明示できるようにする。
 - sheet、modal／modeless panel、child windowを追加する。
 - Window registry、複数Window lifecycle、last-window close policy、state restorationを
   追加する。
-- Runnerで現在固定されるregular activation、launch時の強制activate、last-window close後も継続、
-  reopenを常にhandledとする挙動を、起動前manifest／`RunnerConfiguration` で選べるようにする。
-  delegateからDartへの同期問い合わせは追加せず、既存挙動を互換defaultとして維持する。
 - regular/accessory/prohibited activation policy、Dock menu／badge、status itemを追加する。
 - screen列挙、座標変換、sleep/wake、session、application appearance changeを追加する。
 
@@ -658,6 +657,7 @@ window/application操作を提供する。
 
 - main menu、submenu、separator、shortcut、enabled stateと、application／MenuItem streamへの
   action routingを実装した。
+- `MenuConfiguration` で明示的enabled stateとAppKit auto-enablementをmenuごとに選択可能にした。
 - general pasteboardのplain text read／write／clear／change countを実装した。
 - nativeからのtext readを64 MiB UTF-8に制限し、超過時はoutputを空のまま
   `limit exceeded` として失敗させ、partial dataを公開しないcontractを実装した。
@@ -668,8 +668,6 @@ window/application操作を提供する。
   追加する。
 - MenuItemのtitle、shortcut、checked/mixed、hidden、alternate、image、dynamic
   validationを追加する。
-- 現在native生成時に固定する `NSMenu.autoenablesItems = false` を、typed Commandによる手動更新と
-  AppKit validationのどちらを使うか選べるMenu policyへ移す。
 - MenuItemのinsert/remove/reorderと、About、Settings、Hide、Services、Window、Help、
   Editなど標準menu roleを追加する。
 - context menuとView単位のmenu presentationを追加する。
@@ -805,9 +803,6 @@ helperへ委譲できるようにする。
 - terminal専用counterを共通diagnosticsへ統合し、event latency、message-pump backlog、
   CPU／GPU frame time、percentile、dropped/coalesced event、native handle数を時系列で
   計測できるtraceを追加する。
-- Runnerで現在固定される1 turnあたり64 message／4 msのmessage-pump budgetを、hard upper boundと
-  保守的defaultを維持したmanifest parameterにし、application workloadごとに調整／計測できる
-  ようにする。
 - contributorが巨大なEngine checkoutを毎回保持しなくてよい、検証済みprebuilt
   Engine cache／artifact取得経路を追加する。
 

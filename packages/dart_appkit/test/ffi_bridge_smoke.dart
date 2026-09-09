@@ -66,7 +66,10 @@ void main(List<String> arguments) {
       externalUrl.message.isEmpty) {
     _fail('external URL symbol did not preserve its main-thread guard');
   }
-  final NativeValueResult<int> menu = bindings.menuCreate('FFI smoke');
+  final NativeValueResult<int> menu = bindings.menuCreate(
+    'FFI smoke',
+    autoEnablesItems: true,
+  );
   if (menu.isSuccess || menu.status != 5 || menu.message.isEmpty) {
     _fail('menu symbol did not preserve its main-thread guard');
   }

@@ -65,11 +65,13 @@ capability; PTY and application policy retain their independent owners.
 - Main run loop → Dart: the source drains a bounded number of queued tokens under
   a short wall-clock budget and calls `DartEngine_HandleMessage` once per token.
 
-The production limits are 64 messages or 4 milliseconds per source turn. Work
-remaining after either limit resignals the source. A single Dart message cannot
-be preempted, so root-isolate handlers must remain short. Consumers that need
-dynamic background workers must move that work across an explicit process
-boundary rather than spawning hosted in-process isolates.
+The application manifest selects the per-turn message-count and elapsed-time
+budgets. Compatibility defaults are 64 messages and 4000 microseconds, and the
+Runner enforces library hard maxima of 1024 messages and 16000 microseconds.
+Work remaining after either selected limit resignals the source. A single Dart
+message cannot be preempted, so root-isolate handlers must remain short.
+Consumers that need dynamic background workers must move that work across an
+explicit process boundary rather than spawning hosted in-process isolates.
 
 ## Native event protocol
 
@@ -236,6 +238,9 @@ Menus and menu items are independent registry objects. Native attachment
 relationships borrow handles even though `NSMenu`, `NSMenuItem`, submenus, and
 `NSApplication.mainMenu` establish normal AppKit retains. Dart mirrors the
 public ownership graph by retaining added item, submenu, and main-menu wrappers.
+Each menu fixes an immutable `MenuConfiguration` at creation: explicit enabled
+state remains the false-default authority, while applications may opt into
+AppKit target-based auto-enablement per menu.
 Each actionable item owns a native target that posts its v4 event by handle;
 release disables and disconnects that target before invalidating the lease.
 The application uses a weak handle map to route a decoded action to the live

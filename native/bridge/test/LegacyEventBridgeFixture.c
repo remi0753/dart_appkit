@@ -34,6 +34,16 @@ int32_t da_application_open_external_url(const char* url, size_t url_length,
   return DA_STATUS_INTERNAL_ERROR;
 }
 
+int32_t da_menu_create(const char* title, size_t title_length,
+                       DaHandle* out_menu) {
+  (void)title;
+  (void)title_length;
+  if (out_menu != NULL) {
+    *out_menu = 0;
+  }
+  return DA_STATUS_INTERNAL_ERROR;
+}
+
 int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
                          DaHandle* out_window) {
   (void)frame;

@@ -1567,6 +1567,10 @@ Future<void> _testMenuApi() async {
 
   final Menu mainMenu = Menu(title: 'Main');
   final Menu applicationMenu = Menu(title: 'Application');
+  final Menu automaticMenu = Menu(
+    title: 'Automatic',
+    configuration: const MenuConfiguration(autoEnablesItems: true),
+  );
   final MenuItem applicationItem = MenuItem(title: 'Application')
     ..submenu = applicationMenu;
   final MenuItem separator = MenuItem.separator();
@@ -1591,6 +1595,9 @@ Future<void> _testMenuApi() async {
         (MapEntry<int, String> entry) => entry.value == 'Application',
       )
       .key;
+  final int automaticMenuHandle = bindings.menuTitles.entries
+      .singleWhere((MapEntry<int, String> entry) => entry.value == 'Automatic')
+      .key;
   final int applicationItemHandle = bindings.menuItems.entries
       .singleWhere(
         (MapEntry<int, FakeMenuItemState> entry) =>
@@ -1606,6 +1613,13 @@ Future<void> _testMenuApi() async {
   _expect(
     app.mainMenu == mainMenu && bindings.mainMenu == mainHandle,
     'main menu ownership and native attachment',
+  );
+  _expect(
+    mainMenu.configuration == const MenuConfiguration() &&
+        bindings.menuAutoEnablesItems[mainHandle] == false &&
+        automaticMenu.configuration.autoEnablesItems &&
+        bindings.menuAutoEnablesItems[automaticMenuHandle] == true,
+    'menu auto-enablement is explicit and reaches native creation',
   );
   _expect(
     mainMenu.items.single == applicationItem &&
@@ -1701,6 +1715,7 @@ Future<void> _testMenuApi() async {
   separator.dispose();
   applicationItem.dispose();
   applicationMenu.dispose();
+  automaticMenu.dispose();
   _expect(bindings.objects.isEmpty, 'all menu handles released');
   await app.terminate();
   await raw.close();

@@ -121,6 +121,17 @@ final class _DaTextViewConfigurationNative extends Struct {
   external _DaTextViewColorConfigurationNative backgroundColor;
 }
 
+final class _DaMenuConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Int32()
+  external int autoEnablesItems;
+
+  @Int32()
+  external int reserved;
+}
+
 final class _DaErrorNative extends Struct {
   @Int32()
   external int code;
@@ -214,6 +225,18 @@ typedef _StringCreateNative = Int32 Function(
   Pointer<Uint64>,
 );
 typedef _StringCreateDart = int Function(Pointer<Uint8>, int, Pointer<Uint64>);
+typedef _MenuCreateConfiguredNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaMenuConfigurationNative>,
+  Pointer<Uint64>,
+);
+typedef _MenuCreateConfiguredDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaMenuConfigurationNative>,
+  Pointer<Uint64>,
+);
 typedef _MenuItemCreateNative = Int32 Function(
   Pointer<Uint8>,
   Size,
@@ -604,6 +627,17 @@ _StringCreateDart? _lookupMenuCreate(DynamicLibrary library) {
   }
 }
 
+_MenuCreateConfiguredDart? _lookupMenuCreateConfigured(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_MenuCreateConfiguredNative, _MenuCreateConfiguredDart>(
+          'da_menu_create_configured',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _MenuItemCreateDart? _lookupMenuItemCreate(DynamicLibrary library) {
   try {
     return library.lookupFunction<_MenuItemCreateNative, _MenuItemCreateDart>(
@@ -816,6 +850,7 @@ final class FfiNativeBindings implements NativeBindings {
       _pasteboardClear = _lookupPasteboardClear(library),
       _pasteboardChangeCount = _lookupPasteboardChangeCount(library),
       _menuCreate = _lookupMenuCreate(library),
+      _menuCreateConfigured = _lookupMenuCreateConfigured(library),
       _menuItemCreate = _lookupMenuItemCreate(library),
       _menuItemCreateSeparator = _lookupMenuItemCreateSeparator(library),
       _menuAddItem = _lookupMenuAddItem(library),
@@ -954,6 +989,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _Int64OutputDart? _pasteboardClear;
   final _Int64OutputDart? _pasteboardChangeCount;
   final _StringCreateDart? _menuCreate;
+  final _MenuCreateConfiguredDart? _menuCreateConfigured;
   final _MenuItemCreateDart? _menuItemCreate;
   final _CreateHandleDart? _menuItemCreateSeparator;
   final _TwoHandlesDart? _menuAddItem;
@@ -1362,24 +1398,48 @@ final class FfiNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> menuCreate(String title) {
-    final _StringCreateDart? function = _menuCreate;
-    if (function == null) {
+  NativeValueResult<int> menuCreate(
+    String title, {
+    required bool autoEnablesItems,
+  }) {
+    final _MenuCreateConfiguredDart? configuredFunction = _menuCreateConfigured;
+    final _StringCreateDart? legacyFunction = _menuCreate;
+    if (configuredFunction == null &&
+        (legacyFunction == null || autoEnablesItems)) {
       return const NativeValueResult<int>.failure(
         8,
-        'legacy native bridge does not support menus',
+        'legacy native bridge supports only explicit-state menus',
       );
     }
     final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    Pointer<_DaMenuConfigurationNative>? configurationPointer;
     try {
       output.value = 0;
       return _withUtf8(title, (Pointer<Uint8> pointer, int length) {
+        if (configuredFunction == null) {
+          return _valueResult<int>(
+            legacyFunction!(pointer, length, output),
+            output.value,
+          );
+        }
+        final Pointer<_DaMenuConfigurationNative> configPointer = _allocate(
+          sizeOf<_DaMenuConfigurationNative>(),
+        ).cast<_DaMenuConfigurationNative>();
+        configurationPointer = configPointer;
+        configPointer.ref
+          ..structSize = sizeOf<_DaMenuConfigurationNative>()
+          ..autoEnablesItems = autoEnablesItems ? 1 : 0
+          ..reserved = 0;
         return _valueResult<int>(
-          function(pointer, length, output),
+          configuredFunction(pointer, length, configPointer, output),
           output.value,
         );
       });
     } finally {
+      final Pointer<_DaMenuConfigurationNative>? pointer = configurationPointer;
+      if (pointer != null) {
+        _free(pointer.cast<Void>());
+      }
       _free(output.cast<Void>());
     }
   }

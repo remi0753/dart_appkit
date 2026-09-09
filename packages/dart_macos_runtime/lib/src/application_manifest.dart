@@ -22,18 +22,35 @@ final class MacosDiagnosticsManifest {
 
 enum MacosRunnerActivationPolicy { regular, accessory, prohibited }
 
+final class MacosRunnerMessagePumpManifest {
+  const MacosRunnerMessagePumpManifest({
+    required this.maxMessagesPerTurn,
+    required this.maxTimePerTurnMicros,
+  });
+
+  static const int defaultMaxMessagesPerTurn = 64;
+  static const int maximumMaxMessagesPerTurn = 1024;
+  static const int defaultMaxTimePerTurnMicros = 4000;
+  static const int maximumMaxTimePerTurnMicros = 16000;
+
+  final int maxMessagesPerTurn;
+  final int maxTimePerTurnMicros;
+}
+
 final class MacosRunnerManifest {
   const MacosRunnerManifest({
     required this.activationPolicy,
     required this.activateOnLaunch,
     required this.terminateAfterLastWindowClosed,
     required this.reopenHandled,
+    required this.messagePump,
   });
 
   final MacosRunnerActivationPolicy activationPolicy;
   final bool activateOnLaunch;
   final bool terminateAfterLastWindowClosed;
   final bool reopenHandled;
+  final MacosRunnerMessagePumpManifest messagePump;
 }
 
 final class MacosNativeCapabilityManifest {
@@ -144,7 +161,16 @@ final class MacosApplicationManifest {
       'activateOnLaunch',
       'terminateAfterLastWindowClosed',
       'reopenHandled',
+      'messagePump',
     }, 'manifest.runner');
+    final Map<String, Object?> messagePump = switch (runner['messagePump']) {
+      null => const <String, Object?>{},
+      final Object value => _object(value, 'manifest.runner.messagePump'),
+    };
+    _requiredAndOptionalKeys(messagePump, const <String>{}, const <String>{
+      'maxMessagesPerTurn',
+      'maxTimePerTurnMicros',
+    }, 'manifest.runner.messagePump');
     final Map<String, Object?> diagnostics = _object(
       root['diagnostics'],
       'manifest.diagnostics',
@@ -199,6 +225,18 @@ final class MacosApplicationManifest {
       runner['reopenHandled'],
       'runner.reopenHandled',
       defaultValue: true,
+    );
+    final int maxMessagesPerTurn = _optionalBoundedInteger(
+      messagePump['maxMessagesPerTurn'],
+      'runner.messagePump.maxMessagesPerTurn',
+      defaultValue: MacosRunnerMessagePumpManifest.defaultMaxMessagesPerTurn,
+      maximum: MacosRunnerMessagePumpManifest.maximumMaxMessagesPerTurn,
+    );
+    final int maxTimePerTurnMicros = _optionalBoundedInteger(
+      messagePump['maxTimePerTurnMicros'],
+      'runner.messagePump.maxTimePerTurnMicros',
+      defaultValue: MacosRunnerMessagePumpManifest.defaultMaxTimePerTurnMicros,
+      maximum: MacosRunnerMessagePumpManifest.maximumMaxTimePerTurnMicros,
     );
     final Object? helperValue = root['dartHelpers'];
     final List<Object?> helperValues = switch (helperValue) {
@@ -333,6 +371,10 @@ final class MacosApplicationManifest {
         activateOnLaunch: activateOnLaunch,
         terminateAfterLastWindowClosed: terminateAfterLastWindowClosed,
         reopenHandled: reopenHandled,
+        messagePump: MacosRunnerMessagePumpManifest(
+          maxMessagesPerTurn: maxMessagesPerTurn,
+          maxTimePerTurnMicros: maxTimePerTurnMicros,
+        ),
       ),
     );
   }
@@ -382,6 +424,26 @@ bool _optionalBoolean(
   }
   if (value is! bool) {
     throw MacosApplicationManifestException('$path must be a boolean');
+  }
+  return value;
+}
+
+int _optionalBoundedInteger(
+  Object? value,
+  String path, {
+  required int defaultValue,
+  required int maximum,
+}) {
+  if (value == null) {
+    return defaultValue;
+  }
+  if (value is! int) {
+    throw MacosApplicationManifestException('$path must be an integer');
+  }
+  if (value <= 0 || value > maximum) {
+    throw MacosApplicationManifestException(
+      '$path must be positive and no greater than $maximum',
+    );
   }
   return value;
 }

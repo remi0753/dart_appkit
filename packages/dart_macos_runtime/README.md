@@ -42,7 +42,11 @@ Manifest version 1 contains these required fields plus the optional `runner`,
     "activationPolicy": "regular",
     "activateOnLaunch": true,
     "terminateAfterLastWindowClosed": false,
-    "reopenHandled": true
+    "reopenHandled": true,
+    "messagePump": {
+      "maxMessagesPerTurn": 64,
+      "maxTimePerTurnMicros": 4000
+    }
   },
   "dart": {"entrypoint": "bin/main.dart"},
   "dartHelpers": [
@@ -63,7 +67,10 @@ The immutable `runner` policy is read before the AppKit run loop starts.
 values control forced launch activation, last-window termination, and the
 delegate's reopen handled result. Omitting the object preserves the historical
 regular/activate/continue/handled behavior. Reopen events remain asynchronous
-and are posted to Dart for either handled result.
+and are posted to Dart for either handled result. The nested `messagePump`
+object selects positive integer per-turn budgets. Its defaults are 64 messages
+and 4000 microseconds, while immutable library hard maxima reject values above
+1024 messages or 16000 microseconds.
 
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized

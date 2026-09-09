@@ -194,7 +194,10 @@ abstract interface class NativeBindings {
   NativeValueResult<int> pasteboardClear();
   NativeValueResult<int> pasteboardGetChangeCount();
 
-  NativeValueResult<int> menuCreate(String title);
+  NativeValueResult<int> menuCreate(
+    String title, {
+    required bool autoEnablesItems,
+  });
   NativeValueResult<int> menuItemCreate({
     required String title,
     required String keyEquivalent,

@@ -1,23 +1,48 @@
 part of '../api.dart';
 
+/// Immutable AppKit validation behavior selected when a [Menu] is created.
+final class MenuConfiguration {
+  const MenuConfiguration({this.autoEnablesItems = false});
+
+  /// Whether AppKit automatically validates enabled state through its target.
+  ///
+  /// The compatibility default is `false`, leaving [MenuItem.isEnabled]
+  /// authoritative.
+  final bool autoEnablesItems;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MenuConfiguration && other.autoEnablesItems == autoEnablesItems;
+
+  @override
+  int get hashCode => autoEnablesItems.hashCode;
+}
+
 final class Menu extends _NativeResource {
-  factory Menu({String title = ''}) {
+  factory Menu({
+    String title = '',
+    MenuConfiguration configuration = const MenuConfiguration(),
+  }) {
     final AppKitApplication application = AppKitApplication._requireCurrent();
     if (application.eventProtocolVersion < 4) {
       throw UnsupportedError('menus require native event protocol 4');
     }
     final int handle = _checkValue<int>(
-      application._bindings.menuCreate(title),
+      application._bindings.menuCreate(
+        title,
+        autoEnablesItems: configuration.autoEnablesItems,
+      ),
       'Menu.create',
     );
-    return Menu._(application, handle, title);
+    return Menu._(application, handle, title, configuration);
   }
 
-  Menu._(this._application, int handle, this.title)
+  Menu._(this._application, int handle, this.title, this.configuration)
     : super(_application._bindings, handle);
 
   final AppKitApplication _application;
   final String title;
+  final MenuConfiguration configuration;
   final List<MenuItem> _items = <MenuItem>[];
 
   List<MenuItem> get items {

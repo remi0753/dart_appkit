@@ -26,9 +26,12 @@ bool DartMessagePump::Start(std::string* out_error) {
     return false;
   }
   if (limits_.max_messages_per_turn == 0 ||
-      limits_.max_time_per_turn.count() <= 0) {
+      limits_.max_messages_per_turn > kMaximumDartMessagesPerTurn ||
+      limits_.max_time_per_turn.count() <= 0 ||
+      limits_.max_time_per_turn.count() > kMaximumDartMessageTimeMicros) {
     if (out_error != nullptr) {
-      *out_error = "Dart message pump limits must be greater than zero";
+      *out_error =
+          "Dart message pump limits must be positive and within hard bounds";
     }
     return false;
   }

@@ -88,11 +88,37 @@ void TestRejectsNonMainStartAndInvalidLimits() {
   CHECK(!started);
   CHECK(error.find("main thread") != std::string::npos);
 
+  dart_appkit::DartMessagePumpLimits defaults;
+  CHECK(defaults.max_messages_per_turn ==
+        dart_appkit::kDefaultDartMessagesPerTurn);
+  CHECK(defaults.max_time_per_turn.count() ==
+        dart_appkit::kDefaultDartMessageTimeMicros);
+
   dart_appkit::DartMessagePumpLimits limits;
   limits.max_messages_per_turn = 0;
   dart_appkit::DartMessagePump invalid(limits);
   CHECK(!invalid.Start(&error));
-  CHECK(error.find("greater than zero") != std::string::npos);
+  CHECK(error.find("hard bounds") != std::string::npos);
+
+  limits = {};
+  limits.max_messages_per_turn =
+      dart_appkit::kMaximumDartMessagesPerTurn + 1;
+  dart_appkit::DartMessagePump too_many(limits);
+  CHECK(!too_many.Start(&error));
+  CHECK(error.find("hard bounds") != std::string::npos);
+
+  limits = {};
+  limits.max_time_per_turn = std::chrono::microseconds(0);
+  dart_appkit::DartMessagePump no_time(limits);
+  CHECK(!no_time.Start(&error));
+  CHECK(error.find("hard bounds") != std::string::npos);
+
+  limits = {};
+  limits.max_time_per_turn = std::chrono::microseconds(
+      dart_appkit::kMaximumDartMessageTimeMicros + 1);
+  dart_appkit::DartMessagePump too_much_time(limits);
+  CHECK(!too_much_time.Start(&error));
+  CHECK(error.find("hard bounds") != std::string::npos);
 }
 
 void TestFifoMainThreadAndMessageBudget() {
@@ -101,7 +127,8 @@ void TestFifoMainThreadAndMessageBudget() {
 
   dart_appkit::DartMessagePumpLimits limits;
   limits.max_messages_per_turn = kBatchLimit;
-  limits.max_time_per_turn = std::chrono::seconds(1);
+  limits.max_time_per_turn = std::chrono::microseconds(
+      dart_appkit::kMaximumDartMessageTimeMicros);
   Recorder recorder;
   dart_appkit::DartMessagePump pump(limits, Recorder::Handle, &recorder);
   std::string error;

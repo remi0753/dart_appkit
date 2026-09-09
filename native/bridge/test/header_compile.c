@@ -8,6 +8,8 @@ _Static_assert(sizeof(DaTextViewColorConfiguration) == 40,
                "unexpected DaTextViewColorConfiguration layout");
 _Static_assert(sizeof(DaTextViewConfiguration) == 160,
                "unexpected DaTextViewConfiguration layout");
+_Static_assert(sizeof(DaMenuConfiguration) == 16,
+               "unexpected DaMenuConfiguration layout");
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
@@ -34,6 +36,9 @@ int da_header_compiles_as_c(void) {
       da_window_set_key_event_routing;
   int32_t (*pasteboard_read)(DaPasteboardText*) = da_pasteboard_read_text;
   int32_t (*menu_create)(const char*, size_t, DaHandle*) = da_menu_create;
+  int32_t (*configured_menu_create)(const char*, size_t,
+                                    const DaMenuConfiguration*, DaHandle*) =
+      da_menu_create_configured;
   int32_t (*menu_item_create)(const char*, size_t, const char*, size_t,
                               uint64_t, DaHandle*) = da_menu_item_create;
   int32_t (*custom_view_create)(const char*, size_t, DaHandle*) =
@@ -62,6 +67,7 @@ int da_header_compiles_as_c(void) {
                  external_url_open_with_policy != 0 &&
                  key_event_routing != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
+                 configured_menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&
                  configured_view_create != 0 &&
                  configured_text_view_create != 0 &&
