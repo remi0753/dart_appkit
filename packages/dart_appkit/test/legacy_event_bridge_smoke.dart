@@ -41,9 +41,51 @@ void main(List<String> arguments) {
   if (malformed.isSuccess || malformed.status != 1) {
     _fail('legacy fallback accepted an invalid event version range');
   }
-  final NativeValueResult<int> genericView = bindings.viewCreate();
-  if (genericView.isSuccess || genericView.status != 8) {
-    _fail('legacy bridge did not reject the additive generic-view API');
+  final NativeValueResult<int> genericView = bindings.viewCreate(
+    NativeViewConfiguration.compatibilityDefault,
+  );
+  if (genericView.status != 7) {
+    _fail('legacy bridge did not retain default generic-view creation');
+  }
+  final NativeValueResult<int> configuredGenericView = bindings.viewCreate(
+    const NativeViewConfiguration(
+      acceptsFirstResponder: false,
+      autoresizingMask: 0,
+    ),
+  );
+  if (configuredGenericView.status != 8) {
+    _fail('legacy bridge accepted a configured generic view');
+  }
+  if (bindings
+          .textViewCreate(NativeTextViewConfiguration.compatibilityDefault)
+          .status !=
+      7) {
+    _fail('legacy bridge did not retain default text-view creation');
+  }
+  const NativeTextViewConfiguration configuredTextView =
+      NativeTextViewConfiguration(
+        view: NativeViewConfiguration.compatibilityDefault,
+        fontKind: 0,
+        fontWeight: 3,
+        fontSize: 14,
+        fontFamily: null,
+        paddingTop: 4,
+        paddingRight: 4,
+        paddingBottom: 4,
+        paddingLeft: 4,
+        foregroundColorKind: 0,
+        foregroundRed: 0,
+        foregroundGreen: 0,
+        foregroundBlue: 0,
+        foregroundAlpha: 1,
+        backgroundColorKind: 1,
+        backgroundRed: 0,
+        backgroundGreen: 0,
+        backgroundBlue: 0,
+        backgroundAlpha: 1,
+      );
+  if (bindings.textViewCreate(configuredTextView).status != 8) {
+    _fail('legacy bridge accepted a configured text view');
   }
   final NativeValueResult<int> customView = bindings.customViewCreate(
     'example.CustomView',

@@ -29,7 +29,7 @@ final class TwoPaneSplitView extends View {
   }
 
   TwoPaneSplitView._(NativeBindings bindings, int handle, this.axis)
-    : super._(bindings, handle);
+    : super._(bindings, handle, null);
 
   final SplitViewAxis axis;
   View? _firstView;

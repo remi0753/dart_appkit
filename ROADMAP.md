@@ -108,7 +108,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   `View` をfirst responderへ設定するAPIを実装。
 - boundedなabsolute `representedFilePath` とsRGB `WindowTabColor` により、標準proxy icon／
   path menuとnative-tab accessory markerを設定／解除するpresentation metadataを実装。
-- 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装。
+- 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装し、
+  focus／autoresize／font／padding／colorをimmutable creation configurationへ分離。
 - axis、2つのordered child、fraction、両childのminimum extent、equalize、one-child zoomを
   持ち、nested compositionできるnative `TwoPaneSplitView` helperを実装。旧 `SplitView` 名は
   deprecated aliasとして互換維持する。
@@ -282,7 +283,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
 - [x] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
 - [x] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
-- [ ] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
+- [x] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
 - [ ] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
 
 実装内容:
@@ -357,14 +358,14 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   nested treeを構成できる。
 - `Window.makeFirstResponder` は、対象がそのWindowのcontent hierarchy内にあることをnative側で
   検証してから設定する。
+- package-createdな基底 `View` と簡易 `TextView` は、first-responder可否とwidth／height
+  autoresizeをimmutable `ViewConfiguration` で選択できる。custom viewはprovider-ownedとする。
 
 未実装:
 
 - subviewの追加、挿入、削除、並べ替え、reparent、parent/children参照を追加する。
 - `Point`、`Size`、`Insets` などの基本geometry型と、frame、bounds、座標変換を追加する。
 - hidden、opacity、clip、tooltip、autoresizingなど、View共通propertyを追加する。
-- すべての `DaView` に現在固定されるwidth／height autoresizeをcaller設定へ分離し、
-  content rootと一般childで適切なdefaultを選べるようにする。
 - hierarchy attachmentとDart/native handle ownershipを分離し、detach、dispose、
   Window retain時の規則を定める。
 - tree mutation中のstale event、二重parent、循環、異なるapplication間のattachを拒否する。
@@ -418,6 +419,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - v1〜v6のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
 - `Window.makeFirstResponder(View)` を追加し、同じWindowのcontent hierarchy内にあるViewだけを
   AppKit first responderへ設定できるようにした。
+- package-createdな基底／簡易text viewのfocus可否を `ViewConfiguration` で選択可能にした。
 
 未実装:
 
@@ -425,8 +427,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   view-local coordinate情報を追加する。
 - mouse enter/exit、hover、modifier changeを追加する。
 - drag captureと、必要なgesture、magnify、rotate、swipe、pressure eventを追加する。
-- first responderの取得／解除、Viewごとのfocus可否、Tab traversal、View単位focus change eventを
-  追加し、現在すべての基底 `DaView` がfocus可能となる固定policyをparameter化する。
+- first responderの取得／解除、Tab traversal、View単位focus change eventを追加する。
 - Button、Menu、shortcutから共有できるaction／command routingの基礎を追加する。
 - mouse move、scroll、frame eventのcoalescing／backpressure方針を実装し、入力遅延の
   無制限な蓄積を防ぐ。
@@ -454,6 +455,9 @@ IME bridgeのboundedな先行実装が動作している。
   Dart側の `publishCaretRect` を実装した。
 - staged AppKit selector acceptanceでraw／preedit／commit／cancelとcandidate geometryの更新を
   検証し、ASCII、CJK、accent、emoji、modifier、key repeatを固定matrixで検証した。
+- 表示専用 `TextView` のmonospaced/system/exact named font、font size／weight、padding、
+  dynamic system／fixed sRGB foreground/backgroundと、基底focus／autoresizeをimmutable
+  creation configurationとして実装した。
 
 未実装:
 
@@ -515,26 +519,26 @@ IME bridgeのboundedな先行実装が動作している。
 達成目標: 設定画面や一般的なformを、application固有Objective-Cコードなしで構築
 できるようにする。
 
-進捗: **部分実装（SplitViewのみ）**。標準Control群はまだ実装されていない。
+進捗: **部分実装（2-pane helper／簡易TextView）**。標準Control群はまだ実装されていない。
 
 実装済み:
 
-- 通常の `View` としてnested compositionできるnative `SplitView` を追加した。
+- 通常の `View` としてnested compositionできるnative `TwoPaneSplitView` helperを追加した。
 - 2つのordered child、axis、fraction、minimum extent、equalize、one-child zoomを型付きDart APIで
   操作できる。
+- 表示専用 `TextView` のfont、padding、foreground／background colorと基底View behaviorを
+  immutable creation configurationで選択可能にした。
 
 未実装:
 
 - Label、Button、Link、Checkbox、Radio、Switch、Segmented Controlを追加する。
 - Slider、Stepper、Progress Indicator、Popup／Combo Box、Image Viewを追加する。
-- `SplitView` を複数child、divider appearance／thickness、collapse／resize behavior、状態eventへ
-  拡張するか、現在の2-child型を明示した上で汎用Split containerを別に提供する。
+- 明示済みの `TwoPaneSplitView` helperとは別に、複数child、divider
+  appearance／thickness、collapse／resize behavior、状態eventを持つ汎用Split containerを提供する。
 - Scroll、content-level Tab、Boxなど残りの基本containerを追加し、G3のlayout helperと統合する。
 - enabled、hidden、title、value、state、image、tooltipなどの共通状態とaction eventを
   型付きDart APIとして公開する。
 - native側でユーザー操作により変化する状態とDart側stateの同期規則を実装する。
-- 現在の簡易 `TextView` に固定されたmonospaced 18pt font、20pt inset、window background／
-  label colorを公開style parameterへ移すか、sample／debug用surfaceとして分離する。
 
 完了条件:
 

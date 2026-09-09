@@ -308,6 +308,53 @@ DaHandle CreateView() {
   return handle;
 }
 
+DaViewConfiguration DefaultViewConfiguration() {
+  return {
+      DA_VIEW_CONFIGURATION_VERSION_1_SIZE,
+      DA_VIEW_AUTORESIZE_DEFAULT,
+      1,
+      0,
+  };
+}
+
+DaTextViewConfiguration DefaultTextViewConfiguration() {
+  DaTextViewConfiguration configuration{};
+  configuration.struct_size = DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE;
+  configuration.view = DefaultViewConfiguration();
+  configuration.font_kind = DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM;
+  configuration.font_weight = DA_TEXT_VIEW_FONT_WEIGHT_REGULAR;
+  configuration.font_size = 18.0;
+  configuration.padding_top = 20.0;
+  configuration.padding_right = 20.0;
+  configuration.padding_bottom = 20.0;
+  configuration.padding_left = 20.0;
+  configuration.foreground_color = {
+      DA_TEXT_VIEW_COLOR_LABEL, 0, 0.0, 0.0, 0.0, 1.0};
+  configuration.background_color = {
+      DA_TEXT_VIEW_COLOR_WINDOW_BACKGROUND, 0, 0.0, 0.0, 0.0, 1.0};
+  return configuration;
+}
+
+DaView* NativeViewFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaView.class]);
+  return static_cast<DaView*>(object);
+}
+
+DaTextView* NativeTextViewFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kTextView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaTextView.class]);
+  return static_cast<DaTextView*>(object);
+}
+
 DaHandle CreateSplitView(DaSplitAxis axis) {
   DaHandle handle = 0;
   EXPECT_EQ(da_split_view_create(axis, &handle), DA_STATUS_OK);
@@ -1058,6 +1105,201 @@ void TestRegistryLifecycleAndTypes() {
   EXPECT_TRUE(first != second);
   EXPECT_EQ(da_text_view_set_text(first, "stale", 5), DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(second), DA_STATUS_OK);
+}
+
+void TestConfiguredBaseAndTextViews() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  DaViewConfiguration view_configuration = DefaultViewConfiguration();
+  view_configuration.autoresizing_mask = DA_VIEW_AUTORESIZE_WIDTH;
+  view_configuration.accepts_first_responder = 0;
+  DaHandle configured_view_handle = 0;
+  EXPECT_EQ(da_view_create_configured(&view_configuration,
+                                      &configured_view_handle),
+            DA_STATUS_OK);
+  DaView* configured_view = NativeViewFor(configured_view_handle);
+  EXPECT_EQ(configured_view.autoresizingMask,
+            static_cast<NSAutoresizingMaskOptions>(NSViewWidthSizable));
+  EXPECT_TRUE(!configured_view.acceptsFirstResponder);
+
+  DaHandle default_view_handle = CreateView();
+  DaView* default_view = NativeViewFor(default_view_handle);
+  EXPECT_EQ(default_view.autoresizingMask,
+            static_cast<NSAutoresizingMaskOptions>(NSViewWidthSizable |
+                                                   NSViewHeightSizable));
+  EXPECT_TRUE(default_view.acceptsFirstResponder);
+
+  DaTextViewConfiguration text_configuration =
+      DefaultTextViewConfiguration();
+  text_configuration.view.autoresizing_mask = DA_VIEW_AUTORESIZE_HEIGHT;
+  text_configuration.view.accepts_first_responder = 0;
+  text_configuration.font_kind = DA_TEXT_VIEW_FONT_SYSTEM;
+  text_configuration.font_weight = DA_TEXT_VIEW_FONT_WEIGHT_BOLD;
+  text_configuration.font_size = 14.0;
+  text_configuration.padding_top = 1.0;
+  text_configuration.padding_right = 2.0;
+  text_configuration.padding_bottom = 3.0;
+  text_configuration.padding_left = 4.0;
+  text_configuration.foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.1, 0.2, 0.3, 0.4};
+  DaHandle configured_text_handle = 0;
+  EXPECT_EQ(da_text_view_create_configured(
+                &text_configuration, nullptr, 0, &configured_text_handle),
+            DA_STATUS_OK);
+  DaTextView* configured_text = NativeTextViewFor(configured_text_handle);
+  EXPECT_EQ(configured_text.autoresizingMask,
+            static_cast<NSAutoresizingMaskOptions>(NSViewHeightSizable));
+  EXPECT_TRUE(!configured_text.acceptsFirstResponder);
+  EXPECT_TRUE(std::abs(configured_text.daFont.pointSize - 14.0) < 0.0001);
+  EXPECT_TRUE(std::abs(configured_text.daPadding.top - 1.0) < 0.0001);
+  EXPECT_TRUE(std::abs(configured_text.daPadding.right - 2.0) < 0.0001);
+  EXPECT_TRUE(std::abs(configured_text.daPadding.bottom - 3.0) < 0.0001);
+  EXPECT_TRUE(std::abs(configured_text.daPadding.left - 4.0) < 0.0001);
+  NSColor* foreground = [configured_text.daForegroundColor
+      colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(foreground != nil);
+  EXPECT_TRUE(std::abs(foreground.redComponent - 0.1) < 0.0001);
+  EXPECT_TRUE(std::abs(foreground.greenComponent - 0.2) < 0.0001);
+  EXPECT_TRUE(std::abs(foreground.blueComponent - 0.3) < 0.0001);
+  EXPECT_TRUE(std::abs(foreground.alphaComponent - 0.4) < 0.0001);
+  EXPECT_TRUE(
+      [configured_text.daBackgroundColor isEqual:NSColor.windowBackgroundColor]);
+
+  const DaHandle default_text_handle = CreateTextView();
+  DaTextView* default_text = NativeTextViewFor(default_text_handle);
+  EXPECT_EQ(default_text.autoresizingMask,
+            static_cast<NSAutoresizingMaskOptions>(NSViewWidthSizable |
+                                                   NSViewHeightSizable));
+  EXPECT_TRUE(default_text.acceptsFirstResponder);
+  EXPECT_TRUE(std::abs(default_text.daFont.pointSize - 18.0) < 0.0001);
+  EXPECT_TRUE((default_text.daFont.fontDescriptor.symbolicTraits &
+               NSFontDescriptorTraitMonoSpace) != 0);
+  EXPECT_TRUE(std::abs(default_text.daPadding.top - 20.0) < 0.0001);
+  EXPECT_TRUE([default_text.daForegroundColor isEqual:NSColor.labelColor]);
+  EXPECT_TRUE(
+      [default_text.daBackgroundColor isEqual:NSColor.windowBackgroundColor]);
+
+  DaTextViewConfiguration named_configuration =
+      DefaultTextViewConfiguration();
+  named_configuration.font_kind = DA_TEXT_VIEW_FONT_NAMED;
+  NSString* available_font_name = [NSFont systemFontOfSize:13.0].fontName;
+  const std::string available_font = available_font_name.UTF8String;
+  DaHandle named_text_handle = 0;
+  EXPECT_EQ(da_text_view_create_configured(
+                &named_configuration, available_font.data(),
+                available_font.size(), &named_text_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(NativeTextViewFor(named_text_handle).daFont.fontName,
+            available_font_name);
+
+  DaHandle output = 99;
+  EXPECT_EQ(da_view_create_configured(nullptr, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(output, static_cast<DaHandle>(0));
+  DaViewConfiguration invalid_view = DefaultViewConfiguration();
+  invalid_view.struct_size = 0;
+  EXPECT_EQ(da_view_create_configured(&invalid_view, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_view = DefaultViewConfiguration();
+  invalid_view.autoresizing_mask = uint64_t{1} << 63;
+  EXPECT_EQ(da_view_create_configured(&invalid_view, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_view = DefaultViewConfiguration();
+  invalid_view.accepts_first_responder = 2;
+  EXPECT_EQ(da_view_create_configured(&invalid_view, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_view = DefaultViewConfiguration();
+  invalid_view.reserved = 1;
+  EXPECT_EQ(da_view_create_configured(&invalid_view, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_view_create_configured(&view_configuration, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  DaTextViewConfiguration invalid_text = DefaultTextViewConfiguration();
+  invalid_text.struct_size = 0;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.view.struct_size = 0;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_kind = 99;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_kind = DA_TEXT_VIEW_FONT_NAMED;
+  invalid_text.font_weight = DA_TEXT_VIEW_FONT_WEIGHT_BOLD;
+  EXPECT_EQ(da_text_view_create_configured(
+                &invalid_text, available_font.data(), available_font.size(),
+                &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_size = std::numeric_limits<double>::infinity();
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_weight = 99;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_size = DA_TEXT_VIEW_FONT_MAX_SIZE + 1.0;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.padding_left = DA_TEXT_VIEW_PADDING_MAX_EXTENT + 1.0;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.foreground_color.kind = DA_TEXT_VIEW_COLOR_SRGB;
+  invalid_text.foreground_color.red = 2.0;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.background_color.reserved = 1;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.background_color.red = 0.5;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  invalid_text = DefaultTextViewConfiguration();
+  invalid_text.font_kind = DA_TEXT_VIEW_FONT_NAMED;
+  EXPECT_EQ(da_text_view_create_configured(&invalid_text, nullptr, 0, &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string missing_font = "DefinitelyMissingDartAppKitFont";
+  EXPECT_EQ(da_text_view_create_configured(
+                &invalid_text, missing_font.data(), missing_font.size(),
+                &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string oversized_font_family(
+      DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES + 1, 'a');
+  EXPECT_EQ(da_text_view_create_configured(
+                &invalid_text, oversized_font_family.data(),
+                oversized_font_family.size(), &output),
+            DA_STATUS_LIMIT_EXCEEDED);
+  const char invalid_font_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_text_view_create_configured(
+                &invalid_text, invalid_font_utf8, sizeof(invalid_font_utf8),
+                &output),
+            DA_STATUS_INVALID_UTF8);
+  invalid_text = DefaultTextViewConfiguration();
+  EXPECT_EQ(da_text_view_create_configured(
+                &invalid_text, available_font.data(), available_font.size(),
+                &output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_view_create_configured(
+                &text_configuration, nullptr, 0, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  EXPECT_EQ(da_release(named_text_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(default_text_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(configured_text_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(default_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(configured_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
 void TestRegisteredCustomViews() {
@@ -2198,6 +2440,7 @@ int main() {
     TestExternalUrlOpening();
     TestMenus();
     TestRegistryLifecycleAndTypes();
+    TestConfiguredBaseAndTextViews();
     TestRegisteredCustomViews();
     TestNativeExtensionServices();
     TestThreadGuardAndFinalizer();

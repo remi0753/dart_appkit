@@ -188,6 +188,14 @@ handle satisfies a generic-view lookup, while a generic view never satisfies a
 text-only lookup. `Window.contentView` borrows either kind and retains its Dart
 wrapper without transferring the registry lease.
 
+Package-created base views receive immutable first-responder and independent
+width/height autoresizing policy at creation. The simple display text view adds
+immutable font, bounded padding, and foreground/background color policy;
+dynamic AppKit label/window roles remain available alongside fixed sRGB.
+Compatibility defaults reproduce the historical native constants. Registered
+custom views do not receive or claim these configurations because their native
+provider owns focus, layout, drawing, and input semantics.
+
 Native dependencies register named `NSView` factories through the separate
 versioned `da_native_extension_services_v1` table. Its size/version prefix and
 plain-C factory function prevent Objective-C/C++ types from becoming ABI. A

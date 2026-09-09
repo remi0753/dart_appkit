@@ -78,6 +78,25 @@ void main(List<String> arguments) {
       customView.message.isEmpty) {
     _fail('custom-view symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> configuredView = bindings.viewCreate(
+    const NativeViewConfiguration(
+      acceptsFirstResponder: false,
+      autoresizingMask: dartAppKitViewAutoresizingWidth,
+    ),
+  );
+  if (configuredView.isSuccess ||
+      configuredView.status != 5 ||
+      configuredView.message.isEmpty) {
+    _fail('configured view symbol did not preserve its main-thread guard');
+  }
+  final NativeValueResult<int> configuredTextView = bindings.textViewCreate(
+    NativeTextViewConfiguration.compatibilityDefault,
+  );
+  if (configuredTextView.isSuccess ||
+      configuredTextView.status != 5 ||
+      configuredTextView.message.isEmpty) {
+    _fail('configured text-view symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> splitView = bindings.splitViewCreate(0);
   if (splitView.isSuccess ||
       splitView.status != 5 ||

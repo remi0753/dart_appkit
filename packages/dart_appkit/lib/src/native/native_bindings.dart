@@ -24,6 +24,113 @@ const int dartAppKitDefaultWindowStyleMask =
 const double dartAppKitWindowTabAccessoryMaximumExtent = 256;
 const int dartAppKitWindowTabAccessoryShapeRectangle = 0;
 const int dartAppKitWindowTabAccessoryShapeEllipse = 1;
+const int dartAppKitViewAutoresizingWidth = 1 << 0;
+const int dartAppKitViewAutoresizingHeight = 1 << 1;
+const int dartAppKitDefaultViewAutoresizingMask =
+    dartAppKitViewAutoresizingWidth | dartAppKitViewAutoresizingHeight;
+const double dartAppKitTextViewFontMaximumSize = 512;
+const int dartAppKitTextViewFontFamilyMaximumUtf8Bytes = 256;
+const double dartAppKitTextViewPaddingMaximumExtent = 4096;
+
+final class NativeViewConfiguration {
+  const NativeViewConfiguration({
+    required this.acceptsFirstResponder,
+    required this.autoresizingMask,
+  });
+
+  final bool acceptsFirstResponder;
+  final int autoresizingMask;
+
+  static const NativeViewConfiguration compatibilityDefault =
+      NativeViewConfiguration(
+        acceptsFirstResponder: true,
+        autoresizingMask: dartAppKitDefaultViewAutoresizingMask,
+      );
+
+  bool get isCompatibilityDefault =>
+      acceptsFirstResponder &&
+      autoresizingMask == dartAppKitDefaultViewAutoresizingMask;
+}
+
+final class NativeTextViewConfiguration {
+  const NativeTextViewConfiguration({
+    required this.view,
+    required this.fontKind,
+    required this.fontWeight,
+    required this.fontSize,
+    required this.fontFamily,
+    required this.paddingTop,
+    required this.paddingRight,
+    required this.paddingBottom,
+    required this.paddingLeft,
+    required this.foregroundColorKind,
+    required this.foregroundRed,
+    required this.foregroundGreen,
+    required this.foregroundBlue,
+    required this.foregroundAlpha,
+    required this.backgroundColorKind,
+    required this.backgroundRed,
+    required this.backgroundGreen,
+    required this.backgroundBlue,
+    required this.backgroundAlpha,
+  });
+
+  final NativeViewConfiguration view;
+  final int fontKind;
+  final int fontWeight;
+  final double fontSize;
+  final String? fontFamily;
+  final double paddingTop;
+  final double paddingRight;
+  final double paddingBottom;
+  final double paddingLeft;
+  final int foregroundColorKind;
+  final double foregroundRed;
+  final double foregroundGreen;
+  final double foregroundBlue;
+  final double foregroundAlpha;
+  final int backgroundColorKind;
+  final double backgroundRed;
+  final double backgroundGreen;
+  final double backgroundBlue;
+  final double backgroundAlpha;
+
+  static const NativeTextViewConfiguration compatibilityDefault =
+      NativeTextViewConfiguration(
+        view: NativeViewConfiguration.compatibilityDefault,
+        fontKind: 1,
+        fontWeight: 3,
+        fontSize: 18,
+        fontFamily: null,
+        paddingTop: 20,
+        paddingRight: 20,
+        paddingBottom: 20,
+        paddingLeft: 20,
+        foregroundColorKind: 0,
+        foregroundRed: 0,
+        foregroundGreen: 0,
+        foregroundBlue: 0,
+        foregroundAlpha: 1,
+        backgroundColorKind: 1,
+        backgroundRed: 0,
+        backgroundGreen: 0,
+        backgroundBlue: 0,
+        backgroundAlpha: 1,
+      );
+
+  bool get isCompatibilityDefault =>
+      view.isCompatibilityDefault &&
+      fontKind == 1 &&
+      fontWeight == 3 &&
+      fontSize == 18 &&
+      fontFamily == null &&
+      paddingTop == 20 &&
+      paddingRight == 20 &&
+      paddingBottom == 20 &&
+      paddingLeft == 20 &&
+      foregroundColorKind == 0 &&
+      backgroundColorKind == 1;
+}
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -144,7 +251,7 @@ abstract interface class NativeBindings {
   NativeCallResult windowSelectTab(int handle);
   NativeCallResult windowMakeFirstResponder(int handle, int viewHandle);
 
-  NativeValueResult<int> viewCreate();
+  NativeValueResult<int> viewCreate(NativeViewConfiguration configuration);
   NativeValueResult<int> splitViewCreate(int axis);
   NativeCallResult splitViewSetChildren(
     int splitViewHandle,
@@ -161,7 +268,9 @@ abstract interface class NativeBindings {
   NativeCallResult splitViewSetZoomedChild(int handle, int child);
   NativeValueResult<int> customViewCreate(String providerIdentifier);
   NativeCallResult customViewPerformOperation(int handle, Uint8List payload);
-  NativeValueResult<int> textViewCreate();
+  NativeValueResult<int> textViewCreate(
+    NativeTextViewConfiguration configuration,
+  );
   NativeCallResult textViewSetText(int handle, String text);
   NativeCallResult windowSetContentView(int windowHandle, int viewHandle);
 

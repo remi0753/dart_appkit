@@ -2,6 +2,12 @@
 #include "dart_appkit_native_extension.h"
 
 _Static_assert(sizeof(DaHandle) == 8, "DaHandle must be 64-bit");
+_Static_assert(sizeof(DaViewConfiguration) == 24,
+               "unexpected DaViewConfiguration layout");
+_Static_assert(sizeof(DaTextViewColorConfiguration) == 40,
+               "unexpected DaTextViewColorConfiguration layout");
+_Static_assert(sizeof(DaTextViewConfiguration) == 160,
+               "unexpected DaTextViewConfiguration layout");
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
@@ -32,6 +38,11 @@ int da_header_compiles_as_c(void) {
                               uint64_t, DaHandle*) = da_menu_item_create;
   int32_t (*custom_view_create)(const char*, size_t, DaHandle*) =
       da_view_create_custom;
+  int32_t (*configured_view_create)(const DaViewConfiguration*, DaHandle*) =
+      da_view_create_configured;
+  int32_t (*configured_text_view_create)(const DaTextViewConfiguration*,
+                                         const char*, size_t, DaHandle*) =
+      da_text_view_create_configured;
   int32_t (*custom_view_operation)(DaHandle, const uint8_t*, size_t) =
       da_view_perform_custom_operation;
   int32_t (*window_tab_add)(DaHandle, DaHandle) =
@@ -52,6 +63,8 @@ int da_header_compiles_as_c(void) {
                  key_event_routing != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&
+                 configured_view_create != 0 &&
+                 configured_text_view_create != 0 &&
                  custom_view_operation != 0 &&
                  window_tab_add != 0 && first_responder != 0 &&
                  split_create != 0 && split_children != 0 &&

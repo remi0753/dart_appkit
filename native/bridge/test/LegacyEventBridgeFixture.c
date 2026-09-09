@@ -75,6 +75,13 @@ int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
   return DA_STATUS_INTERNAL_ERROR;
 }
 
+int32_t da_view_create(DaHandle* out_view) {
+  if (out_view != NULL) {
+    *out_view = 0;
+  }
+  return DA_STATUS_INTERNAL_ERROR;
+}
+
 int32_t da_text_view_create(DaHandle* out_view) {
   if (out_view != NULL) {
     *out_view = 0;

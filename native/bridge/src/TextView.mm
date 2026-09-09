@@ -93,6 +93,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   self = [super initWithFrame:frameRect];
   if (self != nil) {
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.daAcceptsFirstResponder = YES;
   }
   return self;
 }
@@ -102,7 +103,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 }
 
 - (BOOL)acceptsFirstResponder {
-  return YES;
+  return self.daAcceptsFirstResponder;
 }
 
 @end
@@ -286,6 +287,11 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   self = [super initWithFrame:frameRect];
   if (self != nil) {
     _displayText = @"";
+    _daFont =
+        [NSFont monospacedSystemFontOfSize:18.0 weight:NSFontWeightRegular];
+    _daPadding = NSEdgeInsetsMake(20.0, 20.0, 20.0, 20.0);
+    _daForegroundColor = NSColor.labelColor;
+    _daBackgroundColor = NSColor.windowBackgroundColor;
   }
   return self;
 }
@@ -297,15 +303,20 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 - (void)drawRect:(NSRect)dirtyRect {
   [super drawRect:dirtyRect];
-  [NSColor.windowBackgroundColor setFill];
+  [self.daBackgroundColor setFill];
   NSRectFill(dirtyRect);
 
   NSDictionary<NSAttributedStringKey, id>* attributes = @{
-    NSFontAttributeName :
-        [NSFont monospacedSystemFontOfSize:18.0 weight:NSFontWeightRegular],
-    NSForegroundColorAttributeName : NSColor.labelColor,
+    NSFontAttributeName : self.daFont,
+    NSForegroundColorAttributeName : self.daForegroundColor,
   };
-  const NSRect textRect = NSInsetRect(self.bounds, 20.0, 20.0);
+  const NSEdgeInsets padding = self.daPadding;
+  const NSRect bounds = self.bounds;
+  const NSRect textRect = NSMakeRect(
+      NSMinX(bounds) + padding.left, NSMinY(bounds) + padding.top,
+      std::max<CGFloat>(0.0, NSWidth(bounds) - padding.left - padding.right),
+      std::max<CGFloat>(0.0,
+                        NSHeight(bounds) - padding.top - padding.bottom));
   [self.displayText drawWithRect:textRect
                          options:NSStringDrawingUsesLineFragmentOrigin |
                                  NSStringDrawingUsesFontLeading

@@ -147,6 +147,16 @@ four-style window; setting all four flags false creates a borderless window.
 The configured ABI is additive, and current Dart bindings use an older native
 image only for the compatibility default.
 
+`ViewConfiguration` selects whether a package-created base view accepts first
+responder and whether it follows superview width and height independently.
+`TextViewConfiguration` adds system, monospaced-system, or exact named font;
+bounded logical padding; dynamic label/window-background roles; and fixed sRGB
+foreground/background colors. Its nested view configuration controls the same
+focus and autoresizing behavior. Defaults preserve the original focusable,
+width/height-sizable, monospaced 18-point regular text with 20-point padding,
+label foreground, and window background. Registered custom views remain wholly
+provider-owned.
+
 Native tabs use one `Window` per tab, preserving independent window event and
 content-view ownership. `Window.addTabbedWindow` appends another window to the
 receiver's native tab group; `selectTab` and `removeFromTabGroup` select and

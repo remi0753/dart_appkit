@@ -207,6 +207,93 @@ int32_t ValidateRect(DaRect frame) {
   return DA_STATUS_OK;
 }
 
+int32_t ValidateViewConfiguration(const DaViewConfiguration* configuration) {
+  if (configuration == nullptr ||
+      configuration->struct_size < DA_VIEW_CONFIGURATION_VERSION_1_SIZE) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "view configuration is missing or smaller than version 1");
+  }
+  constexpr uint64_t kAutoresizingMask =
+      DA_VIEW_AUTORESIZE_WIDTH | DA_VIEW_AUTORESIZE_HEIGHT;
+  if ((configuration->autoresizing_mask & ~kAutoresizingMask) != 0 ||
+      (configuration->accepts_first_responder != 0 &&
+       configuration->accepts_first_responder != 1) ||
+      configuration->reserved != 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "view configuration values are invalid");
+  }
+  return DA_STATUS_OK;
+}
+
+void ApplyViewConfiguration(DaView* view,
+                            const DaViewConfiguration& configuration) {
+  NSAutoresizingMaskOptions mask = 0;
+  if ((configuration.autoresizing_mask & DA_VIEW_AUTORESIZE_WIDTH) != 0) {
+    mask |= NSViewWidthSizable;
+  }
+  if ((configuration.autoresizing_mask & DA_VIEW_AUTORESIZE_HEIGHT) != 0) {
+    mask |= NSViewHeightSizable;
+  }
+  view.autoresizingMask = mask;
+  view.daAcceptsFirstResponder = configuration.accepts_first_responder == 1;
+}
+
+bool ValidTextViewColor(const DaTextViewColorConfiguration& color) {
+  if (color.reserved != 0 || color.kind < DA_TEXT_VIEW_COLOR_LABEL ||
+      color.kind > DA_TEXT_VIEW_COLOR_SRGB) {
+    return false;
+  }
+  if (color.kind != DA_TEXT_VIEW_COLOR_SRGB) {
+    return color.red == 0.0 && color.green == 0.0 && color.blue == 0.0 &&
+           color.alpha == 1.0;
+  }
+  return std::isfinite(color.red) && std::isfinite(color.green) &&
+         std::isfinite(color.blue) && std::isfinite(color.alpha) &&
+         color.red >= 0.0 && color.red <= 1.0 && color.green >= 0.0 &&
+         color.green <= 1.0 && color.blue >= 0.0 && color.blue <= 1.0 &&
+         color.alpha >= 0.0 && color.alpha <= 1.0;
+}
+
+NSColor* TextViewColor(const DaTextViewColorConfiguration& color) {
+  switch (color.kind) {
+    case DA_TEXT_VIEW_COLOR_LABEL:
+      return NSColor.labelColor;
+    case DA_TEXT_VIEW_COLOR_WINDOW_BACKGROUND:
+      return NSColor.windowBackgroundColor;
+    case DA_TEXT_VIEW_COLOR_SRGB:
+      return [NSColor colorWithSRGBRed:color.red
+                                green:color.green
+                                 blue:color.blue
+                                alpha:color.alpha];
+  }
+  return nil;
+}
+
+NSFontWeight TextViewFontWeight(int32_t weight) {
+  switch (weight) {
+    case DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT:
+      return NSFontWeightUltraLight;
+    case DA_TEXT_VIEW_FONT_WEIGHT_THIN:
+      return NSFontWeightThin;
+    case DA_TEXT_VIEW_FONT_WEIGHT_LIGHT:
+      return NSFontWeightLight;
+    case DA_TEXT_VIEW_FONT_WEIGHT_REGULAR:
+      return NSFontWeightRegular;
+    case DA_TEXT_VIEW_FONT_WEIGHT_MEDIUM:
+      return NSFontWeightMedium;
+    case DA_TEXT_VIEW_FONT_WEIGHT_SEMIBOLD:
+      return NSFontWeightSemibold;
+    case DA_TEXT_VIEW_FONT_WEIGHT_BOLD:
+      return NSFontWeightBold;
+    case DA_TEXT_VIEW_FONT_WEIGHT_HEAVY:
+      return NSFontWeightHeavy;
+    case DA_TEXT_VIEW_FONT_WEIGHT_BLACK:
+      return NSFontWeightBlack;
+  }
+  return NSFontWeightRegular;
+}
+
 DaWindowOwner* WindowOwner(DaHandle handle, int32_t* out_status) {
   return static_cast<DaWindowOwner*>(ObjectRegistry::Shared().Lookup(
       handle, ObjectKind::kWindow, ThreadDomain::kAppKitMain, out_status));
@@ -1786,7 +1873,8 @@ int32_t da_window_make_first_responder(DaHandle window, DaHandle view) {
   return DA_STATUS_OK;
 }
 
-int32_t da_view_create(DaHandle* out_view) {
+int32_t da_view_create_configured(
+    const DaViewConfiguration* configuration, DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
@@ -1797,7 +1885,13 @@ int32_t da_view_create(DaHandle* out_view) {
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
+  const int32_t configuration_status =
+      dart_appkit::ValidateViewConfiguration(configuration);
+  if (configuration_status != DA_STATUS_OK) {
+    return configuration_status;
+  }
   DaView* view = [[DaView alloc] initWithFrame:NSZeroRect];
+  dart_appkit::ApplyViewConfiguration(view, *configuration);
   const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
       view, dart_appkit::ObjectKind::kView,
       dart_appkit::ThreadDomain::kAppKitMain);
@@ -1806,6 +1900,16 @@ int32_t da_view_create(DaHandle* out_view) {
   }
   *out_view = handle;
   return DA_STATUS_OK;
+}
+
+int32_t da_view_create(DaHandle* out_view) {
+  const DaViewConfiguration configuration = {
+      DA_VIEW_CONFIGURATION_VERSION_1_SIZE,
+      DA_VIEW_AUTORESIZE_DEFAULT,
+      1,
+      0,
+  };
+  return da_view_create_configured(&configuration, out_view);
 }
 
 int32_t da_split_view_create(int32_t axis, DaHandle* out_view) {
@@ -1997,7 +2101,9 @@ int32_t da_view_perform_custom_operation(DaHandle view_handle,
   }
 }
 
-int32_t da_text_view_create(DaHandle* out_view) {
+int32_t da_text_view_create_configured(
+    const DaTextViewConfiguration* configuration, const char* font_family,
+    size_t font_family_length, DaHandle* out_view) {
   dart_appkit::ClearLastError();
   if (out_view == nullptr) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
@@ -2008,7 +2114,98 @@ int32_t da_text_view_create(DaHandle* out_view) {
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
+  if (configuration == nullptr ||
+      configuration->struct_size <
+          DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view configuration is missing or smaller than version 1");
+  }
+  const int32_t view_status =
+      dart_appkit::ValidateViewConfiguration(&configuration->view);
+  if (view_status != DA_STATUS_OK) {
+    return view_status;
+  }
+  if (configuration->font_kind < DA_TEXT_VIEW_FONT_SYSTEM ||
+      configuration->font_kind > DA_TEXT_VIEW_FONT_NAMED ||
+      configuration->font_weight < DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT ||
+      configuration->font_weight > DA_TEXT_VIEW_FONT_WEIGHT_BLACK ||
+      (configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED &&
+       configuration->font_weight != DA_TEXT_VIEW_FONT_WEIGHT_REGULAR) ||
+      !std::isfinite(configuration->font_size) ||
+      configuration->font_size <= 0.0 ||
+      configuration->font_size > DA_TEXT_VIEW_FONT_MAX_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view font kind, weight, or size is invalid");
+  }
+  const double padding[] = {
+      configuration->padding_top,
+      configuration->padding_right,
+      configuration->padding_bottom,
+      configuration->padding_left,
+  };
+  for (const double extent : padding) {
+    if (!std::isfinite(extent) || extent < 0.0 ||
+        extent > DA_TEXT_VIEW_PADDING_MAX_EXTENT) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "text view padding must be finite and within the bound");
+    }
+  }
+  if (!dart_appkit::ValidTextViewColor(configuration->foreground_color) ||
+      !dart_appkit::ValidTextViewColor(configuration->background_color)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view color kind, reserved field, or components are invalid");
+  }
+  if (font_family_length > DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "text view font family exceeds the UTF-8 byte limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_font_family =
+      dart_appkit::CopyUtf8(font_family, font_family_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  const bool uses_named_font =
+      configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED;
+  if ((uses_named_font && copied_font_family.length == 0) ||
+      (!uses_named_font && copied_font_family.length != 0)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "font family must be present only for a named text view font");
+  }
+  const NSFontWeight weight =
+      dart_appkit::TextViewFontWeight(configuration->font_weight);
+  NSFont* font = nil;
+  if (configuration->font_kind == DA_TEXT_VIEW_FONT_SYSTEM) {
+    font = [NSFont systemFontOfSize:configuration->font_size weight:weight];
+  } else if (configuration->font_kind ==
+             DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM) {
+    font = [NSFont monospacedSystemFontOfSize:configuration->font_size
+                                      weight:weight];
+  } else {
+    font = [NSFont fontWithName:copied_font_family
+                          size:configuration->font_size];
+  }
+  if (font == nil) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view named font is not available on this system");
+  }
   DaTextView* view = [[DaTextView alloc] initWithFrame:NSZeroRect];
+  dart_appkit::ApplyViewConfiguration(view, configuration->view);
+  view.daFont = font;
+  view.daPadding = NSEdgeInsetsMake(
+      configuration->padding_top, configuration->padding_left,
+      configuration->padding_bottom, configuration->padding_right);
+  view.daForegroundColor =
+      dart_appkit::TextViewColor(configuration->foreground_color);
+  view.daBackgroundColor =
+      dart_appkit::TextViewColor(configuration->background_color);
   const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
       view, dart_appkit::ObjectKind::kTextView,
       dart_appkit::ThreadDomain::kAppKitMain);
@@ -2017,6 +2214,29 @@ int32_t da_text_view_create(DaHandle* out_view) {
   }
   *out_view = handle;
   return DA_STATUS_OK;
+}
+
+int32_t da_text_view_create(DaHandle* out_view) {
+  DaTextViewConfiguration configuration{};
+  configuration.struct_size = DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE;
+  configuration.view = {
+      DA_VIEW_CONFIGURATION_VERSION_1_SIZE,
+      DA_VIEW_AUTORESIZE_DEFAULT,
+      1,
+      0,
+  };
+  configuration.font_kind = DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM;
+  configuration.font_weight = DA_TEXT_VIEW_FONT_WEIGHT_REGULAR;
+  configuration.font_size = 18.0;
+  configuration.padding_top = 20.0;
+  configuration.padding_right = 20.0;
+  configuration.padding_bottom = 20.0;
+  configuration.padding_left = 20.0;
+  configuration.foreground_color = {
+      DA_TEXT_VIEW_COLOR_LABEL, 0, 0.0, 0.0, 0.0, 1.0};
+  configuration.background_color = {
+      DA_TEXT_VIEW_COLOR_WINDOW_BACKGROUND, 0, 0.0, 0.0, 0.0, 1.0};
+  return da_text_view_create_configured(&configuration, nullptr, 0, out_view);
 }
 
 int32_t da_text_view_set_text(DaHandle view, const char* text,

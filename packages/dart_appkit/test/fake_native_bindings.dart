@@ -50,6 +50,10 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, String> windowRepresentedFilePaths = <int, String>{};
   final Map<int, List<double>> windowTabColors = <int, List<double>>{};
   final Map<int, List<num>> windowTabAccessories = <int, List<num>>{};
+  final Map<int, NativeViewConfiguration> viewConfigurations =
+      <int, NativeViewConfiguration>{};
+  final Map<int, NativeTextViewConfiguration> textViewConfigurations =
+      <int, NativeTextViewConfiguration>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, List<Uint8List>> customViewOperations =
@@ -563,11 +567,12 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> viewCreate() {
+  NativeValueResult<int> viewCreate(NativeViewConfiguration configuration) {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('viewCreate', handle);
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.view;
+      viewConfigurations[handle] = configuration;
     }
     return result;
   }
@@ -669,11 +674,15 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> textViewCreate() {
+  NativeValueResult<int> textViewCreate(
+    NativeTextViewConfiguration configuration,
+  ) {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('textViewCreate', handle);
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.textView;
+      viewConfigurations[handle] = configuration.view;
+      textViewConfigurations[handle] = configuration;
       texts[handle] = '';
     }
     return result;
@@ -707,6 +716,8 @@ final class FakeNativeBindings implements NativeBindings {
       windowFullscreenStates.remove(handle);
       windowRepresentedFilePaths.remove(handle);
       windowTabColors.remove(handle);
+      viewConfigurations.remove(handle);
+      textViewConfigurations.remove(handle);
       texts.remove(handle);
       customViewProviders.remove(handle);
       customViewOperations.remove(handle);

@@ -99,6 +99,80 @@ typedef struct DaWindowTabAccessoryConfiguration {
 #define DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaWindowTabAccessoryConfiguration))
 
+/** Stable autoresizing bits for package-created base and simple text views. */
+typedef enum DaViewAutoresizing {
+  DA_VIEW_AUTORESIZE_WIDTH = 1u << 0,
+  DA_VIEW_AUTORESIZE_HEIGHT = 1u << 1
+} DaViewAutoresizing;
+
+/** Size-prefixed immutable base-view creation configuration. */
+typedef struct DaViewConfiguration {
+  uint64_t struct_size;
+  uint64_t autoresizing_mask;
+  int32_t accepts_first_responder;
+  int32_t reserved;
+} DaViewConfiguration;
+
+#define DA_VIEW_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaViewConfiguration))
+#define DA_VIEW_AUTORESIZE_DEFAULT \
+  ((uint64_t)(DA_VIEW_AUTORESIZE_WIDTH | DA_VIEW_AUTORESIZE_HEIGHT))
+
+#define DA_TEXT_VIEW_FONT_MAX_SIZE 512.0
+#define DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES ((size_t)256u)
+#define DA_TEXT_VIEW_PADDING_MAX_EXTENT 4096.0
+
+typedef enum DaTextViewFontKind {
+  DA_TEXT_VIEW_FONT_SYSTEM = 0,
+  DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM = 1,
+  DA_TEXT_VIEW_FONT_NAMED = 2
+} DaTextViewFontKind;
+
+typedef enum DaTextViewFontWeight {
+  DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT = 0,
+  DA_TEXT_VIEW_FONT_WEIGHT_THIN = 1,
+  DA_TEXT_VIEW_FONT_WEIGHT_LIGHT = 2,
+  DA_TEXT_VIEW_FONT_WEIGHT_REGULAR = 3,
+  DA_TEXT_VIEW_FONT_WEIGHT_MEDIUM = 4,
+  DA_TEXT_VIEW_FONT_WEIGHT_SEMIBOLD = 5,
+  DA_TEXT_VIEW_FONT_WEIGHT_BOLD = 6,
+  DA_TEXT_VIEW_FONT_WEIGHT_HEAVY = 7,
+  DA_TEXT_VIEW_FONT_WEIGHT_BLACK = 8
+} DaTextViewFontWeight;
+
+typedef enum DaTextViewColorKind {
+  DA_TEXT_VIEW_COLOR_LABEL = 0,
+  DA_TEXT_VIEW_COLOR_WINDOW_BACKGROUND = 1,
+  DA_TEXT_VIEW_COLOR_SRGB = 2
+} DaTextViewColorKind;
+
+typedef struct DaTextViewColorConfiguration {
+  int32_t kind;
+  int32_t reserved;
+  double red;
+  double green;
+  double blue;
+  double alpha;
+} DaTextViewColorConfiguration;
+
+/** Size-prefixed immutable display-only text-view creation configuration. */
+typedef struct DaTextViewConfiguration {
+  uint64_t struct_size;
+  DaViewConfiguration view;
+  int32_t font_kind;
+  int32_t font_weight;
+  double font_size;
+  double padding_top;
+  double padding_right;
+  double padding_bottom;
+  double padding_left;
+  DaTextViewColorConfiguration foreground_color;
+  DaTextViewColorConfiguration background_color;
+} DaTextViewConfiguration;
+
+#define DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaTextViewConfiguration))
+
 /**
  * Error detail borrowed from thread-local storage.
  *
@@ -443,8 +517,12 @@ DA_EXPORT int32_t da_window_select_tab(DaHandle window);
 DA_EXPORT int32_t da_window_make_first_responder(DaHandle window,
                                                  DaHandle view);
 
-/** Main thread only. Creates a generic AppKit view. */
+/** Main thread only. Creates a generic AppKit view with compatibility defaults. */
 DA_EXPORT int32_t da_view_create(DaHandle* out_view);
+
+/** Main thread only. Creates a configured generic AppKit view. */
+DA_EXPORT int32_t da_view_create_configured(
+    const DaViewConfiguration* configuration, DaHandle* out_view);
 
 /**
  * Main thread only. Creates the two-pane helper: two children, one thin
@@ -493,8 +571,16 @@ DA_EXPORT int32_t da_view_create_custom(const char* provider_identifier,
 DA_EXPORT int32_t da_view_perform_custom_operation(
     DaHandle view, const uint8_t* payload, size_t payload_length);
 
-/** Main thread only. */
+/** Main thread only. Uses the display-text compatibility defaults. */
 DA_EXPORT int32_t da_text_view_create(DaHandle* out_view);
+
+/**
+ * Main thread only. Creates a configured display-only text view.
+ * font_family is required only for DA_TEXT_VIEW_FONT_NAMED and is copied.
+ */
+DA_EXPORT int32_t da_text_view_create_configured(
+    const DaTextViewConfiguration* configuration, const char* font_family,
+    size_t font_family_length, DaHandle* out_view);
 
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_text_view_set_text(DaHandle view, const char* text,

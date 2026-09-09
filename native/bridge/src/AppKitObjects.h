@@ -7,11 +7,17 @@
 
 @interface DaView : NSView
 
+@property(nonatomic, assign) BOOL daAcceptsFirstResponder;
+
 @end
 
 @interface DaTextView : DaView
 
 @property(nonatomic, copy) NSString* displayText;
+@property(nonatomic, strong) NSFont* daFont;
+@property(nonatomic, assign) NSEdgeInsets daPadding;
+@property(nonatomic, strong) NSColor* daForegroundColor;
+@property(nonatomic, strong) NSColor* daBackgroundColor;
 
 @end
 

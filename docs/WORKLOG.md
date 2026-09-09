@@ -3,6 +3,76 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-10 — configurable base and simple text views
+
+### Purpose and boundary
+
+Move base-view first-responder/autoresizing behavior and the built-in display
+text view's font, padding, foreground, and background presentation out of
+native fixed values. Preserve the current behavior as immutable compatibility
+defaults and do not impose these settings on registered custom views, whose
+providers continue to own their native behavior and appearance.
+
+### Scope and verification plan
+
+- Add immutable `ViewConfiguration` for first-responder acceptance and
+  independent width/height autoresizing. `View()` accepts it; `View.custom`
+  remains provider-owned.
+- Add immutable text font, padding, and color values plus
+  `TextViewConfiguration`, including a nested base-view configuration. Preserve
+  monospaced system 18-point regular text, 20-point padding, label foreground,
+  and window-background fill as defaults.
+- Bound font size, named-font UTF-8 bytes, and padding; use closed font kind,
+  weight, system-color, and autoresizing values. Allow fixed sRGB colors.
+- Add size-prefixed configured creation ABI calls. Keep old creation symbols as
+  exact-default wrappers, and let current Dart bindings use old images only for
+  exact compatibility configurations.
+- Test public validation/state forwarding, native AppKit properties/drawing
+  inputs and malformed configurations, current FFI thread guards, exact-default
+  legacy fallback, custom rejection on old images, and full regressions.
+
+### Findings and verification
+
+- `ViewConfiguration` now selects first-responder acceptance and width/height
+  autoresizing independently. Plain `View` stores and forwards it;
+  `TextViewConfiguration` nests it; provider and container views expose no
+  invented package configuration.
+- `TextViewConfiguration` owns immutable font, padding, foreground, and
+  background values. System and monospaced-system fonts support the closed
+  weight set; a named font is an exact AppKit font name, so its style belongs in
+  that name and a separate non-regular weight is rejected rather than ignored.
+- Font size is capped at 512 points, an exact named font at 256 UTF-8 bytes, and
+  each non-negative padding extent at 4096 points. Dynamic label/window
+  background roles use canonical records; fixed sRGB components remain finite
+  in `[0, 1]`.
+- Native `DaView` stores the configured responder decision and autoresizing
+  mask. `DaTextView` stores the resolved `NSFont`, edge-specific padding, and
+  colors and uses them directly during drawing. Existing default initializers
+  still reproduce the historical values.
+- The new configured C records are size-prefixed and their C/C++ layouts are
+  fixed at 24, 40, and 160 bytes. Old create symbols delegate with exact
+  defaults; FFI falls back to them only for matching configurations and returns
+  unsupported for custom values on an old image.
+- Two initial documentation/header patches missed exact surrounding text and
+  applied no changes; they were reapplied as narrower patches. No compile or
+  behavior failure resulted.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test dart-test
+  ffi-smoke` passes public forwarding/bounds, native default/custom AppKit state
+  and malformed records, current FFI guards, and exact-default legacy fallback.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold,
+  fixed C/C++ layouts, warning-clean native/Runner suites, every package
+  analysis/test, manifest assembly, example compilation, current FFI, and
+  legacy fallback.
+- Final diff review and `git diff --check` pass. ABI version and event protocol
+  remain unchanged, custom providers retain their own policy, and the additive
+  APIs do not broaden existing handles or ownership.
+
+### Roadmap checkpoint
+
+Base and display-text view policy is configurable with compatibility defaults.
+The next ordered correction is making menu auto-enablement and Runner
+message-pump budgets application-selected within conservative hard bounds.
+
 ## 2026-09-09 — explicit two-pane split helper boundary
 
 ### Purpose and boundary

@@ -88,13 +88,37 @@ discover the configured symbol lazily, fall back to the legacy call only for
 that default, and report unsupported version for a non-default style on an old
 native image.
 
+## Base and display-text view creation
+
+`DaViewConfiguration` is size-prefixed and selects first-responder acceptance
+plus a closed width/height autoresizing mask. `da_view_create_configured`
+validates the prefix, boolean, reserved field, and mask before allocation.
+`da_view_create` remains the compatibility wrapper with first-responder and
+both autoresizing dimensions enabled.
+
+`DaTextViewConfiguration` embeds that base configuration and adds closed font
+kind/weight and color kinds, font size, four logical padding values, and two
+color records. Font size is bounded to 512 points, each padding extent to 4096
+points, and a copied exact named-font value to 256 UTF-8 bytes. Named fonts use
+their exact AppKit name and therefore require regular weight in the separate
+weight field; system and monospaced-system fonts consume the declared weight.
+Colors may use dynamic label/window-background roles or finite sRGB components.
+`da_text_view_create` remains the exact monospaced-system 18-point regular,
+20-point padding, label/window-background compatibility wrapper.
+
+Both configured calls are additive. Current Dart bindings fall back to old
+symbols only for exact compatibility configurations and otherwise report
+`DA_STATUS_UNSUPPORTED_VERSION`. Registered custom views bypass these values;
+their provider remains responsible for native view policy.
+
 ## Handle ownership
 
 - Successful create calls return one registry-owned handle.
 - Every occupied registry slot records its object kind, positive generation,
   and owning thread domain. Current objects belong to the AppKit main domain.
-- `da_view_create` returns a generic view handle. `da_text_view_create` returns
-  a specialized handle that is accepted by generic-view lookups.
+- Base/default `da_view_create*` returns a generic view handle. Default/configured
+  `da_text_view_create*` returns a specialized handle accepted by generic-view
+  lookups.
 - `da_view_create_custom` copies a non-empty provider identifier, asks the
   native provider registry to construct its `NSView` subclass, and returns the
   instance as a generic view handle.

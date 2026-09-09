@@ -55,6 +55,72 @@ final class _DaWindowTabAccessoryConfigurationNative extends Struct {
   external double alpha;
 }
 
+final class _DaViewConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int autoresizingMask;
+
+  @Int32()
+  external int acceptsFirstResponder;
+
+  @Int32()
+  external int reserved;
+}
+
+final class _DaTextViewColorConfigurationNative extends Struct {
+  @Int32()
+  external int kind;
+
+  @Int32()
+  external int reserved;
+
+  @Double()
+  external double red;
+
+  @Double()
+  external double green;
+
+  @Double()
+  external double blue;
+
+  @Double()
+  external double alpha;
+}
+
+final class _DaTextViewConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  external _DaViewConfigurationNative view;
+
+  @Int32()
+  external int fontKind;
+
+  @Int32()
+  external int fontWeight;
+
+  @Double()
+  external double fontSize;
+
+  @Double()
+  external double paddingTop;
+
+  @Double()
+  external double paddingRight;
+
+  @Double()
+  external double paddingBottom;
+
+  @Double()
+  external double paddingLeft;
+
+  external _DaTextViewColorConfigurationNative foregroundColor;
+
+  external _DaTextViewColorConfigurationNative backgroundColor;
+}
+
 final class _DaErrorNative extends Struct {
   @Int32()
   external int code;
@@ -239,6 +305,26 @@ typedef _HandleThreeDoublesNative = Int32 Function(
 typedef _HandleThreeDoublesDart = int Function(int, double, double, double);
 typedef _CreateHandleNative = Int32 Function(Pointer<Uint64>);
 typedef _CreateHandleDart = int Function(Pointer<Uint64>);
+typedef _ViewCreateConfiguredNative = Int32 Function(
+  Pointer<_DaViewConfigurationNative>,
+  Pointer<Uint64>,
+);
+typedef _ViewCreateConfiguredDart = int Function(
+  Pointer<_DaViewConfigurationNative>,
+  Pointer<Uint64>,
+);
+typedef _TextViewCreateConfiguredNative = Int32 Function(
+  Pointer<_DaTextViewConfigurationNative>,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint64>,
+);
+typedef _TextViewCreateConfiguredDart = int Function(
+  Pointer<_DaTextViewConfigurationNative>,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint64>,
+);
 typedef _IntCreateHandleNative = Int32 Function(Int32, Pointer<Uint64>);
 typedef _IntCreateHandleDart = int Function(int, Pointer<Uint64>);
 typedef _GetLastErrorNative = Void Function(Pointer<_DaErrorNative>);
@@ -273,6 +359,58 @@ _CreateHandleDart? _lookupViewCreate(DynamicLibrary library) {
   } on ArgumentError {
     return null;
   }
+}
+
+_ViewCreateConfiguredDart? _lookupViewCreateConfigured(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_ViewCreateConfiguredNative, _ViewCreateConfiguredDart>(
+          'da_view_create_configured',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextViewCreateConfiguredNative,
+      _TextViewCreateConfiguredDart
+    >('da_text_view_create_configured');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+void _writeViewConfiguration(
+  _DaViewConfigurationNative output,
+  NativeViewConfiguration configuration,
+) {
+  output
+    ..structSize = sizeOf<_DaViewConfigurationNative>()
+    ..autoresizingMask = configuration.autoresizingMask
+    ..acceptsFirstResponder = configuration.acceptsFirstResponder ? 1 : 0
+    ..reserved = 0;
+}
+
+void _writeTextViewColor(
+  _DaTextViewColorConfigurationNative output, {
+  required int kind,
+  required double red,
+  required double green,
+  required double blue,
+  required double alpha,
+}) {
+  output
+    ..kind = kind
+    ..reserved = 0
+    ..red = red
+    ..green = green
+    ..blue = blue
+    ..alpha = alpha;
 }
 
 _StringCreateDart? _lookupCustomViewCreate(DynamicLibrary library) {
@@ -731,6 +869,7 @@ final class FfiNativeBindings implements NativeBindings {
         'da_window_make_first_responder',
       ),
       _viewCreate = _lookupViewCreate(library),
+      _viewCreateConfigured = _lookupViewCreateConfigured(library),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -757,6 +896,7 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_CreateHandleNative, _CreateHandleDart>(
             'da_text_view_create',
           ),
+      _textViewCreateConfigured = _lookupTextViewCreateConfigured(library),
       _textViewSetText = library
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_text_view_set_text',
@@ -840,6 +980,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStatusDart? _windowSelectTab;
   final _TwoHandlesDart? _windowMakeFirstResponder;
   final _CreateHandleDart? _viewCreate;
+  final _ViewCreateConfiguredDart? _viewCreateConfigured;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -848,6 +989,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _StringCreateDart? _customViewCreate;
   final _HandleStringDart? _customViewPerformOperation;
   final _CreateHandleDart _textViewCreate;
+  final _TextViewCreateConfiguredDart? _textViewCreateConfigured;
   final _HandleStringDart _textViewSetText;
   final _TwoHandlesDart _windowSetContentView;
   final _HandleStatusDart _release;
@@ -1639,21 +1781,35 @@ final class FfiNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> viewCreate() {
-    final _CreateHandleDart? viewCreate = _viewCreate;
-    if (viewCreate == null) {
+  NativeValueResult<int> viewCreate(NativeViewConfiguration configuration) {
+    final _ViewCreateConfiguredDart? configuredFunction = _viewCreateConfigured;
+    final _CreateHandleDart? legacyFunction = _viewCreate;
+    if (configuredFunction == null &&
+        (legacyFunction == null || !configuration.isCompatibilityDefault)) {
       return const NativeValueResult<int>.failure(
         8,
-        'legacy native bridge does not support generic views',
+        'legacy native bridge supports only the default generic view',
       );
     }
     final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
         .cast<Uint64>();
+    Pointer<_DaViewConfigurationNative>? configurationPointer;
     try {
       handlePointer.value = 0;
-      final int status = viewCreate(handlePointer);
+      final int status;
+      if (configuredFunction == null) {
+        status = legacyFunction!(handlePointer);
+      } else {
+        configurationPointer = _allocate(sizeOf<_DaViewConfigurationNative>())
+            .cast<_DaViewConfigurationNative>();
+        _writeViewConfiguration(configurationPointer.ref, configuration);
+        status = configuredFunction(configurationPointer, handlePointer);
+      }
       return _valueResult<int>(status, handlePointer.value);
     } finally {
+      if (configurationPointer != null) {
+        _free(configurationPointer.cast<Void>());
+      }
       _free(handlePointer.cast<Void>());
     }
   }
@@ -1778,14 +1934,75 @@ final class FfiNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> textViewCreate() {
+  NativeValueResult<int> textViewCreate(
+    NativeTextViewConfiguration configuration,
+  ) {
+    final _TextViewCreateConfiguredDart? configuredFunction =
+        _textViewCreateConfigured;
+    if (configuredFunction == null && !configuration.isCompatibilityDefault) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge supports only the default text view',
+      );
+    }
     final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
         .cast<Uint64>();
+    Pointer<_DaTextViewConfigurationNative>? configurationPointer;
     try {
       handlePointer.value = 0;
-      final int status = _textViewCreate(handlePointer);
-      return _valueResult<int>(status, handlePointer.value);
+      if (configuredFunction == null) {
+        return _valueResult<int>(
+          _textViewCreate(handlePointer),
+          handlePointer.value,
+        );
+      }
+      configurationPointer = _allocate(sizeOf<_DaTextViewConfigurationNative>())
+          .cast<_DaTextViewConfigurationNative>();
+      final _DaTextViewConfigurationNative native = configurationPointer.ref;
+      native
+        ..structSize = sizeOf<_DaTextViewConfigurationNative>()
+        ..fontKind = configuration.fontKind
+        ..fontWeight = configuration.fontWeight
+        ..fontSize = configuration.fontSize
+        ..paddingTop = configuration.paddingTop
+        ..paddingRight = configuration.paddingRight
+        ..paddingBottom = configuration.paddingBottom
+        ..paddingLeft = configuration.paddingLeft;
+      _writeViewConfiguration(native.view, configuration.view);
+      _writeTextViewColor(
+        native.foregroundColor,
+        kind: configuration.foregroundColorKind,
+        red: configuration.foregroundRed,
+        green: configuration.foregroundGreen,
+        blue: configuration.foregroundBlue,
+        alpha: configuration.foregroundAlpha,
+      );
+      _writeTextViewColor(
+        native.backgroundColor,
+        kind: configuration.backgroundColorKind,
+        red: configuration.backgroundRed,
+        green: configuration.backgroundGreen,
+        blue: configuration.backgroundBlue,
+        alpha: configuration.backgroundAlpha,
+      );
+      return _withUtf8(configuration.fontFamily ?? '', (
+        Pointer<Uint8> familyPointer,
+        int familyLength,
+      ) {
+        return _valueResult<int>(
+          configuredFunction(
+            configurationPointer!,
+            familyPointer,
+            familyLength,
+            handlePointer,
+          ),
+          handlePointer.value,
+        );
+      });
     } finally {
+      if (configurationPointer != null) {
+        _free(configurationPointer.cast<Void>());
+      }
       _free(handlePointer.cast<Void>());
     }
   }

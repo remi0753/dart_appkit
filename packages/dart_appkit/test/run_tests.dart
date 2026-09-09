@@ -7,7 +7,8 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
     show
         dartAppKitExternalUrlPolicyForbidCredentials,
         dartAppKitExternalUrlPolicyRequireAuthority,
-        dartAppKitExternalUrlPolicyRequireHost;
+        dartAppKitExternalUrlPolicyRequireHost,
+        dartAppKitViewAutoresizingWidth;
 import 'package:dart_appkit/testing.dart' as testing;
 
 import 'fake_native_bindings.dart';
@@ -107,6 +108,11 @@ Future<void> _testLifecycleAndErrors() async {
 
   _expect(bindings.objects.length == 2, 'two live native objects');
   _expect(bindings.texts.values.single == 'Hello — 日本語', 'UTF-8 text');
+  _expect(
+    view.configuration == const TextViewConfiguration() &&
+        bindings.textViewConfigurations.values.single.isCompatibilityDefault,
+    'text view compatibility default is explicit and stable',
+  );
   _expect(bindings.windowTitles.values.single == 'Updated', 'title update');
   _expect(window.contentView == view, 'content-view Dart ownership');
   _expect(app.debugLiveObjectCount == 2, 'debug live count');
@@ -141,9 +147,29 @@ Future<void> _testGenericViewBoundary() async {
   );
   final FakeNativeBindings bindings = FakeNativeBindings();
   final AppKitApplication app = await _attach(bindings, raw);
-  final View genericView = View();
+  const ViewConfiguration viewConfiguration = ViewConfiguration(
+    acceptsFirstResponder: false,
+    autoresizesHeight: false,
+  );
+  final TextViewConfiguration textConfiguration = TextViewConfiguration(
+    view: const ViewConfiguration(
+      acceptsFirstResponder: false,
+      autoresizesWidth: false,
+    ),
+    font: TextViewFont.named('Menlo', size: 14),
+    padding: const TextViewPadding(top: 1, right: 2, bottom: 3, left: 4),
+    foregroundColor: TextViewColor.sRgb(
+      red: 0.1,
+      green: 0.2,
+      blue: 0.3,
+      alpha: 0.4,
+    ),
+    backgroundColor: TextViewColor.sRgb(red: 0.9, green: 0.8, blue: 0.7),
+  );
+  final View genericView = View(configuration: viewConfiguration);
   final View customView = View.custom('example.CustomView');
-  final TextView textView = TextView()..text = 'specialized';
+  final TextView textView = TextView(configuration: textConfiguration)
+    ..text = 'specialized';
   final Window window = Window(
     frame: const Rect.fromLTWH(0, 0, 320, 200),
     title: 'Generic view',
@@ -154,6 +180,61 @@ Future<void> _testGenericViewBoundary() async {
     bindings.objects[bindings.contentViews.values.single] ==
         FakeObjectKind.view,
     'generic native kind',
+  );
+  final int genericHandle = bindings.viewConfigurations.keys.first;
+  final int textHandle = bindings.textViewConfigurations.keys.single;
+  _expect(
+    genericView.viewConfiguration == viewConfiguration &&
+        !bindings.viewConfigurations[genericHandle]!.acceptsFirstResponder &&
+        bindings.viewConfigurations[genericHandle]!.autoresizingMask ==
+            dartAppKitViewAutoresizingWidth,
+    'base view configuration reaches the native boundary',
+  );
+  final configuredText = bindings.textViewConfigurations[textHandle]!;
+  _expect(
+    textView.viewConfiguration == textConfiguration.view &&
+        textView.configuration == textConfiguration &&
+        configuredText.fontKind == TextViewFontKind.named.index &&
+        configuredText.fontWeight == TextViewFontWeight.regular.index &&
+        configuredText.fontFamily == 'Menlo' &&
+        configuredText.fontSize == 14 &&
+        configuredText.paddingTop == 1 &&
+        configuredText.paddingRight == 2 &&
+        configuredText.paddingBottom == 3 &&
+        configuredText.paddingLeft == 4 &&
+        configuredText.foregroundColorKind == TextViewColorKind.sRgb.index &&
+        configuredText.foregroundAlpha == 0.4 &&
+        configuredText.backgroundColorKind == TextViewColorKind.sRgb.index,
+    'text view font, padding, colors, and base behavior reach native',
+  );
+  _expect(
+    customView.viewConfiguration == null,
+    'custom view behavior remains provider-owned',
+  );
+  _expect(
+    TextViewFont.maximumSize == 512 &&
+        TextViewFont.maximumFamilyUtf8Bytes == 256 &&
+        TextViewPadding.maximumExtent == 4096,
+    'public text-view bounds are stable',
+  );
+  await _expectThrows<ArgumentError>(() => TextViewFont.named(''));
+  await _expectThrows<ArgumentError>(() => TextViewFont.named('é' * 129));
+  await _expectThrows<ArgumentError>(
+    () => TextView(
+      configuration: const TextViewConfiguration(
+        font: TextViewFont.system(size: double.infinity),
+      ),
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => TextView(
+      configuration: const TextViewConfiguration(
+        padding: TextViewPadding(left: 4097),
+      ),
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => TextViewColor.sRgb(red: -0.1, green: 0, blue: 0),
   );
 
   window.contentView = customView;
