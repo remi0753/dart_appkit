@@ -18,6 +18,14 @@ final class _DaRectNative extends Struct {
   external double height;
 }
 
+final class _DaWindowConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int styleMask;
+}
+
 final class _DaErrorNative extends Struct {
   @Int32()
   external int code;
@@ -121,6 +129,20 @@ typedef _WindowCreateDart = int Function(
   _DaRectNative,
   Pointer<Uint8>,
   int,
+  Pointer<Uint64>,
+);
+typedef _WindowCreateConfiguredNative = Int32 Function(
+  _DaRectNative,
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaWindowConfigurationNative>,
+  Pointer<Uint64>,
+);
+typedef _WindowCreateConfiguredDart = int Function(
+  _DaRectNative,
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaWindowConfigurationNative>,
   Pointer<Uint64>,
 );
 typedef _HandleRectNative = Int32 Function(Uint64, _DaRectNative);
@@ -267,6 +289,19 @@ _HandleStatusDart? _lookupWindowRequestClose(DynamicLibrary library) {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
       'da_window_request_close',
     );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_WindowCreateConfiguredDart? _lookupWindowCreateConfigured(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _WindowCreateConfiguredNative,
+      _WindowCreateConfiguredDart
+    >('da_window_create_configured');
   } on ArgumentError {
     return null;
   }
@@ -573,6 +608,7 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_WindowCreateNative, _WindowCreateDart>(
             'da_window_create',
           ),
+      _windowCreateConfigured = _lookupWindowCreateConfigured(library),
       _windowShow = library
           .lookupFunction<_HandleStatusNative, _HandleStatusDart>(
             'da_window_show',
@@ -703,6 +739,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStatusDart? _applicationSetMainMenu;
   final _HandleStatusDart? _menuItemPerformAction;
   final _WindowCreateDart _windowCreate;
+  final _WindowCreateConfiguredDart? _windowCreateConfigured;
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
   final _HandleRectDart? _windowSetFrame;
@@ -1215,10 +1252,21 @@ final class FfiNativeBindings implements NativeBindings {
     required double width,
     required double height,
     required String title,
+    required int styleMask,
   }) {
+    final _WindowCreateConfiguredDart? configured = _windowCreateConfigured;
+    if (configured == null && styleMask != dartAppKitDefaultWindowStyleMask) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge supports only the default window style',
+      );
+    }
     final Pointer<_DaRectNative> rectPointer = _allocate(
       sizeOf<_DaRectNative>(),
     ).cast<_DaRectNative>();
+    final Pointer<_DaWindowConfigurationNative> configurationPointer =
+        _allocate(sizeOf<_DaWindowConfigurationNative>())
+            .cast<_DaWindowConfigurationNative>();
     final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
         .cast<Uint64>();
     try {
@@ -1227,18 +1275,25 @@ final class FfiNativeBindings implements NativeBindings {
         ..y = y
         ..width = width
         ..height = height;
+      configurationPointer.ref
+        ..structSize = sizeOf<_DaWindowConfigurationNative>()
+        ..styleMask = styleMask;
       handlePointer.value = 0;
       return _withUtf8(title, (Pointer<Uint8> pointer, int length) {
-        final int status = _windowCreate(
-          rectPointer.ref,
-          pointer,
-          length,
-          handlePointer,
-        );
+        final int status = configured == null
+            ? _windowCreate(rectPointer.ref, pointer, length, handlePointer)
+            : configured(
+                rectPointer.ref,
+                pointer,
+                length,
+                configurationPointer,
+                handlePointer,
+              );
         return _valueResult<int>(status, handlePointer.value);
       });
     } finally {
       _free(handlePointer.cast<Void>());
+      _free(configurationPointer.cast<Void>());
       _free(rectPointer.cast<Void>());
     }
   }

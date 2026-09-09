@@ -6,6 +6,15 @@ const int dartAppKitMinimumEventProtocolVersion = 1;
 const int dartAppKitCurrentEventProtocolVersion = 6;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
+const int dartAppKitWindowStyleTitled = 1 << 0;
+const int dartAppKitWindowStyleClosable = 1 << 1;
+const int dartAppKitWindowStyleMiniaturizable = 1 << 2;
+const int dartAppKitWindowStyleResizable = 1 << 3;
+const int dartAppKitDefaultWindowStyleMask =
+    dartAppKitWindowStyleTitled |
+    dartAppKitWindowStyleClosable |
+    dartAppKitWindowStyleMiniaturizable |
+    dartAppKitWindowStyleResizable;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -84,6 +93,7 @@ abstract interface class NativeBindings {
     required double width,
     required double height,
     required String title,
+    required int styleMask,
   });
   NativeCallResult windowShow(int handle);
   NativeCallResult windowClose(int handle);

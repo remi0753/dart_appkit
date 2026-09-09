@@ -43,6 +43,7 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, List<double>> windowFrames = <int, List<double>>{};
+  final Map<int, int> windowStyleMasks = <int, int>{};
   final Map<int, bool> windowFullscreenStates = <int, bool>{};
   final Map<int, String> windowRepresentedFilePaths = <int, String>{};
   final Map<int, List<double>> windowTabColors = <int, List<double>>{};
@@ -347,6 +348,7 @@ final class FakeNativeBindings implements NativeBindings {
     required double width,
     required double height,
     required String title,
+    required int styleMask,
   }) {
     final int handle = nextHandle++;
     final NativeValueResult<int> result = _value<int>('windowCreate', handle);
@@ -354,6 +356,7 @@ final class FakeNativeBindings implements NativeBindings {
       objects[handle] = FakeObjectKind.window;
       windowTitles[handle] = title;
       windowFrames[handle] = <double>[x, y, width, height];
+      windowStyleMasks[handle] = styleMask;
       windowFullscreenStates[handle] = false;
       windowKeyEventRoutings[handle] = 0;
     }

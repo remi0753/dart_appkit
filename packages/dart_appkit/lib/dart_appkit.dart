@@ -36,6 +36,7 @@ export 'src/api.dart'
         WindowBackingScaleChangedEvent,
         WindowClosedEvent,
         WindowCloseRequestedEvent,
+        WindowConfiguration,
         WindowEvent,
         WindowFocusChangedEvent,
         WindowFrameChangedEvent,

@@ -37,6 +37,31 @@ typedef struct DaRect {
   double height;
 } DaRect;
 
+/** Stable bits for immutable window creation style. */
+typedef enum DaWindowStyle {
+  DA_WINDOW_STYLE_TITLED = 1u << 0,
+  DA_WINDOW_STYLE_CLOSABLE = 1u << 1,
+  DA_WINDOW_STYLE_MINIATURIZABLE = 1u << 2,
+  DA_WINDOW_STYLE_RESIZABLE = 1u << 3
+} DaWindowStyle;
+
+/**
+ * Size-prefixed window creation configuration.
+ *
+ * style_mask may contain only DaWindowStyle bits. A zero mask creates a
+ * borderless window. Callers must initialize struct_size to the version size.
+ */
+typedef struct DaWindowConfiguration {
+  uint64_t struct_size;
+  uint64_t style_mask;
+} DaWindowConfiguration;
+
+#define DA_WINDOW_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaWindowConfiguration))
+#define DA_WINDOW_STYLE_DEFAULT                                           \
+  ((uint64_t)(DA_WINDOW_STYLE_TITLED | DA_WINDOW_STYLE_CLOSABLE |         \
+              DA_WINDOW_STYLE_MINIATURIZABLE | DA_WINDOW_STYLE_RESIZABLE))
+
 /**
  * Error detail borrowed from thread-local storage.
  *
@@ -258,6 +283,16 @@ DA_EXPORT int32_t da_menu_item_perform_action(DaHandle item);
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_window_create(DaRect frame, const char* title,
                                    size_t title_length, DaHandle* out_window);
+
+/**
+ * Main thread only. Creates a window from copied UTF-8 and immutable style.
+ *
+ * configuration must provide at least DA_WINDOW_CONFIGURATION_VERSION_1_SIZE
+ * bytes and may contain only the currently declared DaWindowStyle bits.
+ */
+DA_EXPORT int32_t da_window_create_configured(
+    DaRect frame, const char* title, size_t title_length,
+    const DaWindowConfiguration* configuration, DaHandle* out_window);
 
 /** Main thread only. Replaces the finite positive outer window frame. */
 DA_EXPORT int32_t da_window_set_frame(DaHandle window, DaRect frame);

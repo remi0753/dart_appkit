@@ -1126,8 +1126,9 @@ int32_t da_menu_item_perform_action(DaHandle item) {
   return DA_STATUS_OK;
 }
 
-int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
-                         DaHandle* out_window) {
+int32_t da_window_create_configured(
+    DaRect frame, const char* title, size_t title_length,
+    const DaWindowConfiguration* configuration, DaHandle* out_window) {
   dart_appkit::ClearLastError();
   if (out_window == nullptr) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
@@ -1147,6 +1148,22 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
     return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
                                      "NSApplication is not initialized");
   }
+  if (configuration == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "configuration must not be null");
+  }
+  if (configuration->struct_size <
+      DA_WINDOW_CONFIGURATION_VERSION_1_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "window configuration is smaller than version 1");
+  }
+  constexpr uint64_t kSupportedStyleMask = DA_WINDOW_STYLE_DEFAULT;
+  if ((configuration->style_mask & ~kSupportedStyleMask) != 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "window style mask contains unsupported bits");
+  }
 
   int32_t string_status = DA_STATUS_OK;
   NSString* copied_title =
@@ -1156,9 +1173,19 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
   }
 
   @try {
-    const NSWindowStyleMask style =
-        NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-        NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+    NSWindowStyleMask style = 0;
+    if ((configuration->style_mask & DA_WINDOW_STYLE_TITLED) != 0) {
+      style |= NSWindowStyleMaskTitled;
+    }
+    if ((configuration->style_mask & DA_WINDOW_STYLE_CLOSABLE) != 0) {
+      style |= NSWindowStyleMaskClosable;
+    }
+    if ((configuration->style_mask & DA_WINDOW_STYLE_MINIATURIZABLE) != 0) {
+      style |= NSWindowStyleMaskMiniaturizable;
+    }
+    if ((configuration->style_mask & DA_WINDOW_STYLE_RESIZABLE) != 0) {
+      style |= NSWindowStyleMaskResizable;
+    }
     DaWindow* window = [[DaWindow alloc]
         initWithContentRect:NSMakeRect(frame.x, frame.y, frame.width,
                                        frame.height)
@@ -1190,6 +1217,16 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
                                          ? exception.reason.UTF8String
                                          : "AppKit window creation failed");
   }
+}
+
+int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
+                         DaHandle* out_window) {
+  const DaWindowConfiguration configuration = {
+      DA_WINDOW_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_STYLE_DEFAULT,
+  };
+  return da_window_create_configured(frame, title, title_length,
+                                     &configuration, out_window);
 }
 
 int32_t da_window_set_frame(DaHandle window, DaRect frame) {

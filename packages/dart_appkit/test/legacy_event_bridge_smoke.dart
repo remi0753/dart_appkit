@@ -74,6 +74,28 @@ void main(List<String> arguments) {
   if (bindings.applicationOpenExternalUrl('https://example.com').status != 8) {
     _fail('legacy bridge did not reject the additive external URL API');
   }
+  final NativeValueResult<int> configuredWindow = bindings.windowCreate(
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    title: 'configured',
+    styleMask: 0,
+  );
+  if (configuredWindow.status != 8) {
+    _fail('legacy bridge accepted a non-default window style');
+  }
+  final NativeValueResult<int> defaultWindow = bindings.windowCreate(
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    title: 'default',
+    styleMask: dartAppKitDefaultWindowStyleMask,
+  );
+  if (defaultWindow.status != 7) {
+    _fail('legacy bridge did not use legacy creation for the default style');
+  }
   if (bindings.windowAddTabbedWindow(1, 2).status != 8 ||
       bindings
               .windowSetFrame(handle: 1, x: 0, y: 0, width: 640, height: 480)

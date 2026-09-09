@@ -122,6 +122,7 @@ final View view = TextView()..text = 'Hello';
 final window = Window(
   frame: const Rect.fromLTWH(120, 120, 640, 360),
   title: 'Dart AppKit',
+  configuration: const WindowConfiguration(),
 )
   ..contentView = view
   ..show();
@@ -139,6 +140,12 @@ window.dispose();
 view.dispose();
 await app.terminate();
 ```
+
+`WindowConfiguration` selects titled, closable, miniaturizable, and resizable
+styles independently at creation. Its const default preserves the historical
+four-style window; setting all four flags false creates a borderless window.
+The configured ABI is additive, and current Dart bindings use an older native
+image only for the compatibility default.
 
 Native tabs use one `Window` per tab, preserving independent window event and
 content-view ownership. `Window.addTabbedWindow` appends another window to the

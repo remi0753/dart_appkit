@@ -277,7 +277,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 
 - [x] Runnerのactivation／launch activation／last-window close／reopen policyを
   `RunnerConfiguration` とmanifestから選択可能にする。
-- [ ] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
+- [x] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
 - [ ] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
 - [ ] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
 - [ ] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。

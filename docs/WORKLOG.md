@@ -3,6 +3,56 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-09 — configurable Window style
+
+### Purpose and boundary
+
+Move the generic window's fixed titled/closable/miniaturizable/resizable choice
+into an immutable public `WindowConfiguration`. AppKit remains responsible for
+validating and applying the native style mask; application code chooses the
+presentation while the compatibility default retains every existing style.
+
+### Scope and verification plan
+
+- Add four independent public style flags with the existing combination as a
+  const default and a borderless all-false configuration as a valid choice.
+- Add a size-prefixed configured-window creation ABI with a closed set of
+  stable style bits. Keep `da_window_create` unchanged as the legacy default.
+- Discover the additive native symbol lazily. An old bridge may create only the
+  compatibility default and must return typed unsupported-version failure for
+  a non-default configuration.
+- Verify native style translation, malformed size/unknown-bit rejection,
+  Dart forwarding/cache behavior, old-image fallback, and the complete gate.
+
+### Findings and verification
+
+- `WindowConfiguration` exposes the four existing style choices as immutable
+  booleans. Its const default encodes all four legacy bits, while all-false
+  reaches AppKit as the valid borderless mask.
+- The new `DaWindowConfiguration` is size-prefixed and the configured creation
+  symbol is additive under ABI version 1. Native validation rejects a null or
+  short structure and any bit outside the declared stable mask before creating
+  a registry object. The old symbol delegates to the same implementation with
+  the compatibility mask.
+- Current FFI bindings lazily discover the new symbol. Tests against the legacy
+  fixture prove that the default still calls `da_window_create`, while a
+  non-default configuration fails with `DA_STATUS_UNSUPPORTED_VERSION` instead
+  of silently changing appearance.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test dart-test
+  ffi-smoke` passes warning-clean style translation and invalid-input native
+  tests, immutable Dart API/fake-backend tests, current-image FFI, and both
+  default and non-default legacy behavior.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold and
+  header checks, all native suites, every Dart package analysis/test, manifest
+  assembly, example Kernel compilation, FFI loading, and the legacy fallback.
+- Final diff review found no ABI-version or event-protocol increment, no
+  product-specific style, and no change to old `Window(...)` call behavior.
+
+### Roadmap checkpoint
+
+Configurable window creation is complete. The next ordered correction is
+removing the fixed 8×8 circular native-tab accessory policy.
+
 ## 2026-09-09 — configurable Runner lifecycle policy
 
 ### Purpose and boundary

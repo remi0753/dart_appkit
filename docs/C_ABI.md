@@ -79,6 +79,15 @@ state. Handles are opaque 64-bit values; zero is always invalid. Generated
 handles stay within positive signed 64-bit range so the same value is preserved
 in both FFI `Uint64` calls and the event protocol's signed integer slot.
 
+`da_window_create_configured` accepts a size-prefixed
+`DaWindowConfiguration`. Version 1 maps only the stable titled, closable,
+miniaturizable, and resizable bits; zero is the valid borderless style and any
+unknown bit fails before allocation. `da_window_create` remains the unchanged
+compatibility entry point and supplies all four bits. Current Dart bindings
+discover the configured symbol lazily, fall back to the legacy call only for
+that default, and report unsupported version for a non-default style on an old
+native image.
+
 ## Handle ownership
 
 - Successful create calls return one registry-owned handle.

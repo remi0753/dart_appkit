@@ -133,6 +133,7 @@ void main(List<String> arguments) {
     width: -1,
     height: 100,
     title: 'FFI smoke — 日本語',
+    styleMask: dartAppKitDefaultWindowStyleMask,
   );
   if (invalidWindow.isSuccess || invalidWindow.message.isEmpty) {
     _fail('invalid window call did not preserve native failure detail');

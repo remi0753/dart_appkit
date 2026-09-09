@@ -434,6 +434,55 @@ void TestContractAndErrors() {
   EXPECT_EQ(da_release_async(0), DA_STATUS_INVALID_HANDLE);
 }
 
+void TestWindowConfiguration() {
+  dart_appkit::ResetBridgeForTesting();
+  const std::string title = "Configured window";
+
+  DaWindowConfiguration configuration = {
+      DA_WINDOW_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_STYLE_TITLED | DA_WINDOW_STYLE_RESIZABLE,
+  };
+  DaHandle handle = 0;
+  EXPECT_EQ(da_window_create_configured(
+                {10.0, 20.0, 320.0, 240.0}, title.data(), title.size(),
+                &configuration, &handle),
+            DA_STATUS_OK);
+  const NSWindowStyleMask configured_style = OwnerFor(handle).window.styleMask;
+  EXPECT_TRUE((configured_style & NSWindowStyleMaskTitled) != 0);
+  EXPECT_TRUE((configured_style & NSWindowStyleMaskResizable) != 0);
+  EXPECT_TRUE((configured_style & NSWindowStyleMaskClosable) == 0);
+  EXPECT_TRUE((configured_style & NSWindowStyleMaskMiniaturizable) == 0);
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+
+  configuration.style_mask = 0;
+  EXPECT_EQ(da_window_create_configured(
+                {10.0, 20.0, 320.0, 240.0}, title.data(), title.size(),
+                &configuration, &handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(OwnerFor(handle).window.styleMask,
+            static_cast<NSWindowStyleMask>(NSWindowStyleMaskBorderless));
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+
+  handle = 99;
+  configuration.struct_size = 0;
+  EXPECT_EQ(da_window_create_configured(
+                {10.0, 20.0, 320.0, 240.0}, title.data(), title.size(),
+                &configuration, &handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(handle, static_cast<DaHandle>(0));
+  configuration.struct_size = DA_WINDOW_CONFIGURATION_VERSION_1_SIZE;
+  configuration.style_mask = uint64_t{1} << 63;
+  EXPECT_EQ(da_window_create_configured(
+                {10.0, 20.0, 320.0, 240.0}, title.data(), title.size(),
+                &configuration, &handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_create_configured(
+                {10.0, 20.0, 320.0, 240.0}, title.data(), title.size(), nullptr,
+                &handle),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestEventProtocolNegotiation() {
   Capture capture;
   dart_appkit::ResetBridgeForTesting();
@@ -2008,6 +2057,7 @@ int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
     TestContractAndErrors();
+    TestWindowConfiguration();
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
     TestPasteboardText();

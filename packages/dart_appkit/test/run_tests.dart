@@ -187,6 +187,55 @@ Future<void> _testGenericViewBoundary() async {
   await raw.close();
 }
 
+Future<void> _testWindowConfigurationApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Window defaultWindow = Window(
+    frame: const Rect.fromLTWH(0, 0, 320, 200),
+    title: 'Default style',
+  );
+  const WindowConfiguration borderless = WindowConfiguration(
+    titled: false,
+    closable: false,
+    miniaturizable: false,
+    resizable: false,
+  );
+  const WindowConfiguration documentStyle = WindowConfiguration(
+    miniaturizable: false,
+    resizable: false,
+  );
+  final Window borderlessWindow = Window(
+    frame: const Rect.fromLTWH(10, 10, 320, 200),
+    title: 'Borderless',
+    configuration: borderless,
+  );
+  final Window documentWindow = Window(
+    frame: const Rect.fromLTWH(20, 20, 320, 200),
+    title: 'Document',
+    configuration: documentStyle,
+  );
+
+  final List<int> styleMasks = bindings.windowStyleMasks.values.toList();
+  _expect(
+    styleMasks[0] == 0xf,
+    'default style retains every compatibility bit',
+  );
+  _expect(
+    styleMasks[1] == 0 && borderlessWindow.configuration == borderless,
+    'borderless style is forwarded and cached',
+  );
+  _expect(styleMasks[2] == 0x3, 'individual style flags are forwarded');
+
+  defaultWindow.dispose();
+  borderlessWindow.dispose();
+  documentWindow.dispose();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testWindowPresentationMetadataApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -1594,6 +1643,7 @@ Future<void> main() async {
     'generic and specialized view boundary',
     _testGenericViewBoundary,
   );
+  await _test('immutable window configuration', _testWindowConfigurationApi);
   await _test(
     'native tabs, split views, and explicit focus',
     _testNativeTabsSplitViewAndFocusApi,

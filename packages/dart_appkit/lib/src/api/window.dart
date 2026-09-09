@@ -12,6 +12,38 @@ enum KeyEventRouting {
   appKitOnly,
 }
 
+/// Immutable native style selected when a [Window] is created.
+final class WindowConfiguration {
+  const WindowConfiguration({
+    this.titled = true,
+    this.closable = true,
+    this.miniaturizable = true,
+    this.resizable = true,
+  });
+
+  final bool titled;
+  final bool closable;
+  final bool miniaturizable;
+  final bool resizable;
+
+  int get _nativeStyleMask =>
+      (titled ? dartAppKitWindowStyleTitled : 0) |
+      (closable ? dartAppKitWindowStyleClosable : 0) |
+      (miniaturizable ? dartAppKitWindowStyleMiniaturizable : 0) |
+      (resizable ? dartAppKitWindowStyleResizable : 0);
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowConfiguration &&
+      other.titled == titled &&
+      other.closable == closable &&
+      other.miniaturizable == miniaturizable &&
+      other.resizable == resizable;
+
+  @override
+  int get hashCode => Object.hash(titled, closable, miniaturizable, resizable);
+}
+
 /// Immutable sRGB components for one native window-tab marker.
 final class WindowTabColor {
   factory WindowTabColor({
@@ -60,7 +92,11 @@ final class WindowTabColor {
 }
 
 final class Window extends _NativeResource {
-  factory Window({required Rect frame, required String title}) {
+  factory Window({
+    required Rect frame,
+    required String title,
+    WindowConfiguration configuration = const WindowConfiguration(),
+  }) {
     final AppKitApplication application = AppKitApplication._requireCurrent();
     final int handle = _checkValue<int>(
       application._bindings.windowCreate(
@@ -69,20 +105,33 @@ final class Window extends _NativeResource {
         width: frame.width,
         height: frame.height,
         title: title,
+        styleMask: configuration._nativeStyleMask,
       ),
       'Window.create',
     );
-    final Window window = Window._(application, handle, frame, title);
+    final Window window = Window._(
+      application,
+      handle,
+      frame,
+      title,
+      configuration,
+    );
     application._registerWindow(window);
     return window;
   }
 
-  Window._(this._application, int handle, this._frame, this._title)
-    : _eventController = StreamController<WindowEvent>.broadcast(sync: true),
+  Window._(
+    this._application,
+    int handle,
+    this._frame,
+    this._title,
+    this.configuration,
+  ) : _eventController = StreamController<WindowEvent>.broadcast(sync: true),
       super(_application._bindings, handle);
 
   final AppKitApplication _application;
   final StreamController<WindowEvent> _eventController;
+  final WindowConfiguration configuration;
   Rect _frame;
 
   String _title;
