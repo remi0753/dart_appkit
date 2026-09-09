@@ -12,19 +12,23 @@ enum SplitViewAxis {
 /// One ordered child that can occupy the whole split view while zoomed.
 enum SplitViewChild { first, second }
 
-/// A native two-child `NSSplitView` that remains substitutable as a [View].
-final class SplitView extends View {
-  factory SplitView({required SplitViewAxis axis}) {
+/// A native two-pane helper that remains substitutable as a [View].
+///
+/// This deliberately narrow helper owns exactly two ordered children, one thin
+/// non-collapsible divider, and an optional binary zoom selection. It is not a
+/// generic representation of every `NSSplitView` configuration.
+final class TwoPaneSplitView extends View {
+  factory TwoPaneSplitView({required SplitViewAxis axis}) {
     final AppKitApplication application = AppKitApplication._requireCurrent();
     final int nativeAxis = axis == SplitViewAxis.horizontal ? 0 : 1;
     final int handle = _checkValue<int>(
       application._bindings.splitViewCreate(nativeAxis),
-      'SplitView.create',
+      'TwoPaneSplitView.create',
     );
-    return SplitView._(application._bindings, handle, axis);
+    return TwoPaneSplitView._(application._bindings, handle, axis);
   }
 
-  SplitView._(NativeBindings bindings, int handle, this.axis)
+  TwoPaneSplitView._(NativeBindings bindings, int handle, this.axis)
     : super._(bindings, handle);
 
   final SplitViewAxis axis;
@@ -80,7 +84,7 @@ final class SplitView extends View {
     }
     _checkCall(
       _bindings.splitViewSetChildren(_handle, first._handle, second._handle),
-      'SplitView.setChildren',
+      'TwoPaneSplitView.setChildren',
     );
     _firstView = first;
     _secondView = second;
@@ -120,7 +124,7 @@ final class SplitView extends View {
         firstMinimumExtent: firstMinimumExtent,
         secondMinimumExtent: secondMinimumExtent,
       ),
-      'SplitView.setPosition',
+      'TwoPaneSplitView.setPosition',
     );
     _fraction = fraction;
     _firstMinimumExtent = firstMinimumExtent;
@@ -129,7 +133,10 @@ final class SplitView extends View {
 
   void equalize() {
     ensureAlive();
-    _checkCall(_bindings.splitViewEqualize(_handle), 'SplitView.equalize');
+    _checkCall(
+      _bindings.splitViewEqualize(_handle),
+      'TwoPaneSplitView.equalize',
+    );
     _fraction = 0.5;
   }
 
@@ -142,8 +149,12 @@ final class SplitView extends View {
     };
     _checkCall(
       _bindings.splitViewSetZoomedChild(_handle, nativeValue),
-      'SplitView.zoomedChild',
+      'TwoPaneSplitView.zoomedChild',
     );
     _zoomedChild = value;
   }
 }
+
+/// Source-compatible name for the historical two-pane helper.
+@Deprecated('Use TwoPaneSplitView to make the two-pane boundary explicit.')
+typedef SplitView = TwoPaneSplitView;

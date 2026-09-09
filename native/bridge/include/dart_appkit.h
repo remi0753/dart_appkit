@@ -446,7 +446,10 @@ DA_EXPORT int32_t da_window_make_first_responder(DaHandle window,
 /** Main thread only. Creates a generic AppKit view. */
 DA_EXPORT int32_t da_view_create(DaHandle* out_view);
 
-/** Main thread only. Creates a native two-child split view. */
+/**
+ * Main thread only. Creates the two-pane helper: two children, one thin
+ * non-collapsible divider, and optional binary child zoom.
+ */
 DA_EXPORT int32_t da_split_view_create(int32_t axis, DaHandle* out_view);
 
 /**

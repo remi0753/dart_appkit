@@ -33,6 +33,7 @@ export 'src/api.dart'
         SplitViewAxis,
         SplitViewChild,
         TextView,
+        TwoPaneSplitView,
         View,
         Window,
         WindowBackingScaleChangedEvent,

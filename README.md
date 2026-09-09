@@ -150,11 +150,14 @@ image only for the compatibility default.
 Native tabs use one `Window` per tab, preserving independent window event and
 content-view ownership. `Window.addTabbedWindow` appends another window to the
 receiver's native tab group; `selectTab` and `removeFromTabGroup` select and
-detach without synthesizing Dart identity. `SplitView` remains a generic
-`View`, composes exactly two ordered children, constrains its native divider by
-per-child logical minimum extents, and supports equalize and one-child zoom.
-After installing the split root as content, `Window.makeFirstResponder` can
-target any attached descendant view.
+detach without synthesizing Dart identity. `TwoPaneSplitView` is explicitly a
+narrow helper: it remains substitutable as a generic `View`, but composes
+exactly two ordered children around one thin non-collapsible divider, constrains
+that divider by per-child logical minimum extents, and supports equalize and
+binary one-child zoom. The historical `SplitView` name is a deprecated source
+alias, not the future general split-container contract. After installing the
+split root as content, `Window.makeFirstResponder` can target any attached
+descendant view.
 
 `Window.representedFilePath` sets or clears an absolute local path through the
 standard `NSWindow.representedURL` proxy-icon/path-menu surface.

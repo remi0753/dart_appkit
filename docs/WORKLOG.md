@@ -3,6 +3,57 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-09 — explicit two-pane split helper boundary
+
+### Purpose and boundary
+
+Define the existing two-child, one-divider, non-collapsible, binary-zoom split
+surface by its actual scope instead of presenting it as the package's generic
+split-view abstraction. Preserve source and C ABI compatibility while leaving
+a future general split container free to use a different child and divider
+model.
+
+### Scope and verification plan
+
+- Publish the implementation as `TwoPaneSplitView`, retaining the existing
+  axis, ordered first/second children, fraction/minima, equalize, and binary
+  zoom contract.
+- Keep `SplitView` as a deprecated source-compatible type alias; do not rename
+  native symbols or handles and do not change runtime behavior.
+- Update current examples/tests and boundary documentation to use the explicit
+  helper name and describe thin divider plus non-collapsible policy.
+- Run Dart API/analysis tests and then the complete suite to prove source
+  surface, native behavior, and ABI remain stable.
+
+### Findings and verification
+
+- The first Dart analysis correctly identified that an `is TwoPaneSplitView`
+  assertion on the alias-typed compatibility fixture was statically always
+  true. The fixture now checks its concrete runtime type, retaining the alias
+  construction proof without an analyzer warning.
+- The implementation is now published as `TwoPaneSplitView`; its API docs state
+  the exact two-child, one thin non-collapsible divider, and binary zoom model.
+  `SplitView` is a deprecated typedef to the same class, so existing source
+  construction remains valid while new code does not mistake it for a future
+  general split-container abstraction.
+- Native class names, handles, exported symbols, axis values, layout behavior,
+  and ownership are unchanged. The C header now labels those existing symbols
+  as the two-pane helper ABI rather than implying an extensible split model.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make dart-test native-test`
+  passes analysis, current-name and compatibility-name construction, nested
+  helper state/ownership, and all native bridge tests.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes all scaffold,
+  C/C++ ABI, native/Runner, package analysis/test, manifest, example compile,
+  current FFI, and legacy-symbol checks.
+- Final review and `git diff --check` pass with no ABI or event-protocol change.
+
+### Roadmap checkpoint
+
+The existing split surface is now explicitly bounded as a two-pane helper. The
+next ordered correction is parameterizing base-view and simple-text-view focus,
+autoresize, font, padding, and color choices while preserving compatibility
+defaults.
+
 ## 2026-09-09 — application-owned external URL policy
 
 ### Purpose and boundary

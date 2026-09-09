@@ -35,6 +35,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Application-owned external URL policy | Dart default/custom typed-policy matrix, native condition recorder after repeated validation, invariant bound/text/thread guards, current and exact-default legacy FFI smoke | Verified |
 | Menu ownership, attachment, state, and actions | Native retain/release and v4 suppression tests, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
+| Explicit two-pane split helper boundary | `TwoPaneSplitView` current API, deprecated `SplitView` construction alias, nested two-child state tests, and unchanged C ABI | Verified |
 | Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |
 | Configurable bounded diagnostics | Native validation, permissions, phase ordering, previous-unclean retention, and clean finish tests | Verified |
 | Manifest-driven Developer JIT application | Generic host build and real hello-window Timer/menu/close smoke | Verified |

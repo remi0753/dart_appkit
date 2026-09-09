@@ -110,7 +110,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   path menuとnative-tab accessory markerを設定／解除するpresentation metadataを実装。
 - 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装。
 - axis、2つのordered child、fraction、両childのminimum extent、equalize、one-child zoomを
-  持ち、nested compositionできるnative `SplitView` を実装。
+  持ち、nested compositionできるnative `TwoPaneSplitView` helperを実装。旧 `SplitView` 名は
+  deprecated aliasとして互換維持する。
 - dependencyが登録したnative `NSView` を `View.custom()` で生成できる仕組みを実装。
 - Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、application-ownedな
   immutable scheme policyで登録済みmacOS handlerを開く `AppKitApplication.openExternalUrl` を実装。
@@ -280,7 +281,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
 - [x] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
 - [x] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
-- [ ] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
+- [x] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
 - [ ] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
 - [ ] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
 
@@ -295,7 +296,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   application policyに分類し、後二者を混同して固定しているAPIをparameter化、汎用化、
   capability分離、または互換性を保った非推奨化の対象として整理する。
 - 固定のwindow style、基底 `DaView` のfocus／autoresize、`TextView` のfont／padding／color、
-  2-child `SplitView` のdivider／collapse、native-tab marker、external URL scheme allowlistを
+  2-child split helperのdivider／collapse、native-tab marker、external URL scheme allowlistを
   最初の汎用性監査対象とする。
 - 設定画面、テキスト入力画面、一覧画面、custom drawing画面を代表use caseとして、
   後続milestoneの受け入れ条件を定める。

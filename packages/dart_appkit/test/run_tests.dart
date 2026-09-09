@@ -434,14 +434,14 @@ Future<void> _testNativeTabsSplitViewAndFocusApi() async {
   final View first = View();
   final View second = View();
   final TextView third = TextView();
-  final SplitView nested = SplitView(axis: SplitViewAxis.vertical)
+  final TwoPaneSplitView nested = TwoPaneSplitView(axis: SplitViewAxis.vertical)
     ..setChildren(first: second, second: third)
     ..setPosition(
       fraction: 0.75,
       firstMinimumExtent: 20,
       secondMinimumExtent: 30,
     );
-  final SplitView root = SplitView(axis: SplitViewAxis.horizontal)
+  final TwoPaneSplitView root = TwoPaneSplitView(axis: SplitViewAxis.horizontal)
     ..setChildren(first: first, second: nested)
     ..setPosition(
       fraction: 0.4,
@@ -554,6 +554,15 @@ Future<void> _testNativeTabsSplitViewAndFocusApi() async {
   third.dispose();
   second.dispose();
   first.dispose();
+  // ignore: deprecated_member_use
+  final SplitView compatibilitySplit = SplitView(
+    axis: SplitViewAxis.horizontal,
+  );
+  _expect(
+    compatibilitySplit.runtimeType == TwoPaneSplitView,
+    'legacy SplitView name aliases the explicit two-pane helper',
+  );
+  compatibilitySplit.dispose();
   _expect(bindings.objects.isEmpty, 'tab and split resources release exactly');
   await app.terminate();
   await raw.close();
@@ -1735,7 +1744,9 @@ Future<void> _testCrossApplicationGuard() async {
   );
   final Menu newMenu = Menu(title: 'New');
   final MenuItem newItem = MenuItem(title: 'New item');
-  final SplitView newSplit = SplitView(axis: SplitViewAxis.horizontal);
+  final TwoPaneSplitView newSplit = TwoPaneSplitView(
+    axis: SplitViewAxis.horizontal,
+  );
   final View newView = View();
   await _expectThrows<StateError>(() => newWindow.contentView = oldView);
   await _expectThrows<StateError>(
