@@ -189,6 +189,15 @@ the process lifetime. A dependency's Dart facade initializes the image and then
 creates a normal owned generic-view handle with `View.custom`; Objective-C
 pointers never enter application Dart or a product runner.
 
+External URL rules are application-owned. Pass an immutable
+`ExternalUrlPolicy` to `AppKitApplication.attach`, then parse untrusted text
+with the same policy before calling `openExternalUrl`. The compatibility
+default allows HTTP and HTTPS with a host and no credentials, plus
+non-authority `mailto`; applications may instead define their own schemes and
+authority, host, credential, and path requirements. The library always retains
+its 4096-byte limit and malformed, control, invisible, backslash, and unsafe
+escape rejection, and the native boundary repeats those checks.
+
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
 the embedded root isolate. Ordinary in-process workers are not part of the
 pinned stock Engine host contract. Products that need dynamic background work

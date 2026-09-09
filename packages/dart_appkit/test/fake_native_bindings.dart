@@ -35,6 +35,8 @@ final class FakeNativeBindings implements NativeBindings {
   bool? applicationTerminationReplyAllow;
   bool externalUrlOpenResult = true;
   final List<String> openedExternalUrls = <String>[];
+  final List<String> openedExternalUrlSchemes = <String>[];
+  final List<int> openedExternalUrlPolicyFlags = <int>[];
   String? pasteboardText;
   int pasteboardChangeCount = 0;
   int? pasteboardTextUtf8LengthOverride;
@@ -176,13 +178,19 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> applicationOpenExternalUrl(String url) {
+  NativeValueResult<int> applicationOpenExternalUrl(
+    String url, {
+    required String scheme,
+    required int policyFlags,
+  }) {
     final NativeValueResult<int> result = _value<int>(
       'applicationOpenExternalUrl',
       externalUrlOpenResult ? 1 : 0,
     );
     if (result.isSuccess) {
       openedExternalUrls.add(url);
+      openedExternalUrlSchemes.add(scheme);
+      openedExternalUrlPolicyFlags.add(policyFlags);
     }
     return result;
   }

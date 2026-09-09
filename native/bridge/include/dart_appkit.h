@@ -27,6 +27,18 @@ extern "C" {
 /** Maximum UTF-8 bytes accepted by the external-URL opening boundary. */
 #define DA_EXTERNAL_URL_MAX_UTF8_BYTES ((size_t)4096u)
 
+/** Maximum UTF-8 bytes accepted for one application policy scheme. */
+#define DA_EXTERNAL_URL_SCHEME_MAX_UTF8_BYTES ((size_t)64u)
+
+/** Stable application-selected conditions for one external URL scheme. */
+typedef enum DaExternalUrlPolicyFlag {
+  DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY = 1u << 0,
+  DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY = 1u << 1,
+  DA_EXTERNAL_URL_POLICY_REQUIRE_HOST = 1u << 2,
+  DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS = 1u << 3,
+  DA_EXTERNAL_URL_POLICY_REQUIRE_PATH = 1u << 4
+} DaExternalUrlPolicyFlag;
+
 /** Opaque, generation-checked native object identifier. Zero is invalid. */
 typedef uint64_t DaHandle;
 
@@ -255,6 +267,19 @@ DA_EXPORT int32_t da_application_reply_to_termination_request(
  */
 DA_EXPORT int32_t da_application_open_external_url(
     const char* url, size_t url_length, int32_t* out_opened);
+
+/**
+ * Main thread only. Opens a structurally safe URL under application policy.
+ *
+ * expected_scheme is a copied lowercase ASCII scheme selected from the
+ * application's immutable allowlist. policy_flags may contain only
+ * DaExternalUrlPolicyFlag bits and must not both require and forbid authority.
+ * The URL's actual scheme must exactly match expected_scheme.
+ */
+DA_EXPORT int32_t da_application_open_external_url_with_policy(
+    const char* url, size_t url_length, const char* expected_scheme,
+    size_t expected_scheme_length, uint64_t policy_flags,
+    int32_t* out_opened);
 
 /**
  * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.

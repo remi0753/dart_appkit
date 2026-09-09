@@ -112,8 +112,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - axis、2つのordered child、fraction、両childのminimum extent、equalize、one-child zoomを
   持ち、nested compositionできるnative `SplitView` を実装。
 - dependencyが登録したnative `NSView` を `View.custom()` で生成できる仕組みを実装。
-- Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、`http`、`https`、
-  `mailto` だけを登録済みmacOS handlerで開く `AppKitApplication.openExternalUrl` を実装。
+- Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、application-ownedな
+  immutable scheme policyで登録済みmacOS handlerを開く `AppKitApplication.openExternalUrl` を実装。
 
 ### [x] B3 — 入力イベントとキー配送
 
@@ -279,7 +279,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   `RunnerConfiguration` とmanifestから選択可能にする。
 - [x] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
 - [x] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
-- [ ] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
+- [x] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
 - [ ] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
 - [ ] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
 - [ ] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
@@ -689,20 +689,20 @@ application delegate eventを提供する。
 
 実装済み:
 
-- `AllowedExternalUrl` をclosedな値型として追加し、絶対 `http`／`https`／`mailto`、
-  最大4096 UTF-8 bytes、host／authority条件、control／whitespace／backslash／bidi／
-  malformed escape／UTF-16拒否をDartとnativeの両方で検証する。
+- `AllowedExternalUrl` をclosedな値型として追加し、最大4096 UTF-8 bytes、
+  control／whitespace／backslash／bidi／malformed escape／UTF-16拒否をDartとnativeの
+  両方で検証する。immutableな `ExternalUrlPolicy` がscheme別のauthority／host／
+  credentials／path条件を所有し、HTTP／HTTPS／mailtoは互換defaultとして保持する。
 - `AppKitApplication.openExternalUrl` が検証済みの同一文字列だけをmain thread上の
   `NSWorkspace.openURL` へ渡し、Launch Servicesの受理結果を `bool` で返す経路を実装した。
   shell commandや文字列補間は使用しない。
 - optionalなABI entryとtest recorderにより、旧bridgeではunsupportedとして安全に失敗し、
   test中に実browser／mail applicationを起動せずvalidationとdispatchを検証できる。
+- application policyを渡すadditive ABI entryを実装し、旧entryへは互換defaultと完全一致する
+  場合だけfallbackする。custom scheme／条件は旧bridgeでunsupportedとして拒否する。
 
 未実装:
 
-- URLの構造検証、不可視／control文字拒否、hard byte上限はlibrary invariantとして維持しつつ、
-  許可schemeとscheme別条件をimmutableなapplication-supplied policyとして指定できるようにする。
-  現在の `http`／`https`／`mailto` は安全なdefault policyとして互換維持する。
 - Open Panel、Save Panel、Alert、Color Panel、Font Panelを非同期APIとして追加する。
 - applicationへのopen files、open URLs、reopen、user activity eventを追加する。
 - recent documents、file association、URL scheme、security-scoped bookmarkを追加する。

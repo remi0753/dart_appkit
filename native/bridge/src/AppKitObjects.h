@@ -113,6 +113,10 @@ using ExternalUrlOpenFunction = bool (*)(NSURL* url);
 int32_t OpenAllowedExternalUrl(NSString* value,
                                ExternalUrlOpenFunction opener,
                                int32_t* out_opened);
+int32_t OpenExternalUrlWithPolicy(NSString* value, NSString* expected_scheme,
+                                  uint64_t policy_flags,
+                                  ExternalUrlOpenFunction opener,
+                                  int32_t* out_opened);
 
 int32_t ReadPasteboardText(NSPasteboard* pasteboard,
                            DaPasteboardText* out_snapshot);

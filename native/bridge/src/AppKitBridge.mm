@@ -365,17 +365,18 @@ int32_t RequireMainThread() {
   return DA_STATUS_OK;
 }
 
-int32_t OpenAllowedExternalUrl(NSString* value,
-                               ExternalUrlOpenFunction opener,
-                               int32_t* out_opened) {
+int32_t OpenExternalUrlWithPolicy(NSString* value, NSString* expected_scheme,
+                                  uint64_t policy_flags,
+                                  ExternalUrlOpenFunction opener,
+                                  int32_t* out_opened) {
   if (out_opened == nullptr) {
     return SetLastError(DA_STATUS_INVALID_ARGUMENT,
                         "out_opened must not be null");
   }
   *out_opened = 0;
-  if (value == nil || opener == nullptr) {
+  if (value == nil || expected_scheme == nil || opener == nullptr) {
     return SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                        "external URL and opener must not be null");
+                        "external URL, policy scheme, and opener must not be null");
   }
   NSData* utf8 = [value dataUsingEncoding:NSUTF8StringEncoding];
   if (utf8 == nil) {
@@ -396,6 +397,38 @@ int32_t OpenAllowedExternalUrl(NSString* value,
         "external URL contains unsafe or ambiguous characters");
   }
 
+  NSData* scheme_utf8 =
+      [expected_scheme dataUsingEncoding:NSUTF8StringEncoding];
+  if (scheme_utf8 == nil || scheme_utf8.length == 0 ||
+      scheme_utf8.length > DA_EXTERNAL_URL_SCHEME_MAX_UTF8_BYTES ||
+      ![expected_scheme isEqualToString:expected_scheme.lowercaseString]) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "external URL policy scheme must be lowercase bounded ASCII");
+  }
+  for (NSUInteger index = 0; index < expected_scheme.length; ++index) {
+    if (!IsAsciiSchemeCharacter([expected_scheme characterAtIndex:index],
+                                index == 0)) {
+      return SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "external URL policy scheme must be lowercase bounded ASCII");
+    }
+  }
+  constexpr uint64_t kPolicyMask =
+      DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY |
+      DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY |
+      DA_EXTERNAL_URL_POLICY_REQUIRE_HOST |
+      DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS |
+      DA_EXTERNAL_URL_POLICY_REQUIRE_PATH;
+  if ((policy_flags & ~kPolicyMask) != 0 ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY) != 0 &&
+       (policy_flags & DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY) != 0) ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_REQUIRE_HOST) != 0 &&
+       (policy_flags & DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY) != 0)) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "external URL policy flags are invalid");
+  }
+
   const NSRange colon = [value rangeOfString:@":"];
   if (colon.location == NSNotFound || colon.location == 0) {
     return SetLastError(DA_STATUS_INVALID_ARGUMENT,
@@ -414,26 +447,28 @@ int32_t OpenAllowedExternalUrl(NSString* value,
                         "external URL is malformed");
   }
   NSString* scheme = components.scheme.lowercaseString;
-  const bool is_web = [scheme isEqualToString:@"http"] ||
-                      [scheme isEqualToString:@"https"];
-  const bool is_mail = [scheme isEqualToString:@"mailto"];
-  if (!is_web && !is_mail) {
+  if (![scheme isEqualToString:expected_scheme]) {
     return SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                        "external URL scheme is not allowed");
+                        "external URL scheme does not match application policy");
   }
-  if (is_web) {
-    if (components.host.length == 0) {
-      return SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                          "web URL must contain a host");
-    }
-    if (components.user != nil || components.password != nil) {
-      return SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                          "web URL credentials are not allowed");
-    }
-  } else if (components.host != nil || components.user != nil ||
-             components.password != nil || components.path.length == 0) {
-    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                        "mailto URL must contain a non-authority recipient");
+  const NSUInteger authority_index = colon.location + 1;
+  const bool has_authority =
+      authority_index + 1 < value.length &&
+      [value characterAtIndex:authority_index] == '/' &&
+      [value characterAtIndex:authority_index + 1] == '/';
+  if (((policy_flags & DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY) != 0 &&
+       !has_authority) ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY) != 0 &&
+       has_authority) ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_REQUIRE_HOST) != 0 &&
+       components.host.length == 0) ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS) != 0 &&
+       (components.user != nil || components.password != nil)) ||
+      ((policy_flags & DA_EXTERNAL_URL_POLICY_REQUIRE_PATH) != 0 &&
+       components.path.length == 0)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "external URL does not satisfy application policy conditions");
   }
 
   NSURL* url = components.URL;
@@ -443,6 +478,32 @@ int32_t OpenAllowedExternalUrl(NSString* value,
   }
   *out_opened = opener(url) ? 1 : 0;
   return DA_STATUS_OK;
+}
+
+int32_t OpenAllowedExternalUrl(NSString* value,
+                               ExternalUrlOpenFunction opener,
+                               int32_t* out_opened) {
+  NSString* expected_scheme = nil;
+  uint64_t policy_flags = 0;
+  const NSRange colon = [value rangeOfString:@":"];
+  if (colon.location != NSNotFound && colon.location > 0) {
+    expected_scheme =
+        [[value substringToIndex:colon.location] lowercaseString];
+    if ([expected_scheme isEqualToString:@"http"] ||
+        [expected_scheme isEqualToString:@"https"]) {
+      policy_flags = DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY |
+                     DA_EXTERNAL_URL_POLICY_REQUIRE_HOST |
+                     DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS;
+    } else if ([expected_scheme isEqualToString:@"mailto"]) {
+      policy_flags = DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY |
+                     DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS |
+                     DA_EXTERNAL_URL_POLICY_REQUIRE_PATH;
+    } else {
+      expected_scheme = nil;
+    }
+  }
+  return OpenExternalUrlWithPolicy(value, expected_scheme, policy_flags,
+                                   opener, out_opened);
 }
 
 int32_t GetPasteboardChangeCount(NSPasteboard* pasteboard,
@@ -789,6 +850,46 @@ int32_t da_application_open_external_url(const char* url, size_t url_length,
   @try {
     return dart_appkit::OpenAllowedExternalUrl(
         value, dart_appkit::OpenUrlWithWorkspace, out_opened);
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr
+                                      ? exception.reason.UTF8String
+                                      : "external URL open failed");
+  }
+}
+
+int32_t da_application_open_external_url_with_policy(
+    const char* url, size_t url_length, const char* expected_scheme,
+    size_t expected_scheme_length, uint64_t policy_flags,
+    int32_t* out_opened) {
+  dart_appkit::ClearLastError();
+  if (out_opened != nullptr) {
+    *out_opened = 0;
+  }
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (url_length > DA_EXTERNAL_URL_MAX_UTF8_BYTES ||
+      expected_scheme_length > DA_EXTERNAL_URL_SCHEME_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "external URL or policy scheme exceeds its UTF-8 byte limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* value = dart_appkit::CopyUtf8(url, url_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* scheme = dart_appkit::CopyUtf8(
+      expected_scheme, expected_scheme_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    return dart_appkit::OpenExternalUrlWithPolicy(
+        value, scheme, policy_flags, dart_appkit::OpenUrlWithWorkspace,
+        out_opened);
   } @catch (NSException* exception) {
     return dart_appkit::SetLastError(
         DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr

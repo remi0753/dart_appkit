@@ -214,13 +214,15 @@ in-process pasteboard double at the internal helper boundary, while the public
 ABI alone selects the user's general pasteboard.
 
 External URL opening is likewise an application service rather than a native
-registry object. Dart first converts untrusted text into the closed
-`AllowedExternalUrl` value type. The FFI bridge copies that exact UTF-8 value,
-repeats its size, scheme, structure, credential, control, invisible-character,
-and escape checks on the AppKit main thread, then calls `NSWorkspace` without
-shell interpolation. This duplicate policy is intentional: neither a bypass
-of the public Dart type nor a mismatched caller can reach Launch Services with
-an arbitrary scheme.
+registry object. An immutable `ExternalUrlPolicy` is fixed at application
+attachment and owns the allowed schemes and each scheme's authority, host,
+credential, and path requirements. Dart first converts untrusted text into an
+`AllowedExternalUrl` under that policy and revalidates it when opening. The FFI
+bridge copies that exact UTF-8 value plus the selected lowercase scheme and
+closed condition flags, repeats structural and policy validation on the AppKit
+main thread, then calls `NSWorkspace` without shell interpolation. Structural
+safety and the byte bound remain unconditional library invariants; scheme
+selection remains application policy.
 
 Menus and menu items are independent registry objects. Native attachment
 relationships borrow handles even though `NSMenu`, `NSMenuItem`, submenus, and

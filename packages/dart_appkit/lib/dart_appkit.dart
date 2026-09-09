@@ -19,6 +19,8 @@ export 'src/api.dart'
         AppKitScrollPhase,
         AppKitNativeException,
         AppKitScreen,
+        ExternalUrlPolicy,
+        ExternalUrlSchemePolicy,
         KeyEventRouting,
         ModifierKeys,
         Menu,

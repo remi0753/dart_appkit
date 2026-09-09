@@ -22,6 +22,8 @@ int da_header_compiles_as_cpp() {
   auto* custom_view_create = &da_view_create_custom;
   auto* custom_view_operation = &da_view_perform_custom_operation;
   auto* external_url_open = &da_application_open_external_url;
+  auto* external_url_open_with_policy =
+      &da_application_open_external_url_with_policy;
   auto* key_event_routing = &da_window_set_key_event_routing;
   auto* window_tab_add = &da_window_add_tabbed_window;
   auto* first_responder = &da_window_make_first_responder;
@@ -31,6 +33,7 @@ int da_header_compiles_as_cpp() {
   return rect.height == 480.0 && custom_view_create != nullptr &&
                  custom_view_operation != nullptr &&
                  external_url_open != nullptr &&
+                 external_url_open_with_policy != nullptr &&
                  key_event_routing != nullptr &&
                  window_tab_add != nullptr && first_responder != nullptr &&
                  split_create != nullptr && split_children != nullptr &&

@@ -19,6 +19,9 @@ int da_header_compiles_as_c(void) {
       da_application_reply_to_termination_request;
   int32_t (*external_url_open)(const char*, size_t, int32_t*) =
       da_application_open_external_url;
+  int32_t (*external_url_open_with_policy)(const char*, size_t, const char*,
+                                           size_t, uint64_t, int32_t*) =
+      da_application_open_external_url_with_policy;
   int32_t (*close_reply)(DaHandle, int64_t, int32_t) =
       da_window_reply_to_close_request;
   int32_t (*key_event_routing)(DaHandle, int32_t) =
@@ -45,6 +48,7 @@ int da_header_compiles_as_c(void) {
   return rect.width == 640.0 && versioned_registration != 0 &&
                  termination_reply != 0 && close_reply != 0 &&
                  external_url_open != 0 &&
+                 external_url_open_with_policy != 0 &&
                  key_event_routing != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&

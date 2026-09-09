@@ -789,6 +789,78 @@ void TestExternalUrlOpening() {
   EXPECT_EQ(opened, 0);
   EXPECT_EQ(g_opened_external_urls.size(), static_cast<size_t>(2));
 
+  const uint64_t host_policy =
+      DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY |
+      DA_EXTERNAL_URL_POLICY_REQUIRE_HOST;
+  opened = -1;
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"ssh://user@example.com/path", @"ssh", host_policy,
+                RecordExternalUrl, &opened),
+            DA_STATUS_OK);
+  EXPECT_EQ(opened, 1);
+
+  const uint64_t non_authority_policy =
+      DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY |
+      DA_EXTERNAL_URL_POLICY_REQUIRE_PATH;
+  opened = -1;
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"custom:value", @"custom", non_authority_policy,
+                RecordExternalUrl, &opened),
+            DA_STATUS_OK);
+  EXPECT_EQ(opened, 1);
+
+  opened = -1;
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"file:///tmp/report", @"file",
+                DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY |
+                    DA_EXTERNAL_URL_POLICY_REQUIRE_PATH,
+                RecordExternalUrl, &opened),
+            DA_STATUS_OK);
+  EXPECT_EQ(opened, 1);
+
+  struct InvalidPolicyCase {
+    NSString* value;
+    NSString* scheme;
+    uint64_t flags;
+  };
+  const InvalidPolicyCase invalid_policy_cases[] = {
+      {@"ssh:/path", @"ssh", DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY},
+      {@"custom://value", @"custom",
+       DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY},
+      {@"ssh:///path", @"ssh", DA_EXTERNAL_URL_POLICY_REQUIRE_HOST},
+      {@"ssh://user@example.com/path", @"ssh",
+       DA_EXTERNAL_URL_POLICY_FORBID_CREDENTIALS},
+      {@"custom:", @"custom", DA_EXTERNAL_URL_POLICY_REQUIRE_PATH},
+      {@"custom:value", @"different", 0},
+      {@"custom:value", @"custom", uint64_t{1} << 63},
+      {@"custom:value", @"custom",
+       DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY |
+           DA_EXTERNAL_URL_POLICY_FORBID_AUTHORITY},
+      {@"custom:unsafe\nvalue", @"custom", 0},
+  };
+  for (const InvalidPolicyCase& policy_case : invalid_policy_cases) {
+    const size_t before = g_opened_external_urls.size();
+    opened = -1;
+    EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                  policy_case.value, policy_case.scheme, policy_case.flags,
+                  RecordExternalUrl, &opened),
+              DA_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(opened, 0);
+    EXPECT_EQ(g_opened_external_urls.size(), before);
+  }
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"custom:value", @"Custom", non_authority_policy,
+                RecordExternalUrl, &opened),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"custom:value", @"custom", non_authority_policy, nullptr,
+                &opened),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(dart_appkit::OpenExternalUrlWithPolicy(
+                @"custom:value", @"custom", non_authority_policy,
+                RecordExternalUrl, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
   NSArray<NSString*>* invalid = @[
     @"", @"example.com/path", @"file:///tmp/report",
     @"javascript:alert(1)", @"https://user:password@example.com",
@@ -833,6 +905,14 @@ void TestExternalUrlOpening() {
             DA_STATUS_INVALID_UTF8);
   EXPECT_EQ(opened, 0);
   EXPECT_EQ(da_application_open_external_url(nullptr, 0, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_open_external_url_with_policy(
+                "custom:value", strlen("custom:value"), invalid_utf8,
+                sizeof(invalid_utf8), non_authority_policy, &opened),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(opened, 0);
+  EXPECT_EQ(da_application_open_external_url_with_policy(
+                nullptr, 0, nullptr, 0, 0, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
 }
 

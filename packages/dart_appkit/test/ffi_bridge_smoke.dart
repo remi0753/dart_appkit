@@ -53,7 +53,14 @@ void main(List<String> arguments) {
     _fail('pasteboard symbol did not preserve its main-thread guard');
   }
   final NativeValueResult<int> externalUrl = bindings
-      .applicationOpenExternalUrl('https://example.com');
+      .applicationOpenExternalUrl(
+        'https://example.com',
+        scheme: 'https',
+        policyFlags:
+            dartAppKitExternalUrlPolicyRequireAuthority |
+            dartAppKitExternalUrlPolicyRequireHost |
+            dartAppKitExternalUrlPolicyForbidCredentials,
+      );
   if (externalUrl.isSuccess ||
       externalUrl.status != 5 ||
       externalUrl.message.isEmpty) {

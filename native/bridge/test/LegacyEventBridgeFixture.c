@@ -24,6 +24,16 @@ int32_t da_application_set_event_port(int64_t dart_port) {
 
 int32_t da_application_terminate(void) { return DA_STATUS_OK; }
 
+int32_t da_application_open_external_url(const char* url, size_t url_length,
+                                         int32_t* out_opened) {
+  (void)url;
+  (void)url_length;
+  if (out_opened != NULL) {
+    *out_opened = 0;
+  }
+  return DA_STATUS_INTERNAL_ERROR;
+}
+
 int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
                          DaHandle* out_window) {
   (void)frame;

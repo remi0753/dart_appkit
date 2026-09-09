@@ -312,22 +312,26 @@ general-pasteboard reads to an explicit user action.
 
 ## External URL policy
 
-`da_application_open_external_url` accepts at most 4096 UTF-8 bytes and opens
-only structurally valid absolute `http`, `https`, or `mailto` targets. Web URLs
-require a nonempty host and reject embedded credentials. Raw controls,
+`da_application_open_external_url_with_policy` accepts at most 4096 URL bytes,
+a bounded lowercase ASCII expected scheme, and a closed set of application
+condition flags for authority, host, credentials, and path. It rejects an
+actual-scheme mismatch and contradictory or unknown flags. Raw controls,
 whitespace, backslashes, bidi/invisible formatting characters, malformed
 escapes, and percent-encoded controls, backslashes, or bidi/invisible
-characters are rejected before `NSURL` construction. The call is
-main-thread-only, initializes `out_opened` to zero, and invokes
+characters are unconditional library rejections before `NSURL` construction.
+The call is main-thread-only, initializes `out_opened` to zero, and invokes
 `NSWorkspace.openURL` directly without a shell.
 
-The Dart API requires an `AllowedExternalUrl` produced by the same
-deny-by-default policy, so ordinary callers cannot pass an unchecked string to
-`AppKitApplication.openExternalUrl`. Native validation is deliberately
-repeated at the trust boundary. The symbol is additive: a legacy ABI-v1 image
-without it reports `DA_STATUS_UNSUPPORTED_VERSION` through current Dart
-bindings. Automated native tests replace only the final workspace opener after
-validation and therefore never launch an external application.
+The Dart API fixes an immutable `ExternalUrlPolicy` when the application
+attaches. `AllowedExternalUrl` parses under that policy, and
+`AppKitApplication.openExternalUrl` revalidates under the attached policy
+before forwarding its selected rule to native code. The old
+`da_application_open_external_url` remains the exact HTTP/HTTPS/mailto
+compatibility policy. Current Dart bindings fall back to that old symbol only
+for those exact rules; a custom policy on such an image returns
+`DA_STATUS_UNSUPPORTED_VERSION`. Automated native tests replace only the final
+workspace opener after validation and therefore never launch an external
+application.
 
 ## Menu policy
 

@@ -41,6 +41,7 @@ final class AppKitApplication {
     this._bindings,
     this._eventSource,
     this.eventProtocolVersion,
+    this.externalUrlPolicy,
   ) : _events = StreamController<AppKitEvent>.broadcast(sync: true);
 
   static AppKitApplication? _current;
@@ -49,6 +50,7 @@ final class AppKitApplication {
   final _EventSource _eventSource;
   final StreamController<AppKitEvent> _events;
   final int eventProtocolVersion;
+  final ExternalUrlPolicy externalUrlPolicy;
   final Map<int, WeakReference<Window>> _windows =
       <int, WeakReference<Window>>{};
   final Map<int, WeakReference<MenuItem>> _menuItems =
@@ -61,16 +63,28 @@ final class AppKitApplication {
   Pasteboard? _generalPasteboard;
   Menu? _mainMenu;
 
-  static Future<AppKitApplication> attach() async {
+  static Future<AppKitApplication> attach({
+    ExternalUrlPolicy? externalUrlPolicy,
+  }) async {
     final AppKitApplication? existing = _current;
     if (existing != null && !existing._terminated) {
+      if (externalUrlPolicy != null &&
+          !identical(existing.externalUrlPolicy, externalUrlPolicy)) {
+        throw StateError(
+          'the attached application already has another external URL policy',
+        );
+      }
       return existing;
     }
 
     final _ReceivePortEventSource source = _ReceivePortEventSource();
     try {
       final NativeBindings bindings = FfiNativeBindings.process();
-      return _attach(bindings, source);
+      return _attach(
+        bindings,
+        source,
+        externalUrlPolicy ?? ExternalUrlPolicy.defaultPolicy,
+      );
     } on Object catch (error) {
       source.close();
       if (error is AppKitInitializationException ||
@@ -86,6 +100,7 @@ final class AppKitApplication {
   static AppKitApplication _attach(
     NativeBindings bindings,
     _EventSource source,
+    ExternalUrlPolicy externalUrlPolicy,
   ) {
     if (_current != null && !_current!._terminated) {
       throw const AppKitInitializationException(
@@ -123,6 +138,7 @@ final class AppKitApplication {
       bindings,
       source,
       eventProtocolVersion,
+      externalUrlPolicy,
     );
     application._eventSubscription = source.events.listen(
       application._handleRawEvent,
@@ -214,13 +230,30 @@ final class AppKitApplication {
 
   /// Opens one prevalidated external URL with its registered macOS handler.
   ///
-  /// Returns whether Launch Services accepted the request. Only values created
-  /// by [AllowedExternalUrl.parse] or [AllowedExternalUrl.tryParse] can reach
-  /// this boundary, and the native bridge repeats the allowlist validation.
+  /// Returns whether Launch Services accepted the request. The URL is checked
+  /// again against this application's immutable [externalUrlPolicy], and the
+  /// native bridge repeats structural and selected-scheme validation.
   bool openExternalUrl(AllowedExternalUrl url) {
     _ensureRunning();
+    final AllowedExternalUrl? validated = AllowedExternalUrl.tryParse(
+      url.value,
+      policy: externalUrlPolicy,
+    );
+    if (validated == null) {
+      throw ArgumentError.value(
+        url,
+        'url',
+        'is not allowed by this application external URL policy',
+      );
+    }
+    final ExternalUrlSchemePolicy schemePolicy = externalUrlPolicy
+        .policyForScheme(validated.scheme)!;
     final int opened = _checkValue<int>(
-      _bindings.applicationOpenExternalUrl(url.value),
+      _bindings.applicationOpenExternalUrl(
+        validated.value,
+        scheme: schemePolicy.scheme,
+        policyFlags: schemePolicy._nativeFlags,
+      ),
       'AppKitApplication.openExternalUrl',
     );
     if (opened != 0 && opened != 1) {
@@ -349,13 +382,18 @@ Future<AppKitApplication> attachApplicationForTesting({
   required Stream<Object?> events,
   int eventPort = 4242,
   void Function()? onClose,
+  ExternalUrlPolicy? externalUrlPolicy,
 }) async {
   final _ProvidedEventSource source = _ProvidedEventSource(
     events,
     eventPort,
     onClose,
   );
-  return AppKitApplication._attach(bindings, source);
+  return AppKitApplication._attach(
+    bindings,
+    source,
+    externalUrlPolicy ?? ExternalUrlPolicy.defaultPolicy,
+  );
 }
 
 /// Delivers one value through the same decoder and routing path as the native

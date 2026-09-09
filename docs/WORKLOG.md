@@ -3,6 +3,73 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-09 — application-owned external URL policy
+
+### Purpose and boundary
+
+Retain structural URL validation, unsafe-character rejection, exact UTF-8
+copying, and the 4096-byte hard limit in the library while moving the scheme
+allowlist and per-scheme authority/host/credentials/path conditions into an
+immutable application policy fixed when `AppKitApplication` attaches.
+
+### Scope and verification plan
+
+- Add immutable `ExternalUrlPolicy` and `ExternalUrlSchemePolicy` values with
+  the current HTTP/HTTPS/mailto behavior as the compatibility default.
+- Make `AllowedExternalUrl` parse against an explicit or default policy and
+  revalidate against the attached application's policy immediately before FFI.
+- Add an additive native open call carrying the selected lowercase scheme and
+  closed condition flags. Native code repeats structural and selected-policy
+  validation without owning a universal scheme list.
+- Preserve the old native function and use it only when an old image receives
+  exactly the compatibility rules; custom policies fail as unsupported.
+- Test custom schemes, each policy condition, unsafe text independent of
+  policy, policy mismatch at application open, current/legacy FFI, and bounds.
+
+### Findings and verification
+
+- The first warning-clean native build caught a test-only `1u << 63`
+  expression whose left operand was 32-bit. The unknown-policy-bit fixture now
+  uses a 64-bit operand so it exercises validation without undefined shifting.
+- The next focused run passed native tests and then found that the public API
+  test intentionally did not receive internal FFI flag constants from the
+  package barrel. The test now imports only those internal constants needed to
+  verify the fake boundary; they remain outside the supported public surface.
+- `ExternalUrlPolicy` is deny-by-default and rejects duplicate normalized
+  schemes. Each `ExternalUrlSchemePolicy` owns authority allowance/requirement,
+  host requirement, credential allowance, and path requirement; scheme syntax
+  and its 64-byte forwarding bound are validated when policy is built.
+- `AllowedExternalUrl` preserves the exact source string while parsing under an
+  explicit policy. `AppKitApplication.openExternalUrl` reparses under the
+  immutable policy fixed at attach, preventing a value created under a broader
+  policy from crossing a narrower application boundary.
+- The additive native call receives only the already-selected lowercase scheme
+  and closed condition bits. It repeats scheme identity and every condition,
+  but owns no scheme list. Its structural URL checks, unsafe-text/escape
+  rejection, main-thread guard, zeroed output, and 4096-byte hard limit remain
+  unconditional.
+- The original C entry retains the exact HTTP/HTTPS/mailto behavior. Current
+  Dart bindings use that entry on an older image only when the selected rule
+  exactly matches the compatibility default; custom schemes or conditions are
+  rejected as unsupported.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test dart-test
+  ffi-smoke` passes custom/default Dart policy cases, every native condition,
+  structural invariant rejection, current FFI, and old-image exact-default
+  fallback.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold and
+  C/C++ header checks, warning-clean native/Runner suites, all package analyses
+  and tests, manifest assembly, example compilation, current FFI, and legacy
+  fallback.
+- Final diff review and `git diff --check` pass. ABI version and event protocol
+  are unchanged, default callers retain their prior behavior, and no external
+  application is launched by automated tests.
+
+### Roadmap checkpoint
+
+Application-owned external URL policy is complete. The next ordered correction
+is defining the current split view explicitly as a two-pane helper or widening
+its presentation and child model without imposing product layout.
+
 ## 2026-09-09 — parameterized native-tab accessory
 
 ### Purpose and boundary

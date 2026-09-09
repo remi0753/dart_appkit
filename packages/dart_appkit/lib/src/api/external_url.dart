@@ -1,6 +1,120 @@
 part of '../api.dart';
 
-/// An absolute external URL that passed the package's deny-by-default policy.
+/// Immutable application conditions for one lowercase URL scheme.
+final class ExternalUrlSchemePolicy {
+  factory ExternalUrlSchemePolicy({
+    required String scheme,
+    bool requiresAuthority = false,
+    bool allowsAuthority = true,
+    bool requiresHost = false,
+    bool allowsCredentials = false,
+    bool requiresPath = false,
+  }) {
+    final String normalizedScheme = scheme.toLowerCase();
+    if (scheme.isEmpty ||
+        !_isAsciiScheme(scheme) ||
+        utf8.encode(normalizedScheme).length >
+            dartAppKitExternalUrlSchemeMaximumUtf8Bytes) {
+      throw ArgumentError.value(
+        scheme,
+        'scheme',
+        'must be a non-empty ASCII URL scheme within the byte limit',
+      );
+    }
+    if (!allowsAuthority && (requiresAuthority || requiresHost)) {
+      throw ArgumentError.value(
+        allowsAuthority,
+        'allowsAuthority',
+        'cannot forbid authority while requiring authority or host',
+      );
+    }
+    return ExternalUrlSchemePolicy._(
+      scheme: normalizedScheme,
+      requiresAuthority: requiresAuthority,
+      allowsAuthority: allowsAuthority,
+      requiresHost: requiresHost,
+      allowsCredentials: allowsCredentials,
+      requiresPath: requiresPath,
+    );
+  }
+
+  const ExternalUrlSchemePolicy._({
+    required this.scheme,
+    required this.requiresAuthority,
+    required this.allowsAuthority,
+    required this.requiresHost,
+    required this.allowsCredentials,
+    required this.requiresPath,
+  });
+
+  final String scheme;
+  final bool requiresAuthority;
+  final bool allowsAuthority;
+  final bool requiresHost;
+  final bool allowsCredentials;
+  final bool requiresPath;
+
+  int get _nativeFlags =>
+      (requiresAuthority ? dartAppKitExternalUrlPolicyRequireAuthority : 0) |
+      (!allowsAuthority ? dartAppKitExternalUrlPolicyForbidAuthority : 0) |
+      (requiresHost ? dartAppKitExternalUrlPolicyRequireHost : 0) |
+      (!allowsCredentials ? dartAppKitExternalUrlPolicyForbidCredentials : 0) |
+      (requiresPath ? dartAppKitExternalUrlPolicyRequirePath : 0);
+}
+
+/// Immutable deny-by-default set of application-owned URL scheme rules.
+final class ExternalUrlPolicy {
+  factory ExternalUrlPolicy(Iterable<ExternalUrlSchemePolicy> schemes) {
+    final Map<String, ExternalUrlSchemePolicy> rules =
+        <String, ExternalUrlSchemePolicy>{};
+    for (final ExternalUrlSchemePolicy rule in schemes) {
+      if (rules.containsKey(rule.scheme)) {
+        throw ArgumentError.value(
+          rule.scheme,
+          'schemes',
+          'contains a duplicate scheme',
+        );
+      }
+      rules[rule.scheme] = rule;
+    }
+    return ExternalUrlPolicy._(
+      Map<String, ExternalUrlSchemePolicy>.unmodifiable(rules),
+    );
+  }
+
+  const ExternalUrlPolicy._(this._rules);
+
+  /// Compatibility policy for HTTP, HTTPS, and non-authority mailto URLs.
+  static final ExternalUrlPolicy defaultPolicy = ExternalUrlPolicy(
+    <ExternalUrlSchemePolicy>[
+      ExternalUrlSchemePolicy(
+        scheme: 'http',
+        requiresAuthority: true,
+        requiresHost: true,
+      ),
+      ExternalUrlSchemePolicy(
+        scheme: 'https',
+        requiresAuthority: true,
+        requiresHost: true,
+      ),
+      ExternalUrlSchemePolicy(
+        scheme: 'mailto',
+        allowsAuthority: false,
+        requiresPath: true,
+      ),
+    ],
+  );
+
+  final Map<String, ExternalUrlSchemePolicy> _rules;
+
+  List<ExternalUrlSchemePolicy> get schemes =>
+      List<ExternalUrlSchemePolicy>.unmodifiable(_rules.values);
+
+  ExternalUrlSchemePolicy? policyForScheme(String scheme) =>
+      _rules[scheme.toLowerCase()];
+}
+
+/// An absolute external URL that passed an immutable application policy.
 ///
 /// Instances can only be created by [parse] or [tryParse]. Passing this type to
 /// [AppKitApplication.openExternalUrl] makes validation an explicit caller-side
@@ -12,8 +126,8 @@ final class AllowedExternalUrl {
   static const int maximumUtf8Bytes = dartAppKitExternalUrlMaximumUtf8Bytes;
 
   /// Parses [source] or throws [FormatException] when it is not safe to open.
-  factory AllowedExternalUrl.parse(String source) {
-    final AllowedExternalUrl? result = tryParse(source);
+  factory AllowedExternalUrl.parse(String source, {ExternalUrlPolicy? policy}) {
+    final AllowedExternalUrl? result = tryParse(source, policy: policy);
     if (result == null) {
       throw FormatException('external URL is not allowed', source);
     }
@@ -21,7 +135,10 @@ final class AllowedExternalUrl {
   }
 
   /// Returns an allowlisted URL, or `null` for malformed or unsafe input.
-  static AllowedExternalUrl? tryParse(String source) {
+  static AllowedExternalUrl? tryParse(
+    String source, {
+    ExternalUrlPolicy? policy,
+  }) {
     if (source.isEmpty ||
         source.length > maximumUtf8Bytes ||
         _containsMalformedUtf16(source) ||
@@ -41,7 +158,9 @@ final class AllowedExternalUrl {
       return null;
     }
     final String scheme = rawScheme.toLowerCase();
-    if (scheme != 'http' && scheme != 'https' && scheme != 'mailto') {
+    final ExternalUrlSchemePolicy? schemePolicy =
+        (policy ?? ExternalUrlPolicy.defaultPolicy).policyForScheme(scheme);
+    if (schemePolicy == null) {
       return null;
     }
 
@@ -51,11 +170,11 @@ final class AllowedExternalUrl {
         uri.scheme.toLowerCase() != scheme) {
       return null;
     }
-    if (scheme == 'http' || scheme == 'https') {
-      if (!uri.hasAuthority || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
-        return null;
-      }
-    } else if (uri.hasAuthority || uri.path.isEmpty) {
+    if (schemePolicy.requiresAuthority && !uri.hasAuthority ||
+        !schemePolicy.allowsAuthority && uri.hasAuthority ||
+        schemePolicy.requiresHost && uri.host.isEmpty ||
+        !schemePolicy.allowsCredentials && uri.userInfo.isNotEmpty ||
+        schemePolicy.requiresPath && uri.path.isEmpty) {
       return null;
     }
     return AllowedExternalUrl._(source, scheme);
@@ -64,7 +183,7 @@ final class AllowedExternalUrl {
   /// The exact validated URL text passed to the native bridge.
   final String value;
 
-  /// Lowercase ASCII scheme (`http`, `https`, or `mailto`).
+  /// Lowercase ASCII scheme selected by the parsing policy.
   final String scheme;
 
   @override

@@ -110,6 +110,22 @@ typedef _ExternalUrlOpenDart = int Function(
   int,
   Pointer<Int32>,
 );
+typedef _ExternalUrlOpenWithPolicyNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Uint64,
+  Pointer<Int32>,
+);
+typedef _ExternalUrlOpenWithPolicyDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  int,
+  Pointer<Int32>,
+);
 typedef _PasteboardReadNative = Int32 Function(
   Pointer<_DaPasteboardTextNative>,
 );
@@ -318,6 +334,19 @@ _ExternalUrlOpenDart? _lookupApplicationOpenExternalUrl(
     return library.lookupFunction<_ExternalUrlOpenNative, _ExternalUrlOpenDart>(
       'da_application_open_external_url',
     );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_ExternalUrlOpenWithPolicyDart? _lookupApplicationOpenExternalUrlWithPolicy(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _ExternalUrlOpenWithPolicyNative,
+      _ExternalUrlOpenWithPolicyDart
+    >('da_application_open_external_url_with_policy');
   } on ArgumentError {
     return null;
   }
@@ -642,6 +671,8 @@ final class FfiNativeBindings implements NativeBindings {
         'da_debug_request_application_termination',
       ),
       _applicationOpenExternalUrl = _lookupApplicationOpenExternalUrl(library),
+      _applicationOpenExternalUrlWithPolicy =
+          _lookupApplicationOpenExternalUrlWithPolicy(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
@@ -777,6 +808,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _OperationReplyDart? _applicationTerminationReply;
   final _NoArgsStatusDart? _debugRequestApplicationTermination;
   final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
+  final _ExternalUrlOpenWithPolicyDart? _applicationOpenExternalUrlWithPolicy;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
@@ -993,29 +1025,63 @@ final class FfiNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeValueResult<int> applicationOpenExternalUrl(String url) {
-    final _ExternalUrlOpenDart? function = _applicationOpenExternalUrl;
-    if (function == null) {
+  NativeValueResult<int> applicationOpenExternalUrl(
+    String url, {
+    required String scheme,
+    required int policyFlags,
+  }) {
+    final _ExternalUrlOpenWithPolicyDart? configuredFunction =
+        _applicationOpenExternalUrlWithPolicy;
+    final _ExternalUrlOpenDart? legacyFunction = _applicationOpenExternalUrl;
+    final int webPolicyFlags =
+        dartAppKitExternalUrlPolicyRequireAuthority |
+        dartAppKitExternalUrlPolicyRequireHost |
+        dartAppKitExternalUrlPolicyForbidCredentials;
+    final int mailtoPolicyFlags =
+        dartAppKitExternalUrlPolicyForbidAuthority |
+        dartAppKitExternalUrlPolicyForbidCredentials |
+        dartAppKitExternalUrlPolicyRequirePath;
+    final bool supportsLegacyPolicy =
+        (scheme == 'http' || scheme == 'https') &&
+            policyFlags == webPolicyFlags ||
+        scheme == 'mailto' && policyFlags == mailtoPolicyFlags;
+    if (configuredFunction == null &&
+        (legacyFunction == null || !supportsLegacyPolicy)) {
       return const NativeValueResult<int>.failure(
         8,
-        'legacy native bridge does not support external URL opening',
+        'legacy native bridge supports only the default external URL policy',
       );
     }
     return _withUtf8(url, (Pointer<Uint8> pointer, int length) {
       final Pointer<Int32> output = _allocate(sizeOf<Int32>()).cast<Int32>();
       try {
         output.value = 0;
-        final NativeValueResult<int> result = _valueResult<int>(
-          function(pointer, length, output),
-          output.value,
-        );
-        if (result.isSuccess && result.value != 0 && result.value != 1) {
-          return const NativeValueResult<int>.failure(
-            7,
-            'native bridge returned an invalid external URL result',
+        return _withUtf8(scheme, (
+          Pointer<Uint8> schemePointer,
+          int schemeLength,
+        ) {
+          final int status = configuredFunction == null
+              ? legacyFunction!(pointer, length, output)
+              : configuredFunction(
+                  pointer,
+                  length,
+                  schemePointer,
+                  schemeLength,
+                  policyFlags,
+                  output,
+                );
+          final NativeValueResult<int> result = _valueResult<int>(
+            status,
+            output.value,
           );
-        }
-        return result;
+          if (result.isSuccess && result.value != 0 && result.value != 1) {
+            return const NativeValueResult<int>.failure(
+              7,
+              'native bridge returned an invalid external URL result',
+            );
+          }
+          return result;
+        });
       } finally {
         _free(output.cast<Void>());
       }

@@ -3,6 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dart_appkit/dart_appkit.dart';
+import 'package:dart_appkit/src/native/native_bindings.dart'
+    show
+        dartAppKitExternalUrlPolicyForbidCredentials,
+        dartAppKitExternalUrlPolicyRequireAuthority,
+        dartAppKitExternalUrlPolicyRequireHost;
 import 'package:dart_appkit/testing.dart' as testing;
 
 import 'fake_native_bindings.dart';
@@ -44,11 +49,13 @@ Future<T> _expectThrows<T extends Object>(
 
 Future<AppKitApplication> _attach(
   FakeNativeBindings bindings,
-  StreamController<Object?> rawEvents,
-) {
+  StreamController<Object?> rawEvents, {
+  ExternalUrlPolicy? externalUrlPolicy,
+}) {
   return testing.attachApplicationForTesting(
     bindings: bindings,
     events: rawEvents.stream,
+    externalUrlPolicy: externalUrlPolicy,
   );
 }
 
@@ -1284,6 +1291,24 @@ Future<void> _testPasteboardApi() async {
 }
 
 Future<void> _testExternalUrlApi() async {
+  await _expectThrows<ArgumentError>(() => ExternalUrlSchemePolicy(scheme: ''));
+  await _expectThrows<ArgumentError>(
+    () => ExternalUrlSchemePolicy(scheme: '1invalid'),
+  );
+  await _expectThrows<ArgumentError>(
+    () => ExternalUrlSchemePolicy(
+      scheme: 'custom',
+      allowsAuthority: false,
+      requiresHost: true,
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => ExternalUrlPolicy(<ExternalUrlSchemePolicy>[
+      ExternalUrlSchemePolicy(scheme: 'custom'),
+      ExternalUrlSchemePolicy(scheme: 'CUSTOM'),
+    ]),
+  );
+
   final List<String> valid = <String>[
     'https://example.com/path?query=value#fragment',
     'HTTP://example.com/%20space',
@@ -1343,10 +1368,16 @@ Future<void> _testExternalUrlApi() async {
   final AppKitApplication app = await _attach(bindings, raw);
   final AllowedExternalUrl target = AllowedExternalUrl.parse(valid.first);
   _expect(app.openExternalUrl(target), 'accepted workspace open is true');
+  final int defaultWebFlags =
+      dartAppKitExternalUrlPolicyRequireAuthority |
+      dartAppKitExternalUrlPolicyRequireHost |
+      dartAppKitExternalUrlPolicyForbidCredentials;
   _expect(
     bindings.openedExternalUrls.length == 1 &&
-        bindings.openedExternalUrls.single == target.value,
-    'only validated exact URL reaches native bindings',
+        bindings.openedExternalUrls.single == target.value &&
+        bindings.openedExternalUrlSchemes.single == 'https' &&
+        bindings.openedExternalUrlPolicyFlags.single == defaultWebFlags,
+    'validated URL and its policy reach native bindings',
   );
   bindings.externalUrlOpenResult = false;
   _expect(
@@ -1363,6 +1394,77 @@ Future<void> _testExternalUrlApi() async {
   await app.terminate();
   await _expectThrows<StateError>(() => app.openExternalUrl(target));
   await raw.close();
+
+  final ExternalUrlPolicy customPolicy = ExternalUrlPolicy(
+    <ExternalUrlSchemePolicy>[
+      ExternalUrlSchemePolicy(
+        scheme: 'ssh',
+        requiresAuthority: true,
+        requiresHost: true,
+        allowsCredentials: true,
+      ),
+      ExternalUrlSchemePolicy(scheme: 'file', requiresPath: true),
+      ExternalUrlSchemePolicy(
+        scheme: 'custom',
+        allowsAuthority: false,
+        requiresPath: true,
+      ),
+    ],
+  );
+  _expect(
+    AllowedExternalUrl.tryParse(
+          'ssh://user@example.com/path',
+          policy: customPolicy,
+        ) !=
+        null,
+    'custom policy can allow credentials for a host scheme',
+  );
+  _expect(
+    AllowedExternalUrl.tryParse('ssh:/path', policy: customPolicy) == null,
+    'custom authority requirement is enforced',
+  );
+  _expect(
+    AllowedExternalUrl.tryParse('file:///tmp/report', policy: customPolicy) !=
+        null,
+    'custom policy can allow file URLs',
+  );
+  _expect(
+    AllowedExternalUrl.tryParse('custom:value', policy: customPolicy) != null,
+    'custom non-authority scheme is accepted',
+  );
+  _expect(
+    AllowedExternalUrl.tryParse('custom://value', policy: customPolicy) == null,
+    'forbidden authority is rejected',
+  );
+  _expect(
+    AllowedExternalUrl.tryParse('custom:unsafe\nvalue', policy: customPolicy) ==
+        null,
+    'library structural safety remains mandatory',
+  );
+
+  final StreamController<Object?> customRaw =
+      StreamController<Object?>.broadcast(sync: true);
+  final FakeNativeBindings customBindings = FakeNativeBindings();
+  final AppKitApplication customApp = await _attach(
+    customBindings,
+    customRaw,
+    externalUrlPolicy: customPolicy,
+  );
+  await _expectThrows<ArgumentError>(() => customApp.openExternalUrl(target));
+  final AllowedExternalUrl customTarget = AllowedExternalUrl.parse(
+    'ssh://user@example.com/path',
+    policy: customPolicy,
+  );
+  _expect(customApp.openExternalUrl(customTarget), 'custom URL opens');
+  _expect(
+    customBindings.openedExternalUrlSchemes.single == 'ssh' &&
+        customBindings.openedExternalUrlPolicyFlags.single ==
+            (dartAppKitExternalUrlPolicyRequireAuthority |
+                dartAppKitExternalUrlPolicyRequireHost),
+    'application revalidates and forwards its attached custom policy',
+  );
+  await customApp.terminate();
+  await customRaw.close();
 }
 
 Future<void> _testMenuApi() async {

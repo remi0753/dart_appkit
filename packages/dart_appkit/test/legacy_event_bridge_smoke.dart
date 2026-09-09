@@ -71,8 +71,29 @@ void main(List<String> arguments) {
       bindings.pasteboardGetChangeCount().status != 8) {
     _fail('legacy bridge did not reject additive pasteboard APIs');
   }
-  if (bindings.applicationOpenExternalUrl('https://example.com').status != 8) {
-    _fail('legacy bridge did not reject the additive external URL API');
+  final int defaultExternalUrlFlags =
+      dartAppKitExternalUrlPolicyRequireAuthority |
+      dartAppKitExternalUrlPolicyRequireHost |
+      dartAppKitExternalUrlPolicyForbidCredentials;
+  if (bindings
+          .applicationOpenExternalUrl(
+            'https://example.com',
+            scheme: 'https',
+            policyFlags: defaultExternalUrlFlags,
+          )
+          .status !=
+      7) {
+    _fail('legacy bridge did not retain the default external URL policy');
+  }
+  if (bindings
+          .applicationOpenExternalUrl(
+            'ssh://example.com',
+            scheme: 'ssh',
+            policyFlags: defaultExternalUrlFlags,
+          )
+          .status !=
+      8) {
+    _fail('legacy bridge accepted a custom external URL policy');
   }
   final NativeValueResult<int> configuredWindow = bindings.windowCreate(
     x: 0,

@@ -6,6 +6,12 @@ const int dartAppKitMinimumEventProtocolVersion = 1;
 const int dartAppKitCurrentEventProtocolVersion = 6;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
+const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
+const int dartAppKitExternalUrlPolicyRequireAuthority = 1 << 0;
+const int dartAppKitExternalUrlPolicyForbidAuthority = 1 << 1;
+const int dartAppKitExternalUrlPolicyRequireHost = 1 << 2;
+const int dartAppKitExternalUrlPolicyForbidCredentials = 1 << 3;
+const int dartAppKitExternalUrlPolicyRequirePath = 1 << 4;
 const int dartAppKitWindowStyleTitled = 1 << 0;
 const int dartAppKitWindowStyleClosable = 1 << 1;
 const int dartAppKitWindowStyleMiniaturizable = 1 << 2;
@@ -70,7 +76,11 @@ abstract interface class NativeBindings {
     required int operationId,
     required bool allow,
   });
-  NativeValueResult<int> applicationOpenExternalUrl(String url);
+  NativeValueResult<int> applicationOpenExternalUrl(
+    String url, {
+    required String scheme,
+    required int policyFlags,
+  });
 
   NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText();
   NativeValueResult<int> pasteboardWriteText(String text);
