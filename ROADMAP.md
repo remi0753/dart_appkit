@@ -31,6 +31,11 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   サポートする。CPU負荷の高い処理は必要に応じて外部Dart helperへ分離する。
 - 汎用ホストには基礎契約だけを置き、WebView、Metal renderer、PTYなどの選択的・
   製品固有機能はnative capability／native asset packageとして分離する。
+- `dart_appkit` はAppKitのmechanism、ownership、lifecycle、hard safety boundだけを所有する。
+  application固有の文言、色／装飾、layout、URL scheme allowlist、close／quit／復元判断などの
+  product policyは、型付きparameterまたはapplication側のstate／callbackとして与える。
+- library defaultは安全かつ保守的に保ちながら、platform上妥当な選択肢をapplicationが
+  明示的に選べるようにする。特定consumerで測定した値を汎用defaultへ固定しない。
 - C ABI、イベントprotocol、capability ABIはversionedかつ後方互換な形で拡張する。
 - IME、キーボード操作、アクセシビリティは出荷直前の追加項目ではなく、
   コントロール基盤と同時に設計・検証する。
@@ -57,8 +62,10 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
   event protocol v5のprecision scrollとv6のouter-frame／native-fullscreen state、
-  boundedなplain-text pasteboard read、allowlist付き外部URL起動、capability loading、PTY、
-  process exit 0に加え、terminal rendererのC/C++ ABI、
+  native window tab、2-child SplitView、first responder設定、window presentation metadata、
+  boundedなplain-text pasteboard read、allowlist付き外部URL起動、capability loading、
+  PTY ABI v5のprocess snapshot／consumer-configured read scheduling、process exit 0に加え、
+  terminal rendererのC/C++ ABI、
   CoreText font／shape／top-down raster、Metal readback／submission、atlas reset、failure state、
   renderer metrics、Dart facade、bounded `NSTextInputClient` event、candidate geometry、
   deterministic input-source matrix、読み取り専用AppKit accessibilityである。
@@ -95,8 +102,15 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - 固定styleのWindow生成、表示、title変更、programmatic close、user close request、
   close deferralを実装。
 - resize、focus、visibility、occlusion、backing scale、接続screenの状態イベントを実装。
-- outer frameの変更と観測、および非同期native fullscreen要求と完了イベントを実装。
+- Window生成／変更で一貫したouter frameを扱い、負のmulti-screen座標を含む変更／観測、
+  非同期native fullscreen要求と完了イベント、transition中のwindowed-frame保全を実装。
+- Window同士をnative tab groupへ追加／分離／選択するAPIと、既存content hierarchy内の
+  `View` をfirst responderへ設定するAPIを実装。
+- boundedなabsolute `representedFilePath` とsRGB `WindowTabColor` により、標準proxy icon／
+  path menuとnative-tab accessory markerを設定／解除するpresentation metadataを実装。
 - 汎用 `View`、表示専用の簡易 `TextView`、Windowへの単一content view設定を実装。
+- axis、2つのordered child、fraction、両childのminimum extent、equalize、one-child zoomを
+  持ち、nested compositionできるnative `SplitView` を実装。
 - dependencyが登録したnative `NSView` を `View.custom()` で生成できる仕組みを実装。
 - Dart/native双方で再検証するdeny-by-defaultな `AllowedExternalUrl` と、`http`、`https`、
   `mailto` だけを登録済みmacOS handlerで開く `AppKitApplication.openExternalUrl` を実装。
@@ -193,6 +207,17 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   AppKit selector acceptanceで検証した。
 - `dart_pty_macos` に、AppKit非依存のPTY生成、非同期read/write、bounded queue、
   backpressure、resize、signal、graceful/forced close、exit/reapを実装。
+- 親processのstdinが閉じた状態でもexec-error pipeをstandard descriptorから退避し、childの
+  controlling-terminal stdinを誤ってclose／aliasしないspawn処理を実装。
+- PTY ABI v5に、child PID、owning／foreground process group、個別syscall error、exit stateだけを
+  同一callで返すcontent-free `PtyProcessSnapshot` を追加。process名、argv、environment、cwd、
+  terminal byteをlibrary側で解釈せず、close／quit判断をconsumerへ残した。
+- `PtyCommand.readBatchBytes` で64 KiB以下のdelivery boundをconsumerが選択でき、同期stream
+  consumerの処理完了後にordered ACKすることで、queued callbackではなく受理済みworkへ
+  read creditを対応付ける仕組みを実装。
+- `readBatchesPerEventLoopTurn` の0〜8をapplicationが選べるようにし、0は従来動作を保持、
+  非zero時は同時に1 batchだけを未ACKとして保持して指定回数ごとに次のDart event turnへ譲る。
+  EOF後もoutstanding batchのACK完了までexit／destroyを進めない。
 - terminal-specific protocol、renderer、recovery policyを汎用hostから分離。
 
 注意: 上記は描画、text input、accessibilityの低水準基盤である。terminal grid／cell model、
@@ -216,8 +241,12 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   明示的presentation retry、command encoding／completion fault、fault後のadmission停止、
   GPU timing／atlas upload metricsをdeterministic fault injection込みで検証。
 - event protocol v5のscrollとv6のframe／fullscreen encoder／strict Dart decoder／
-  旧protocol filtering、64 MiB
+  旧protocol filtering、native tab／SplitView／first responder、window metadata、64 MiB
   pasteboard read上限、外部URLのDart/native二重validationとLaunch Services recorderを検証。
+- test専用libraryからnativeのdeferred termination state machineを起動するhookを追加し、
+  production APIへ公開せずoperation-ID replyとrefusalのfailure atomicityを実processで検証。
+- PTYについてclosed parent stdin、foreground process snapshot、64 KiB default／consumer指定batch、
+  consumer-completed ACK、configurable event-turn budget、EOF時outstanding ownershipを検証。
 - terminal text inputについて、staged raw／preedit／commit／cancel、candidate geometry更新、
   overflow／bound、ASCII・CJK・emoji・modifier・repeatのdeterministic input-source matrixを検証。
 - terminal accessibility snapshotのDart/native二重validation、stale／malformed拒否、AppKit
@@ -236,7 +265,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   完了とする。
 - **G15、G16** は早期に必要なdiagnostics／manifest項目を前倒しできるが、正式な
   完了は汎用GUI APIが安定した後とする。
-- **G1、G4〜G6、G9、G11、G12、G14、G15、X0は部分実装済み**である。
+- **G1〜G7、G9〜G12、G14、G15、X0は部分実装済み**である。
   チェックボックスは各項目の完了条件を
   すべて満たした場合だけ `[x]` にする。
 
@@ -251,6 +280,12 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   責任境界を確定する。
 - View、Control、event、layout、semantics、native capability instanceの公開概念と
   versioning方針を定義する。
+- 現在の公開API／native bridgeを、platform invariant、hard safety bound、library default、
+  application policyに分類し、後二者を混同して固定しているAPIをparameter化、汎用化、
+  capability分離、または互換性を保った非推奨化の対象として整理する。
+- 固定のwindow style、基底 `DaView` のfocus／autoresize、`TextView` のfont／padding／color、
+  2-child `SplitView` のdivider／collapse、native-tab marker、external URL scheme allowlistを
+  最初の汎用性監査対象とする。
 - 設定画面、テキスト入力画面、一覧画面、custom drawing画面を代表use caseとして、
   後続milestoneの受け入れ条件を定める。
 - 既存APIとABIを維持する範囲、追加API、非推奨化が必要なAPIを整理する。
@@ -258,6 +293,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 完了条件:
 
 - 後続G1〜G16が依存できる公開境界と互換性ルールが文書化されている。
+- 少なくとも性質の異なる2つのapplicationで同じcore APIを利用し、一方の見た目、layout、
+  workflow、安全policyが他方のdefaultや制約へ混入しないことをconformance reviewで確認する。
 - 既存hello-window、terminal capability、JIT/AOT runtimeを壊さない移行方針がある。
 
 ### [ ] G1 — 対話的native capability instance
@@ -297,11 +334,25 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 
 達成目標: 1つのWindow内に複数のViewを安全に構成できるようにする。
 
-実装内容:
+進捗: **部分実装**。`SplitView` 内の限定された2-child hierarchyは構成できるが、
+すべての `View` に共通するtree APIはまだない。
+
+実装済み:
+
+- `SplitView.setChildren` で2つの異なる同一application Viewをordered childとして設定し、
+  self／重複／循環となるnative hierarchyを拒否する。
+- `SplitView` 自身も通常の `View` としてcontent viewまたは別のSplitView childにでき、
+  nested treeを構成できる。
+- `Window.makeFirstResponder` は、対象がそのWindowのcontent hierarchy内にあることをnative側で
+  検証してから設定する。
+
+未実装:
 
 - subviewの追加、挿入、削除、並べ替え、reparent、parent/children参照を追加する。
 - `Point`、`Size`、`Insets` などの基本geometry型と、frame、bounds、座標変換を追加する。
 - hidden、opacity、clip、tooltip、autoresizingなど、View共通propertyを追加する。
+- すべての `DaView` に現在固定されるwidth／height autoresizeをcaller設定へ分離し、
+  content rootと一般childで適切なdefaultを選べるようにする。
 - hierarchy attachmentとDart/native handle ownershipを分離し、detach、dispose、
   Window retain時の規則を定める。
 - tree mutation中のstale event、二重parent、循環、異なるapplication間のattachを拒否する。
@@ -316,13 +367,23 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 達成目標: Windowサイズやcontentの変化に応じて、一般的なGUIを宣言的に再配置できる
 ようにする。
 
-実装内容:
+進捗: **部分実装（SplitView専用）**。2-pane layoutだけがnative resizeに追従する。
+
+実装済み:
+
+- `SplitView` にhorizontal／vertical axis、0より大きく1未満のfraction、各childのminimum extent、
+  equalize、one-child zoomを実装した。
+- native bounds変更とdivider dragに追従して2 childを再配置し、minimum extent内へclampする。
+
+未実装:
 
 - AppKit Auto Layoutを安全に表現するanchor、constraint、priority APIを追加する。
 - intrinsic content size、content hugging、compression resistanceを扱えるようにする。
 - fixed frame／autoresizingとconstraint layoutの利用規則を定める。
 - 複数property／constraintをまとめて反映するbatch updateとlayout invalidationを追加する。
 - Stack、Grid相当の高水準layout helperを追加する。
+- `SplitView` のdivider style／thickness、collapse可否、resize distribution、divider位置eventを
+  parameter化し、user drag後のnative stateをDart cacheへ同期する。
 
 完了条件:
 
@@ -333,8 +394,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 
 達成目標: 入力と操作eventを、Windowではなく実際のView／Controlへ正しく配送する。
 
-進捗: **部分実装**。scrollとterminal input-client向けkey routingは追加済みだが、
-いずれも汎用のView単位event／focus APIにはなっていない。
+進捗: **部分実装**。scroll、terminal input-client向けkey routing、first responder設定は
+追加済みだが、汎用のView単位event／focus APIにはなっていない。
 
 実装済み:
 
@@ -343,6 +404,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - `KeyEventRouting.appKitOnly` を追加し、menu shortcut処理後のkeyをDartのWindow eventへ
   重複配送せず、first-responder／`NSTextInputClient` chainだけへ渡せるようにした。
 - v1〜v6のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
+- `Window.makeFirstResponder(View)` を追加し、同じWindowのcontent hierarchy内にあるViewだけを
+  AppKit first responderへ設定できるようにした。
 
 未実装:
 
@@ -350,7 +413,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   view-local coordinate情報を追加する。
 - mouse enter/exit、hover、modifier changeを追加する。
 - drag captureと、必要なgesture、magnify、rotate、swipe、pressure eventを追加する。
-- first responderの取得・設定、focus可否、Tab traversal、focus change eventを追加する。
+- first responderの取得／解除、Viewごとのfocus可否、Tab traversal、View単位focus change eventを
+  追加し、現在すべての基底 `DaView` がfocus可能となる固定policyをparameter化する。
 - Button、Menu、shortcutから共有できるaction／command routingの基礎を追加する。
 - mouse move、scroll、frame eventのcoalescing／backpressure方針を実装し、入力遅延の
   無制限な蓄積を防ぐ。
@@ -439,14 +503,26 @@ IME bridgeのboundedな先行実装が動作している。
 達成目標: 設定画面や一般的なformを、application固有Objective-Cコードなしで構築
 できるようにする。
 
-実装内容:
+進捗: **部分実装（SplitViewのみ）**。標準Control群はまだ実装されていない。
+
+実装済み:
+
+- 通常の `View` としてnested compositionできるnative `SplitView` を追加した。
+- 2つのordered child、axis、fraction、minimum extent、equalize、one-child zoomを型付きDart APIで
+  操作できる。
+
+未実装:
 
 - Label、Button、Link、Checkbox、Radio、Switch、Segmented Controlを追加する。
 - Slider、Stepper、Progress Indicator、Popup／Combo Box、Image Viewを追加する。
-- Scroll、Split、Tab、Boxなどの基本containerを追加し、G3のlayout helperと統合する。
+- `SplitView` を複数child、divider appearance／thickness、collapse／resize behavior、状態eventへ
+  拡張するか、現在の2-child型を明示した上で汎用Split containerを別に提供する。
+- Scroll、content-level Tab、Boxなど残りの基本containerを追加し、G3のlayout helperと統合する。
 - enabled、hidden、title、value、state、image、tooltipなどの共通状態とaction eventを
   型付きDart APIとして公開する。
 - native側でユーザー操作により変化する状態とDart側stateの同期規則を実装する。
+- 現在の簡易 `TextView` に固定されたmonospaced 18pt font、20pt inset、window background／
+  label colorを公開style parameterへ移すか、sample／debug用surfaceとして分離する。
 
 完了条件:
 
@@ -513,15 +589,40 @@ IME bridgeのboundedな先行実装が動作している。
 達成目標: document app、utility app、複数Window app、menu-bar appに必要なmacOS
 window/application操作を提供する。
 
-実装内容:
+進捗: **部分実装**。outer frame、native fullscreen、window tab、最小presentation metadataが
+利用できるが、Window種類とtab／presentationの設定範囲は限定的で、製品lifecycle policy一式も
+まだapplicationから構成できない。
 
-- current frameの取得・変更、move、center、min/max size、aspect ratioを追加する。
-- minimize、restore、zoom、fullscreen、hide、order、key/main window操作とeventを追加する。
-- move、resize、live-resize begin/end、fullscreen transitionなどの状態eventを追加する。
+実装済み:
+
+- finiteかつ正のouter `Window.frame` を取得／変更でき、negative screen originを許容する。
+  生成時もsetterと同じouter-frame contractを使い、Dart cacheを成功時だけ更新する。
+- event protocol v6にdeduplicateされた `WindowFrameChangedEvent` と
+  `WindowFullscreenChangedEvent` を追加し、show、move／resize、fullscreen完了／失敗を観測する。
+- fullscreenは非同期requestと観測stateを分離し、同じtargetをidempotentに扱い、transition中の
+  逆targetを拒否する。transition frameを抑制し、stateを先に通知してwindowed frameを保全する。
+- 1 tabを1 `Window` としてnative tab groupへの追加／分離／選択を実装し、各Windowのevent、
+  content view、handle identityを維持する。
+- caller指定のabsolute `representedFilePath` とsRGB `WindowTabColor` を設定／解除し、
+  standard proxy icon／path menuとtab accessory markerへ反映する。
+
+未実装:
+
+- center、min/max size、aspect ratioを追加する。
+- minimize、restore、zoom、hide、order、key/main window操作とeventを追加する。
+- live-resize begin/end、fullscreen transition begin/endなど、完了snapshot以外の状態eventを追加する。
+- tab groupの列挙／順序変更／selected state event、tabbing mode／identifier／overviewなどを追加する。
+- `WindowTabColor` が現在native側で固定する8×8円形markerをcoreの標準見た目とせず、任意の
+  tab accessory `View` またはsize／shapeを持つparameterized presentationへ置き換える。
 - configurable style mask、titlebar、toolbar、transparency、window levelを追加する。
+- 現在すべてのWindowへ固定するtitled／closable／miniaturizable／resizable styleを安全な
+  `WindowConfiguration` のdefaultへ移し、applicationが必要な組み合わせを明示できるようにする。
 - sheet、modal／modeless panel、child windowを追加する。
 - Window registry、複数Window lifecycle、last-window close policy、state restorationを
   追加する。
+- Runnerで現在固定されるregular activation、launch時の強制activate、last-window close後も継続、
+  reopenを常にhandledとする挙動を、起動前manifest／`RunnerConfiguration` で選べるようにする。
+  delegateからDartへの同期問い合わせは追加せず、既存挙動を互換defaultとして維持する。
 - regular/accessory/prohibited activation policy、Dock menu／badge、status itemを追加する。
 - screen列挙、座標変換、sleep/wake、session、application appearance changeを追加する。
 
@@ -551,11 +652,15 @@ window/application操作を提供する。
   追加する。
 - MenuItemのtitle、shortcut、checked/mixed、hidden、alternate、image、dynamic
   validationを追加する。
+- 現在native生成時に固定する `NSMenu.autoenablesItems = false` を、typed Commandによる手動更新と
+  AppKit validationのどちらを使うか選べるMenu policyへ移す。
 - MenuItemのinsert/remove/reorderと、About、Settings、Hide、Services、Window、Help、
   Editなど標準menu roleを追加する。
 - context menuとView単位のmenu presentationを追加する。
 - PasteboardをUTTypeベースに拡張し、file URL、image、rich text、custom data、
   複数representationを扱えるようにする。
+- 64 MiBをnative hard maximumとして維持しつつ、applicationが用途ごとにより小さい
+  `maxUtf8Bytes` を指定してcopy前に拒否できるread APIを追加する。
 - copy/paste availability、pasteboard change、lazy data providerを追加する。
 - View単位のdrag source／drop target、operation negotiation、file promiseを追加する。
 
@@ -584,6 +689,9 @@ application delegate eventを提供する。
 
 未実装:
 
+- URLの構造検証、不可視／control文字拒否、hard byte上限はlibrary invariantとして維持しつつ、
+  許可schemeとscheme別条件をimmutableなapplication-supplied policyとして指定できるようにする。
+  現在の `http`／`https`／`mailto` は安全なdefault policyとして互換維持する。
 - Open Panel、Save Panel、Alert、Color Panel、Font Panelを非同期APIとして追加する。
 - applicationへのopen files、open URLs、reopen、user activity eventを追加する。
 - recent documents、file association、URL scheme、security-scoped bookmarkを追加する。
@@ -624,21 +732,27 @@ helperへ委譲できるようにする。
 達成目標: application packageがnative GUIを起動せずに大部分をunit testでき、必要な
 箇所だけを実GUI／画像／accessibility testで検証できるようにする。
 
-進捗: **既存機能向けの内部検証基盤は実装済み、外部向け公開Testing APIは未実装**。
+進捗: **既存機能向け内部基盤と限定的な公開hookは実装済み、汎用Testing APIは未実装**。
 
-実装済みの内部基準:
+実装済みの検証基準:
 
 - coreのfake bindings、native contract、event encoder、legacy bridge、JIT／AOT FFI smokeを
-  実装している。
-- event protocol v5 scroll、pasteboard read上限、外部URLの二重validation／recorderを
-  実processを起動しないdeterministic testで検証している。
+  実装している。`package:dart_appkit/testing.dart` からraw event injection、native Window handle、
+  attach helper、deferred application-termination requestをproduction exportと分離して公開した。
+- event protocol v5 scroll、v6 frame／fullscreen、native tabs、SplitView、first responder、
+  Window metadata、pasteboard read上限、外部URLの二重validation／recorderを実processまたは
+  deterministic fakeで検証している。
 - terminal rendererのstrict decoder、RGBA readback、one-shot fault injectionに加え、
   staged `NSTextInputClient` acceptance、input-source／repeat matrix、accessibility snapshot／
   AppKit selector／focus acceptanceを実装している。
+- PTYのclosed parent stdin、process snapshot、consumer-selected read batch、consumer完了後ACK、
+  configurable event-turn scheduling、EOF／destroy ownershipをnative／real Dartで検証している。
 
 未実装:
 
 - application、View tree、Control、layout、eventを扱う公開fake/test hostを追加する。
+- 現在internal `NativeBindings` 型を要求するattach helperを、外部packageがprivate `src/` importなしで
+  実装できるstable test-backend interfaceへ置き換える。
 - pointer、keyboard、focus、IME、menu、window、capability event injectionを追加する。
 - View tree／layout snapshot、screenshot／golden test、Retina scale別testを追加する。
 - VoiceOver semantics、keyboard navigation、drag/drop、dialogのintegration test helperを
@@ -675,6 +789,9 @@ helperへ委譲できるようにする。
 - terminal専用counterを共通diagnosticsへ統合し、event latency、message-pump backlog、
   CPU／GPU frame time、percentile、dropped/coalesced event、native handle数を時系列で
   計測できるtraceを追加する。
+- Runnerで現在固定される1 turnあたり64 message／4 msのmessage-pump budgetを、hard upper boundと
+  保守的defaultを維持したmanifest parameterにし、application workloadごとに調整／計測できる
+  ようにする。
 - contributorが巨大なEngine checkoutを毎回保持しなくてよい、検証済みprebuilt
   Engine cache／artifact取得経路を追加する。
 
