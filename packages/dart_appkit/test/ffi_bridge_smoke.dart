@@ -110,9 +110,12 @@ void main(List<String> arguments) {
   }
   final NativeCallResult representedPath = bindings
       .windowSetRepresentedFilePath(1, '/private/tmp');
-  final NativeCallResult tabColor = bindings.windowSetTabColor(
+  final NativeCallResult tabColor = bindings.windowSetTabAccessory(
     handle: 1,
-    hasColor: true,
+    hasAccessory: true,
+    shape: dartAppKitWindowTabAccessoryShapeRectangle,
+    width: 12,
+    height: 5,
     red: 1,
     green: 0,
     blue: 0,

@@ -96,6 +96,20 @@ void main(List<String> arguments) {
   if (defaultWindow.status != 7) {
     _fail('legacy bridge did not use legacy creation for the default style');
   }
+  final NativeCallResult defaultTabAccessory = bindings.windowSetTabAccessory(
+    handle: 1,
+    hasAccessory: true,
+    shape: dartAppKitWindowTabAccessoryShapeEllipse,
+    width: 8,
+    height: 8,
+    red: 1,
+    green: 0,
+    blue: 0,
+    alpha: 1,
+  );
+  if (defaultTabAccessory.status != 7) {
+    _fail('legacy bridge did not use the legacy default tab marker');
+  }
   if (bindings.windowAddTabbedWindow(1, 2).status != 8 ||
       bindings
               .windowSetFrame(handle: 1, x: 0, y: 0, width: 640, height: 480)
@@ -104,9 +118,12 @@ void main(List<String> arguments) {
       bindings.windowSetFullscreen(1, true).status != 8 ||
       bindings.windowSetRepresentedFilePath(1, '/tmp').status != 8 ||
       bindings
-              .windowSetTabColor(
+              .windowSetTabAccessory(
                 handle: 1,
-                hasColor: true,
+                hasAccessory: true,
+                shape: dartAppKitWindowTabAccessoryShapeRectangle,
+                width: 12,
+                height: 5,
                 red: 1,
                 green: 0,
                 blue: 0,

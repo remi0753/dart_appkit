@@ -26,6 +26,35 @@ final class _DaWindowConfigurationNative extends Struct {
   external int styleMask;
 }
 
+final class _DaWindowTabAccessoryConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Int32()
+  external int shape;
+
+  @Int32()
+  external int reserved;
+
+  @Double()
+  external double width;
+
+  @Double()
+  external double height;
+
+  @Double()
+  external double red;
+
+  @Double()
+  external double green;
+
+  @Double()
+  external double blue;
+
+  @Double()
+  external double alpha;
+}
+
 final class _DaErrorNative extends Struct {
   @Int32()
   external int code;
@@ -170,6 +199,16 @@ typedef _HandleBoolFourDoublesDart = int Function(
   double,
   double,
   double,
+);
+typedef _WindowTabAccessoryNative = Int32 Function(
+  Uint64,
+  Int32,
+  Pointer<_DaWindowTabAccessoryConfigurationNative>,
+);
+typedef _WindowTabAccessoryDart = int Function(
+  int,
+  int,
+  Pointer<_DaWindowTabAccessoryConfigurationNative>,
 );
 typedef _TwoHandlesNative = Int32 Function(Uint64, Uint64);
 typedef _TwoHandlesDart = int Function(int, int);
@@ -493,6 +532,17 @@ _HandleBoolFourDoublesDart? _lookupHandleBoolFourDoubles(
   }
 }
 
+_WindowTabAccessoryDart? _lookupWindowTabAccessory(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_WindowTabAccessoryNative, _WindowTabAccessoryDart>(
+          'da_window_set_tab_accessory',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleStatusDart? _lookupHandleStatus(DynamicLibrary library, String symbol) {
   try {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
@@ -638,6 +688,7 @@ final class FfiNativeBindings implements NativeBindings {
         library,
         'da_window_set_tab_color',
       ),
+      _windowSetTabAccessory = _lookupWindowTabAccessory(library),
       _windowAddTabbedWindow = _lookupWindowAddTabbedWindow(library),
       _windowRemoveFromTabGroup = _lookupHandleStatus(
         library,
@@ -751,6 +802,7 @@ final class FfiNativeBindings implements NativeBindings {
   final _HandleStringDart _windowSetTitle;
   final _HandleStringDart? _windowSetRepresentedFilePath;
   final _HandleBoolFourDoublesDart? _windowSetTabColor;
+  final _WindowTabAccessoryDart? _windowSetTabAccessory;
   final _TwoHandlesDart? _windowAddTabbedWindow;
   final _HandleStatusDart? _windowRemoveFromTabGroup;
   final _HandleStatusDart? _windowSelectTab;
@@ -1418,24 +1470,58 @@ final class FfiNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeCallResult windowSetTabColor({
+  NativeCallResult windowSetTabAccessory({
     required int handle,
-    required bool hasColor,
+    required bool hasAccessory,
+    required int shape,
+    required double width,
+    required double height,
     required double red,
     required double green,
     required double blue,
     required double alpha,
   }) {
-    final _HandleBoolFourDoublesDart? function = _windowSetTabColor;
+    final _WindowTabAccessoryDart? function = _windowSetTabAccessory;
     if (function == null) {
+      final _HandleBoolFourDoublesDart? legacy = _windowSetTabColor;
+      if (legacy != null &&
+          (!hasAccessory ||
+              shape == dartAppKitWindowTabAccessoryShapeEllipse &&
+                  width == 8 &&
+                  height == 8)) {
+        return _callResult(
+          legacy(handle, hasAccessory ? 1 : 0, red, green, blue, alpha),
+        );
+      }
       return const NativeCallResult.failure(
         8,
-        'legacy native bridge does not support native tab colors',
+        'legacy native bridge supports only the default tab accessory',
       );
     }
-    return _callResult(
-      function(handle, hasColor ? 1 : 0, red, green, blue, alpha),
-    );
+    final Pointer<_DaWindowTabAccessoryConfigurationNative> configuration =
+        _allocate(sizeOf<_DaWindowTabAccessoryConfigurationNative>())
+            .cast<_DaWindowTabAccessoryConfigurationNative>();
+    try {
+      configuration.ref
+        ..structSize = sizeOf<_DaWindowTabAccessoryConfigurationNative>()
+        ..shape = shape
+        ..reserved = 0
+        ..width = width
+        ..height = height
+        ..red = red
+        ..green = green
+        ..blue = blue
+        ..alpha = alpha;
+      return _callResult(
+        function(
+          handle,
+          hasAccessory ? 1 : 0,
+          hasAccessory ? configuration : nullptr,
+        ),
+      );
+    } finally {
+      _free(configuration.cast<Void>());
+    }
   }
 
   @override

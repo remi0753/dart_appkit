@@ -2003,6 +2003,36 @@ void TestWindowPresentationMetadata() {
   EXPECT_TRUE(std::abs(alpha - 0.8) < 0.001);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
 
+  DaWindowTabAccessoryConfiguration accessory = {
+      DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_TAB_ACCESSORY_SHAPE_RECTANGLE,
+      0,
+      14.0,
+      6.0,
+      0.1,
+      0.2,
+      0.3,
+      1.0,
+  };
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_OK);
+  marker = owner.window.tab.accessoryView;
+  EXPECT_TRUE(std::abs(NSWidth(marker.frame) - 14.0) < 0.001);
+  EXPECT_TRUE(std::abs(NSHeight(marker.frame) - 6.0) < 0.001);
+  EXPECT_TRUE(std::abs(marker.layer.cornerRadius) < 0.001);
+
+  accessory.shape = DA_WINDOW_TAB_ACCESSORY_SHAPE_ELLIPSE;
+  accessory.width = 12.0;
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_OK);
+  marker = owner.window.tab.accessoryView;
+  EXPECT_TRUE(std::abs(NSWidth(marker.frame) - 12.0) < 0.001);
+  EXPECT_TRUE(std::abs(NSHeight(marker.frame) - 6.0) < 0.001);
+  EXPECT_TRUE(std::abs(marker.layer.cornerRadius - 3.0) < 0.001);
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 0, nullptr),
+            DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.tab.accessoryView == nil);
+
   EXPECT_EQ(da_window_set_represented_file_path(window_handle, nullptr, 0),
             DA_STATUS_OK);
   EXPECT_TRUE(owner.window.representedURL == nil);
@@ -2030,11 +2060,33 @@ void TestWindowPresentationMetadata() {
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_window_set_tab_color(window_handle, 1, 0, 0, 1.01, 1),
             DA_STATUS_INVALID_ARGUMENT);
+  accessory.struct_size = 0;
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_INVALID_ARGUMENT);
+  accessory.struct_size =
+      DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE;
+  accessory.shape = 99;
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_INVALID_ARGUMENT);
+  accessory.shape = DA_WINDOW_TAB_ACCESSORY_SHAPE_RECTANGLE;
+  accessory.reserved = 1;
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_INVALID_ARGUMENT);
+  accessory.reserved = 0;
+  accessory.width = 257.0;
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, &accessory),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 2, &accessory),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 1, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
 
   const DaHandle view_handle = CreateView();
   EXPECT_EQ(da_window_set_represented_file_path(view_handle, nullptr, 0),
             DA_STATUS_WRONG_HANDLE_TYPE);
   EXPECT_EQ(da_window_set_tab_color(view_handle, 0, 0, 0, 0, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_set_tab_accessory(view_handle, 0, nullptr),
             DA_STATUS_WRONG_HANDLE_TYPE);
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::thread worker([&]() {
@@ -2047,6 +2099,8 @@ void TestWindowPresentationMetadata() {
   EXPECT_EQ(da_release(view_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(da_window_set_tab_color(window_handle, 0, 0, 0, 0, 0),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_window_set_tab_accessory(window_handle, 0, nullptr),
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }

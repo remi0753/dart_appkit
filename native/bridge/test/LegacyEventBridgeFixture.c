@@ -53,6 +53,18 @@ int32_t da_window_set_title(DaHandle window, const char* title,
   return DA_STATUS_INTERNAL_ERROR;
 }
 
+int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
+                                double red, double green, double blue,
+                                double alpha) {
+  (void)window;
+  (void)has_color;
+  (void)red;
+  (void)green;
+  (void)blue;
+  (void)alpha;
+  return DA_STATUS_INTERNAL_ERROR;
+}
+
 int32_t da_text_view_create(DaHandle* out_view) {
   if (out_view != NULL) {
     *out_view = 0;

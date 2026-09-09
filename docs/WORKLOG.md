@@ -3,6 +3,59 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-09 — parameterized native-tab accessory
+
+### Purpose and boundary
+
+Separate a tab's color value from the library-owned 8×8 circular appearance.
+The bridge may provide a simple native marker mechanism, but application code
+must select its size and shape rather than inheriting product presentation.
+
+### Scope and verification plan
+
+- Keep `WindowTabColor` as an immutable sRGB value and add an immutable
+  `WindowTabAccessory` with bounded width/height and rectangle/ellipse shape.
+- Add `Window.tabAccessory`; retain `Window.tabColor` as the source-compatible
+  8×8 ellipse helper used by existing consumers.
+- Add a size-prefixed additive native setter and keep the existing color setter
+  as the same compatibility helper. An old bridge accepts only that default.
+- Validate finite positive dimensions under a hard 256-point bound, shape
+  values, color components, current/legacy FFI behavior, and registry lifetime.
+
+### Findings and verification
+
+- `WindowTabColor` now represents only validated sRGB components.
+  `WindowTabAccessory` owns the bounded logical size and rectangle/ellipse
+  choice; a non-square ellipse is supported without inventing another shape.
+- The size-prefixed native configuration reserves future extension space,
+  rejects unknown shape/reserved values, and limits each dimension to 256
+  points before allocating the AppKit view. The accessory remains retained by
+  `NSWindowTab` and creates no registry handle.
+- `Window.tabColor` maps to an 8×8 ellipse for source compatibility. The old C
+  setter delegates to the same configured implementation, and FFI falls back
+  to it only for that appearance or clearing.
+- The first Dart analysis found a stale dispose cache name and that
+  `RangeError.range` was not the suitable double-valued constructor; both were
+  corrected without weakening validation. The first legacy fallback run also
+  showed that the fixture lacked the intermediate tab-color symbol. Giving the
+  fixture that old symbol now proves both the accepted default fallback and
+  unsupported custom appearance.
+- Focused `DART_SUPPRESS_ANALYTICS=true CI=true make native-test dart-test
+  ffi-smoke` passes warning-clean native shape/size/color validation, public API
+  and fake-backend tests, current FFI, and old-symbol compatibility behavior.
+- Complete `DART_SUPPRESS_ANALYTICS=true CI=true make test` passes scaffold and
+  header checks, every native suite, all Dart analysis/tests, manifest
+  assembly, example compilation, FFI loading, and legacy fallback.
+- Final review confirms that ABI version and event protocol remain unchanged,
+  existing `tabColor` callers retain the old appearance, and the bridge no
+  longer selects one mandatory size or shape for the preferred API.
+
+### Roadmap checkpoint
+
+Parameterized native-tab presentation is complete. The next ordered correction
+is moving external URL scheme and scheme-specific rules into application-owned
+immutable policy while retaining library structural safety checks.
+
 ## 2026-09-09 — configurable Window style
 
 ### Purpose and boundary

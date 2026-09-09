@@ -47,6 +47,7 @@ final class FakeNativeBindings implements NativeBindings {
   final Map<int, bool> windowFullscreenStates = <int, bool>{};
   final Map<int, String> windowRepresentedFilePaths = <int, String>{};
   final Map<int, List<double>> windowTabColors = <int, List<double>>{};
+  final Map<int, List<num>> windowTabAccessories = <int, List<num>>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, List<Uint8List>> customViewOperations =
@@ -456,20 +457,25 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
-  NativeCallResult windowSetTabColor({
+  NativeCallResult windowSetTabAccessory({
     required int handle,
-    required bool hasColor,
+    required bool hasAccessory,
+    required int shape,
+    required double width,
+    required double height,
     required double red,
     required double green,
     required double blue,
     required double alpha,
   }) {
-    final NativeCallResult result = _status('windowSetTabColor');
+    final NativeCallResult result = _status('windowSetTabAccessory');
     if (result.isSuccess) {
-      if (hasColor) {
+      if (hasAccessory) {
         windowTabColors[handle] = <double>[red, green, blue, alpha];
+        windowTabAccessories[handle] = <num>[shape, width, height];
       } else {
         windowTabColors.remove(handle);
+        windowTabAccessories.remove(handle);
       }
     }
     return result;

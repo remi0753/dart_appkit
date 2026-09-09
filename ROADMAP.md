@@ -278,7 +278,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] Runnerのactivation／launch activation／last-window close／reopen policyを
   `RunnerConfiguration` とmanifestから選択可能にする。
 - [x] 固定window styleを安全な互換defaultを持つ `WindowConfiguration` へ移す。
-- [ ] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
+- [x] 固定8×8円形のtab color accessoryを汎用またはparameterizedなpresentationへ移す。
 - [ ] external URLのscheme allowlistとscheme別条件をimmutable application policyへ移す。
 - [ ] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
 - [ ] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
@@ -616,6 +616,8 @@ window/application操作を提供する。
   content view、handle identityを維持する。
 - caller指定のabsolute `representedFilePath` とsRGB `WindowTabColor` を設定／解除し、
   standard proxy icon／path menuとtab accessory markerへ反映する。
+- boundedなwidth／heightとrectangle／ellipse shapeを持つ `WindowTabAccessory` を実装し、
+  旧 `Window.tabColor` を8×8 ellipseの互換helperとして維持する。
 
 未実装:
 
@@ -623,8 +625,6 @@ window/application操作を提供する。
 - minimize、restore、zoom、hide、order、key/main window操作とeventを追加する。
 - live-resize begin/end、fullscreen transition begin/endなど、完了snapshot以外の状態eventを追加する。
 - tab groupの列挙／順序変更／selected state event、tabbing mode／identifier／overviewなどを追加する。
-- `WindowTabColor` が現在native側で固定する8×8円形markerをcoreの標準見た目とせず、任意の
-  tab accessory `View` またはsize／shapeを持つparameterized presentationへ置き換える。
 - configurable style mask、titlebar、toolbar、transparency、window levelを追加する。
 - 現在すべてのWindowへ固定するtitled／closable／miniaturizable／resizable styleを安全な
   `WindowConfiguration` のdefaultへ移し、applicationが必要な組み合わせを明示できるようにする。

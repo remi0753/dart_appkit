@@ -272,6 +272,19 @@ Future<void> _testWindowPresentationMetadataApi() async {
     bindings.operations.length == operationCount,
     'equal window metadata updates are native no-ops',
   );
+  final WindowTabAccessory accessory = WindowTabAccessory(
+    color: color,
+    width: 14,
+    height: 6,
+    shape: WindowTabAccessoryShape.rectangle,
+  );
+  window.tabAccessory = accessory;
+  _expect(
+    window.tabAccessory == accessory &&
+        window.tabColor == color &&
+        bindings.windowTabAccessories.values.single.join(',') == '0,14.0,6.0',
+    'tab accessory size and shape are forwarded and cached',
+  );
 
   await _expectThrows<ArgumentError>(() => window.representedFilePath = 'tmp');
   await _expectThrows<ArgumentError>(() => window.representedFilePath = '');
@@ -291,6 +304,12 @@ Future<void> _testWindowPresentationMetadataApi() async {
   await _expectThrows<RangeError>(
     () => WindowTabColor(red: 0, green: 0, blue: 1.01),
   );
+  await _expectThrows<RangeError>(
+    () => WindowTabAccessory(color: color, width: 0),
+  );
+  await _expectThrows<RangeError>(
+    () => WindowTabAccessory(color: color, height: 257),
+  );
   _expect(
     window.representedFilePath == '/private/tmp/Project 日本語 😀' &&
         window.tabColor == color,
@@ -301,7 +320,7 @@ Future<void> _testWindowPresentationMetadataApi() async {
   await _expectThrows<AppKitNativeException>(
     () => window.representedFilePath = '/private/tmp/other',
   );
-  bindings.failNextOperation = 'windowSetTabColor';
+  bindings.failNextOperation = 'windowSetTabAccessory';
   await _expectThrows<AppKitNativeException>(
     () => window.tabColor = WindowTabColor(red: 1, green: 0, blue: 0),
   );
@@ -317,13 +336,16 @@ Future<void> _testWindowPresentationMetadataApi() async {
   _expect(
     window.representedFilePath == null &&
         window.tabColor == null &&
+        window.tabAccessory == null &&
         bindings.windowRepresentedFilePaths.isEmpty &&
-        bindings.windowTabColors.isEmpty,
+        bindings.windowTabColors.isEmpty &&
+        bindings.windowTabAccessories.isEmpty,
     'optional presentation metadata clears without extra handles',
   );
   window.dispose();
   await _expectThrows<StateError>(() => window.representedFilePath);
   await _expectThrows<StateError>(() => window.tabColor);
+  await _expectThrows<StateError>(() => window.tabAccessory);
   await app.terminate();
   await raw.close();
 }

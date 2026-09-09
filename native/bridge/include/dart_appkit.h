@@ -62,6 +62,31 @@ typedef struct DaWindowConfiguration {
   ((uint64_t)(DA_WINDOW_STYLE_TITLED | DA_WINDOW_STYLE_CLOSABLE |         \
               DA_WINDOW_STYLE_MINIATURIZABLE | DA_WINDOW_STYLE_RESIZABLE))
 
+/** Hard logical-point bound for one native-tab accessory dimension. */
+#define DA_WINDOW_TAB_ACCESSORY_MAX_EXTENT 256.0
+
+/** Stable simple shapes for the built-in tab accessory mechanism. */
+typedef enum DaWindowTabAccessoryShape {
+  DA_WINDOW_TAB_ACCESSORY_SHAPE_RECTANGLE = 0,
+  DA_WINDOW_TAB_ACCESSORY_SHAPE_ELLIPSE = 1
+} DaWindowTabAccessoryShape;
+
+/** Size-prefixed immutable native-tab accessory configuration. */
+typedef struct DaWindowTabAccessoryConfiguration {
+  uint64_t struct_size;
+  int32_t shape;
+  int32_t reserved;
+  double width;
+  double height;
+  double red;
+  double green;
+  double blue;
+  double alpha;
+} DaWindowTabAccessoryConfiguration;
+
+#define DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaWindowTabAccessoryConfiguration))
+
 /**
  * Error detail borrowed from thread-local storage.
  *
@@ -363,6 +388,18 @@ DA_EXPORT int32_t da_window_set_tab_color(DaHandle window,
                                           int32_t has_color, double red,
                                           double green, double blue,
                                           double alpha);
+
+/**
+ * Main thread only. Sets or clears a parameterized native-tab accessory.
+ *
+ * has_accessory must be zero or one. When present, configuration must provide
+ * the version-1 prefix, zero reserved fields, a declared shape, dimensions in
+ * (0, DA_WINDOW_TAB_ACCESSORY_MAX_EXTENT], and finite sRGB components in
+ * [0, 1]. Clearing permits a null configuration.
+ */
+DA_EXPORT int32_t da_window_set_tab_accessory(
+    DaHandle window, int32_t has_accessory,
+    const DaWindowTabAccessoryConfiguration* configuration);
 
 /** Main thread only. Appends tabbed_window to window's native tab group. */
 DA_EXPORT int32_t da_window_add_tabbed_window(DaHandle window,

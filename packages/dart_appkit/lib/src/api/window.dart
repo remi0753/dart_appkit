@@ -44,7 +44,7 @@ final class WindowConfiguration {
   int get hashCode => Object.hash(titled, closable, miniaturizable, resizable);
 }
 
-/// Immutable sRGB components for one native window-tab marker.
+/// Immutable sRGB color value for native window presentation.
 final class WindowTabColor {
   factory WindowTabColor({
     required double red,
@@ -89,6 +89,64 @@ final class WindowTabColor {
 
   @override
   int get hashCode => Object.hash(red, green, blue, alpha);
+}
+
+/// Built-in shapes for the simple native window-tab accessory mechanism.
+enum WindowTabAccessoryShape { rectangle, ellipse }
+
+/// Immutable presentation for one simple native window-tab accessory.
+final class WindowTabAccessory {
+  factory WindowTabAccessory({
+    required WindowTabColor color,
+    double width = 8,
+    double height = 8,
+    WindowTabAccessoryShape shape = WindowTabAccessoryShape.ellipse,
+  }) {
+    for (final MapEntry<String, double> dimension in <String, double>{
+      'width': width,
+      'height': height,
+    }.entries) {
+      if (!dimension.value.isFinite ||
+          dimension.value <= 0 ||
+          dimension.value > dartAppKitWindowTabAccessoryMaximumExtent) {
+        throw RangeError.value(
+          dimension.value,
+          dimension.key,
+          'must be finite and in (0, '
+          '$dartAppKitWindowTabAccessoryMaximumExtent]',
+        );
+      }
+    }
+    return WindowTabAccessory._(
+      color: color,
+      width: width,
+      height: height,
+      shape: shape,
+    );
+  }
+
+  const WindowTabAccessory._({
+    required this.color,
+    required this.width,
+    required this.height,
+    required this.shape,
+  });
+
+  final WindowTabColor color;
+  final double width;
+  final double height;
+  final WindowTabAccessoryShape shape;
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowTabAccessory &&
+      other.color == color &&
+      other.width == width &&
+      other.height == height &&
+      other.shape == shape;
+
+  @override
+  int get hashCode => Object.hash(color, width, height, shape);
 }
 
 final class Window extends _NativeResource {
@@ -143,7 +201,7 @@ final class Window extends _NativeResource {
   bool _defersCloseRequests = false;
   KeyEventRouting _keyEventRouting = KeyEventRouting.dartAndAppKit;
   String? _representedFilePath;
-  WindowTabColor? _tabColor;
+  WindowTabAccessory? _tabAccessory;
   double? _backingScaleFactor;
   AppKitScreen? _screen;
   bool _fullscreen = false;
@@ -247,27 +305,47 @@ final class Window extends _NativeResource {
     _representedFilePath = value;
   }
 
-  /// Optional color shown as a native tab accessory marker.
+  /// Optional simple accessory shown by the native tab.
+  WindowTabAccessory? get tabAccessory {
+    ensureAlive();
+    return _tabAccessory;
+  }
+
+  set tabAccessory(WindowTabAccessory? value) {
+    ensureAlive();
+    if (_tabAccessory == value) return;
+    final WindowTabColor? color = value?.color;
+    final int shape = switch (value?.shape) {
+      null || WindowTabAccessoryShape.rectangle =>
+        dartAppKitWindowTabAccessoryShapeRectangle,
+      WindowTabAccessoryShape.ellipse =>
+        dartAppKitWindowTabAccessoryShapeEllipse,
+    };
+    _checkCall(
+      _bindings.windowSetTabAccessory(
+        handle: _handle,
+        hasAccessory: value != null,
+        shape: shape,
+        width: value?.width ?? 0,
+        height: value?.height ?? 0,
+        red: color?.red ?? 0,
+        green: color?.green ?? 0,
+        blue: color?.blue ?? 0,
+        alpha: color?.alpha ?? 0,
+      ),
+      'Window.tabAccessory',
+    );
+    _tabAccessory = value;
+  }
+
+  /// Compatibility helper for an 8×8 elliptical [tabAccessory].
   WindowTabColor? get tabColor {
     ensureAlive();
-    return _tabColor;
+    return _tabAccessory?.color;
   }
 
   set tabColor(WindowTabColor? value) {
-    ensureAlive();
-    if (_tabColor == value) return;
-    _checkCall(
-      _bindings.windowSetTabColor(
-        handle: _handle,
-        hasColor: value != null,
-        red: value?.red ?? 0,
-        green: value?.green ?? 0,
-        blue: value?.blue ?? 0,
-        alpha: value?.alpha ?? 0,
-      ),
-      'Window.tabColor',
-    );
-    _tabColor = value;
+    tabAccessory = value == null ? null : WindowTabAccessory(color: value);
   }
 
   void addTabbedWindow(Window tabbedWindow) {
@@ -496,7 +574,7 @@ final class Window extends _NativeResource {
     _defersCloseRequests = false;
     _keyEventRouting = KeyEventRouting.dartAndAppKit;
     _representedFilePath = null;
-    _tabColor = null;
+    _tabAccessory = null;
     _fullscreen = false;
     _requestedFullscreen = null;
     unawaited(_eventController.close());

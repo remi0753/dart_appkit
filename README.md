@@ -157,11 +157,13 @@ After installing the split root as content, `Window.makeFirstResponder` can
 target any attached descendant view.
 
 `Window.representedFilePath` sets or clears an absolute local path through the
-standard `NSWindow.representedURL` proxy-icon/path-menu surface. `Window.tabColor`
-sets or clears a small native tab accessory marker using bounded sRGB
-components. Both values are copied, cached by the Dart wrapper, main-thread
-checked, and retained by the existing window; neither allocates a new registry
-handle or assigns product-specific trust policy to AppKit.
+standard `NSWindow.representedURL` proxy-icon/path-menu surface.
+`Window.tabAccessory` accepts a bounded sRGB `WindowTabColor`, logical width and
+height up to 256 points, and rectangle or ellipse shape. The source-compatible
+`Window.tabColor` property remains an 8×8 ellipse helper. Both values are
+copied, cached by the Dart wrapper, main-thread checked, and retained by the
+existing window; neither allocates a new registry handle or assigns product
+appearance policy to the bridge.
 
 `Window.frame` is a mutable, finite, positive outer-frame value. Native move and
 resize callbacks publish the resulting AppKit frame, including coordinates on

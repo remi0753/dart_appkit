@@ -15,6 +15,9 @@ const int dartAppKitDefaultWindowStyleMask =
     dartAppKitWindowStyleClosable |
     dartAppKitWindowStyleMiniaturizable |
     dartAppKitWindowStyleResizable;
+const double dartAppKitWindowTabAccessoryMaximumExtent = 256;
+const int dartAppKitWindowTabAccessoryShapeRectangle = 0;
+const int dartAppKitWindowTabAccessoryShapeEllipse = 1;
 
 final class NativeCallResult {
   const NativeCallResult.success() : status = 0, message = '';
@@ -115,9 +118,12 @@ abstract interface class NativeBindings {
   });
   NativeCallResult windowSetTitle(int handle, String title);
   NativeCallResult windowSetRepresentedFilePath(int handle, String? path);
-  NativeCallResult windowSetTabColor({
+  NativeCallResult windowSetTabAccessory({
     required int handle,
-    required bool hasColor,
+    required bool hasAccessory,
+    required int shape,
+    required double width,
+    required double height,
     required double red,
     required double green,
     required double blue,

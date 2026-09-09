@@ -4,6 +4,7 @@
 
 #include <dispatch/dispatch.h>
 #include <pthread.h>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -1457,26 +1458,54 @@ int32_t da_window_set_represented_file_path(DaHandle window, const char* path,
   }
 }
 
-int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
-                                double red, double green, double blue,
-                                double alpha) {
+int32_t da_window_set_tab_accessory(
+    DaHandle window, int32_t has_accessory,
+    const DaWindowTabAccessoryConfiguration* configuration) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
-  if (has_color != 0 && has_color != 1) {
+  if (has_accessory != 0 && has_accessory != 1) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
-                                     "has_color must be 0 or 1");
+                                     "has_accessory must be 0 or 1");
   }
-  if (has_color == 1 &&
-      (!std::isfinite(red) || !std::isfinite(green) ||
-       !std::isfinite(blue) || !std::isfinite(alpha) || red < 0.0 ||
-       red > 1.0 || green < 0.0 || green > 1.0 || blue < 0.0 || blue > 1.0 ||
-       alpha < 0.0 || alpha > 1.0)) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "tab color components must be finite values from zero to one");
+  if (has_accessory == 1) {
+    if (configuration == nullptr ||
+        configuration->struct_size <
+            DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "tab accessory configuration is missing or smaller than version 1");
+    }
+    if (configuration->reserved != 0 ||
+        (configuration->shape != DA_WINDOW_TAB_ACCESSORY_SHAPE_RECTANGLE &&
+         configuration->shape != DA_WINDOW_TAB_ACCESSORY_SHAPE_ELLIPSE)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "tab accessory shape or reserved fields are invalid");
+    }
+    if (!std::isfinite(configuration->width) ||
+        !std::isfinite(configuration->height) ||
+        configuration->width <= 0.0 || configuration->height <= 0.0 ||
+        configuration->width > DA_WINDOW_TAB_ACCESSORY_MAX_EXTENT ||
+        configuration->height > DA_WINDOW_TAB_ACCESSORY_MAX_EXTENT) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "tab accessory dimensions must be finite values within the bound");
+    }
+    if (!std::isfinite(configuration->red) ||
+        !std::isfinite(configuration->green) ||
+        !std::isfinite(configuration->blue) ||
+        !std::isfinite(configuration->alpha) || configuration->red < 0.0 ||
+        configuration->red > 1.0 || configuration->green < 0.0 ||
+        configuration->green > 1.0 || configuration->blue < 0.0 ||
+        configuration->blue > 1.0 || configuration->alpha < 0.0 ||
+        configuration->alpha > 1.0) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "tab accessory color components must be finite values from zero to one");
+    }
   }
   int32_t status = DA_STATUS_OK;
   DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
@@ -1484,18 +1513,28 @@ int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
     return status;
   }
   @try {
-    if (has_color == 0) {
+    if (has_accessory == 0) {
       owner.window.tab.accessoryView = nil;
       return DA_STATUS_OK;
     }
-    NSView* marker = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 8, 8)];
+    NSView* marker = [[NSView alloc]
+        initWithFrame:NSMakeRect(0, 0, configuration->width,
+                                 configuration->height)];
     marker.translatesAutoresizingMaskIntoConstraints = NO;
     marker.wantsLayer = YES;
-    marker.layer.backgroundColor =
-        [NSColor colorWithSRGBRed:red green:green blue:blue alpha:alpha].CGColor;
-    marker.layer.cornerRadius = 4;
-    [[marker.widthAnchor constraintEqualToConstant:8] setActive:YES];
-    [[marker.heightAnchor constraintEqualToConstant:8] setActive:YES];
+    marker.layer.backgroundColor = [NSColor
+        colorWithSRGBRed:configuration->red
+                   green:configuration->green
+                    blue:configuration->blue
+                   alpha:configuration->alpha].CGColor;
+    marker.layer.cornerRadius =
+        configuration->shape == DA_WINDOW_TAB_ACCESSORY_SHAPE_ELLIPSE
+            ? std::min(configuration->width, configuration->height) / 2.0
+            : 0.0;
+    [[marker.widthAnchor constraintEqualToConstant:configuration->width]
+        setActive:YES];
+    [[marker.heightAnchor constraintEqualToConstant:configuration->height]
+        setActive:YES];
     owner.window.tab.accessoryView = marker;
     return DA_STATUS_OK;
   } @catch (NSException* exception) {
@@ -1503,8 +1542,26 @@ int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
         DA_STATUS_INTERNAL_ERROR,
         exception.reason.UTF8String != nullptr
             ? exception.reason.UTF8String
-            : "native tab color update failed");
+            : "native tab accessory update failed");
   }
+}
+
+int32_t da_window_set_tab_color(DaHandle window, int32_t has_color,
+                                double red, double green, double blue,
+                                double alpha) {
+  const DaWindowTabAccessoryConfiguration configuration = {
+      DA_WINDOW_TAB_ACCESSORY_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_TAB_ACCESSORY_SHAPE_ELLIPSE,
+      0,
+      8.0,
+      8.0,
+      red,
+      green,
+      blue,
+      alpha,
+  };
+  return da_window_set_tab_accessory(window, has_color,
+                                     has_color == 0 ? nullptr : &configuration);
 }
 
 int32_t da_window_add_tabbed_window(DaHandle window,

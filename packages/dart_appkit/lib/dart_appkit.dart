@@ -44,6 +44,8 @@ export 'src/api.dart'
         WindowOcclusionChangedEvent,
         WindowResizedEvent,
         WindowScreenChangedEvent,
+        WindowTabAccessory,
+        WindowTabAccessoryShape,
         WindowTabColor,
         WindowVisibilityChangedEvent;
 export 'src/native/native_bindings.dart'
