@@ -2800,3 +2800,27 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   bridge tests, all package analyzers, the real configurable-turn PTY case,
   AppKit API tests, launcher tests, and FFI smoke tests. Formatting reported no
   source changes.
+
+## 2026-09-10 — Idempotent Runner activation-policy application
+
+- Dart Terminal's regular-policy runtime acceptance exposed a host-starting
+  failure on macOS 26.6.2 before application Dart ran. Launching a signed
+  minimal `APPL` probe through LaunchServices reported an already-effective
+  `NSApplicationActivationPolicyRegular`, while setting that same policy
+  returned false and left the effective policy unchanged.
+- `ApplyRunnerActivationPolicy` previously treated every false setter return as
+  a fatal transition failure. It now accepts an already-matching effective
+  policy first and calls `setActivationPolicy:` only when AppKit must perform a
+  real transition. Invalid or rejected transitions retain the existing typed
+  startup failure; manifest defaults and public ABI are unchanged.
+- The native Runner configuration test uses the command-line AppKit process's
+  already-effective prohibited policy to cover the same idempotent branch. It
+  starts with a stale error string, verifies success clears it, and verifies
+  that the effective policy does not change.
+- `make runner-configuration-test` rebuilt the Objective-C++ source with all
+  project warnings as errors and passed every parsing, atomic-failure, bound,
+  and activation-policy assertion.
+- `make test` passed the complete noninteractive regression matrix: scaffold,
+  bridge, Runner, scheduler/event encoding, runtime lifecycle/diagnostics,
+  capability/renderer/PTY native contracts, all package analyzers and Dart
+  suites, launcher/Kernel compilation, FFI bridge, and legacy-event fallback.

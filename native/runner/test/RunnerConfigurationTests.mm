@@ -119,12 +119,29 @@ void TestStrictFailureIsAtomic() {
   CHECK(configuration.message_pump_limits.max_messages_per_turn == 23);
 }
 
+void TestAlreadyEffectiveActivationPolicyIsAccepted() {
+  NSApplication* application = [NSApplication sharedApplication];
+  CHECK(application.activationPolicy ==
+        NSApplicationActivationPolicyProhibited);
+
+  dart_appkit::RunnerConfiguration configuration;
+  configuration.activation_policy =
+      dart_appkit::RunnerActivationPolicy::kProhibited;
+  std::string error = "stale error";
+  CHECK(dart_appkit::ApplyRunnerActivationPolicy(application, configuration,
+                                                 &error));
+  CHECK(error.empty());
+  CHECK(application.activationPolicy ==
+        NSApplicationActivationPolicyProhibited);
+}
+
 }  // namespace
 
 int main() {
   TestDefaultsAndMissingMetadata();
   TestConfiguredValues();
   TestStrictFailureIsAtomic();
+  TestAlreadyEffectiveActivationPolicyIsAccepted();
   if (g_failures != 0) {
     std::fprintf(stderr, "%d Runner configuration test(s) failed\n",
                  g_failures);

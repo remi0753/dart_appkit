@@ -124,6 +124,12 @@ requires the nested SDK's exact `HEAD` and an empty tracked-source status.
 
 ## Next-phase backlog
 
+The 2026-09-10 Runner activation-policy regression check additionally verifies
+that applying an already-effective AppKit policy is idempotent even when the
+platform setter would return false. `make runner-configuration-test` covers the
+native branch without changing the public ABI or manifest contract. The
+complete `make test` regression matrix also passes after the correction.
+
 - Add VM Service and restart only after deciding the desired debugging model.
 - Treat AOT, signing, hardened runtime, sandboxing, accessibility, IME,
   clipboard, PTY, and distribution as separate milestones.

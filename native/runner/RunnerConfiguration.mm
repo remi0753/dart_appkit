@@ -189,6 +189,10 @@ bool ApplyRunnerActivationPolicy(NSApplication* application,
       policy = NSApplicationActivationPolicyProhibited;
       break;
   }
+  if (application.activationPolicy == policy) {
+    out_error->clear();
+    return true;
+  }
   if (![application setActivationPolicy:policy]) {
     *out_error = "AppKit rejected the configured activation policy";
     return false;
