@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)6)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)7)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -245,6 +245,7 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_ACTIVE_CHANGED = 30,
   DA_EVENT_APPLICATION_REOPEN_REQUESTED = 31,
   DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
+  DA_EVENT_APPLICATION_APPEARANCE_CHANGED = 33,
   DA_EVENT_MENU_ITEM_INVOKED = 40
 } DaEventType;
 

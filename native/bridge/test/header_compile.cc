@@ -16,7 +16,7 @@ static_assert(sizeof(DaTextViewConfiguration) == 160);
 static_assert(std::is_standard_layout_v<DaMenuConfiguration>);
 static_assert(sizeof(DaMenuConfiguration) == 16);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 6);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 7);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);

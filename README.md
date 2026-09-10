@@ -8,7 +8,8 @@ Dart message work is limited per run-loop turn.
 The reusable surface is deliberately small: native windows and tab groups,
 generic, text, registered native-provider, and two-child split views, explicit
 first-responder selection, menus and menu-item actions, periodic `Timer`
-updates, lifecycle/window/input events, 64 MiB-bounded plain-text pasteboard
+updates, lifecycle/window/input events, cached application light/dark
+appearance, 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 per-window key-event routing, mutable outer frames, asynchronous native
 fullscreen state, and a restart-based developer command.
@@ -20,9 +21,11 @@ operation identity. Version 3 adds focus, visibility, occlusion,
 backing-scale, and screen state. Version 4 adds application
 active/reopen/termination and user-close request events
 plus menu-item actions while preserving older records. Version 5 adds precision
-scroll input. Current Dart/native pairs negotiate version 6, which adds outer
-window-frame and native-fullscreen state events. The Dart API strictly decodes
-all six versions and suppresses newer records for older negotiated sinks.
+scroll input. Version 6 adds outer window-frame and native-fullscreen state.
+Current Dart/native pairs negotiate version 7, which adds a deduplicated
+application effective-appearance snapshot and change event. The Dart API
+strictly decodes all seven versions and suppresses newer records for older
+negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other

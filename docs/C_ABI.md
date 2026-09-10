@@ -208,7 +208,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 6 use the six-field common prefix:
+Versions 2 through 7 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -222,13 +222,14 @@ Versions 2 through 6 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 6 use nanoseconds.
+  microseconds; versions 2 through 7 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 6 is current. Version 3 adds window state, version 4 adds lifecycle
-  decisions and menu actions, version 5 adds precision scroll, and version 6
-  adds outer-frame and native-fullscreen state. Version-specific types are
-  suppressed for an older negotiated sink.
+- Version 7 is current. Version 3 adds window state, version 4 adds lifecycle
+  decisions and menu actions, version 5 adds precision scroll, version 6 adds
+  outer-frame and native-fullscreen state, and version 7 adds an application
+  effective-appearance boolean (`false` light, `true` dark). Version-specific
+  types are suppressed for an older negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
 to the same deferred application decision and operation-ID state used by the
@@ -318,7 +319,10 @@ AppKit decision. If a v4 event cannot be posted, the bridge fails open and lets
 the OS action continue. Programmatic `da_window_close` and
 `da_application_terminate` bypass user-request deferral so shutdown cannot
 deadlock after Dart has stopped listening for events. Registering a v4 event
-port also posts the current application-active snapshot.
+port also posts the current application-active snapshot. A v7 registration
+additionally posts the current effective light/dark appearance and starts a
+deduplicating KVO observation that is replaced by re-registration and removed
+at bridge shutdown.
 
 ## Pasteboard policy
 

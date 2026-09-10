@@ -69,6 +69,20 @@ final class ApplicationTerminateRequestedEvent extends ApplicationEvent {
   });
 }
 
+enum AppKitAppearance { light, dark }
+
+final class ApplicationAppearanceChangedEvent extends ApplicationEvent {
+  const ApplicationAppearanceChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 7,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.appearance,
+  });
+
+  final AppKitAppearance appearance;
+}
+
 sealed class WindowEvent extends AppKitEvent {
   const WindowEvent({
     required super.windowHandle,
@@ -400,6 +414,7 @@ final class _EventCodec {
   static const int _applicationActiveChanged = 30;
   static const int _applicationReopenRequested = 31;
   static const int _applicationTerminateRequested = 32;
+  static const int _applicationAppearanceChanged = 33;
   static const int _menuItemInvoked = 40;
 
   static AppKitEvent decode(Object? message) {
@@ -748,6 +763,22 @@ final class _EventCodec {
           monotonicNanoseconds: monotonicNanoseconds,
           operationId: operationId,
         );
+      case _applicationAppearanceChanged:
+        _requireVersionSeven(version, 'application appearance changed');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'application appearance changed',
+        );
+        return ApplicationAppearanceChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          appearance: _boolean(message, payloadOffset, 'isDark')
+              ? AppKitAppearance.dark
+              : AppKitAppearance.light,
+        );
       case _menuItemInvoked:
         _requireVersionFour(version, 'menu item invoked');
         _expectLength(message, payloadOffset, 'menu item invoked');
@@ -800,6 +831,12 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionSeven(int version, String eventName) {
+    if (version < 7) {
+      throw FormatException('$eventName requires native event protocol 7');
+    }
+  }
+
   static AppKitScrollPhase _scrollPhase(
     List<Object?> message,
     int index,
@@ -818,7 +855,8 @@ final class _EventCodec {
   static bool _isApplicationScoped(int type) =>
       type == _applicationActiveChanged ||
       type == _applicationReopenRequested ||
-      type == _applicationTerminateRequested;
+      type == _applicationTerminateRequested ||
+      type == _applicationAppearanceChanged;
 
   static bool _requiresReply(int type) =>
       type == _windowCloseRequested || type == _applicationTerminateRequested;

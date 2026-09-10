@@ -83,7 +83,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
   const bool application_scoped =
       event.type == DA_EVENT_APPLICATION_ACTIVE_CHANGED ||
       event.type == DA_EVENT_APPLICATION_REOPEN_REQUESTED ||
-      event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
+      event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED ||
+      event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
   const bool reply_required =
       event.type == DA_EVENT_WINDOW_CLOSE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
@@ -114,6 +115,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 3:
     case 4:
     case 5:
+    case 6:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -165,6 +167,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
     case DA_EVENT_APPLICATION_ACTIVE_CHANGED:
     case DA_EVENT_APPLICATION_REOPEN_REQUESTED:
+    case DA_EVENT_APPLICATION_APPEARANCE_CHANGED:
     case DA_EVENT_WINDOW_FULLSCREEN_CHANGED:
       length += 1;
       SetBool(&values[payload_offset], event.state);

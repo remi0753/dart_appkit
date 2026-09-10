@@ -83,18 +83,19 @@ version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
 `[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2
-through 6 use
+through 7 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
 ...payload]`. Version 3 adds window focus, visibility, occlusion,
 backing-scale, and screen events. Those types are suppressed before posting to
 a version-1/2 sink. Version 4 adds application active/reopen/termination,
 user-close request, and menu-action records; these are suppressed for v1-v3.
-Version 5 adds precision scroll records and version 6 adds outer-frame and
-native-fullscreen state records; each is suppressed for every earlier sink.
+Version 5 adds precision scroll records, version 6 adds outer-frame and
+native-fullscreen state records, and version 7 adds application effective-
+appearance records; each is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
 operation ID zero, while deferred close and termination requests carry a
-positive reply identity. The Dart decoder accepts all six versions, preserves
+positive reply identity. The Dart decoder accepts all seven versions, preserves
 the existing `monotonicMicros` API, and exposes exact negotiated metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
@@ -121,8 +122,13 @@ frame-state records while retaining legacy content-resize delivery; completion
 publishes fullscreen state before the resulting frame so consumers can retain
 their last safe windowed geometry. Neither callback synchronously enters Dart.
 
-Event-port registration posts an application-active snapshot, after which
-AppDelegate posts active/resign and reopen transitions. User close and
+Event-port registration posts an application-active snapshot. A version-7
+registration also best-matches `NSApplication.effectiveAppearance` to Aqua or
+Dark Aqua, posts that initial state, and observes the SDK-recommended KVO key.
+Equivalent effective light/dark results are deduplicated, observation is
+replaced on event-port re-registration, and shutdown removes it before the
+poster is disabled. AppDelegate posts active/resign and reopen transitions.
+User close and
 termination decisions remain synchronous inside AppKit only long enough to
 return `NO`/`NSTerminateLater`; Dart is never entered from the delegate. An
 opted-in target holds one positive operation ID until Dart replies. A duplicate

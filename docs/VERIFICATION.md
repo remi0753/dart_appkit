@@ -1,6 +1,7 @@
 # MVP Verification
 
-Verification date: 2026-09-04 (Asia/Tokyo).
+Verification date: 2026-09-04 (Asia/Tokyo). Latest regression update:
+2026-09-10.
 
 ## Result
 
@@ -31,6 +32,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | close/resize/mouse/key and v3 window-state native model | Native payload/snapshot/deduplication tests plus Dart decoder/routing/state tests | Verified |
 | Per-window key routing and raw-input responder suppression | Native default/exclusive/menu dispatch tests plus Dart state/failure and legacy-symbol tests | Verified |
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
+| v7 application effective appearance | Initial light/dark snapshot, KVO change/deduplication/shutdown native tests, exact shared encoder record, strict Dart cache/typed-stream/malformed/legacy filtering tests | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Application-owned external URL policy | Dart default/custom typed-policy matrix, native condition recorder after repeated validation, invariant bound/text/thread guards, current and exact-default legacy FFI smoke | Verified |
 | Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |

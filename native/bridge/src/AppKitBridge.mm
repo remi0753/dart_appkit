@@ -18,6 +18,96 @@
 #include "CustomViewRegistry.h"
 #include "ObjectRegistry.h"
 
+namespace {
+
+int g_application_appearance_observation_context = 0;
+
+bool DaApplicationUsesDarkAppearance(NSApplication* application) {
+  if (application == nil) {
+    return false;
+  }
+  NSAppearanceName match =
+      [application.effectiveAppearance bestMatchFromAppearancesWithNames:@[
+        NSAppearanceNameAqua,
+        NSAppearanceNameDarkAqua,
+      ]];
+  return [match isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+}  // namespace
+
+@interface DaApplicationAppearanceObserver : NSObject {
+ @private
+  __weak NSApplication* _application;
+  BOOL _observing;
+  BOOL _lastIsDark;
+}
+
+- (instancetype)initWithApplication:(NSApplication*)application;
+- (void)stop;
+
+@end
+
+@implementation DaApplicationAppearanceObserver
+
+- (instancetype)initWithApplication:(NSApplication*)application {
+  self = [super init];
+  if (self != nil) {
+    _application = application;
+    _lastIsDark = DaApplicationUsesDarkAppearance(application);
+    [application addObserver:self
+                  forKeyPath:@"effectiveAppearance"
+                     options:0
+                     context:&g_application_appearance_observation_context];
+    _observing = YES;
+  }
+  return self;
+}
+
+- (void)stop {
+  NSApplication* application = _application;
+  if (!_observing || application == nil) {
+    _observing = NO;
+    return;
+  }
+  _observing = NO;
+  [application removeObserver:self
+                   forKeyPath:@"effectiveAppearance"
+                      context:&g_application_appearance_observation_context];
+}
+
+- (void)observeValueForKeyPath:(NSString*)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary<NSKeyValueChangeKey, id>*)change
+                       context:(void*)context {
+  (void)keyPath;
+  (void)object;
+  (void)change;
+  if (context != &g_application_appearance_observation_context) {
+    [super observeValueForKeyPath:keyPath
+                         ofObject:object
+                           change:change
+                          context:context];
+    return;
+  }
+  NSApplication* application = _application;
+  if (!_observing || application == nil) {
+    return;
+  }
+  const BOOL is_dark = DaApplicationUsesDarkAppearance(application);
+  if (is_dark == _lastIsDark) {
+    return;
+  }
+  _lastIsDark = is_dark;
+  dart_appkit::PostApplicationAppearanceChanged(is_dark);
+}
+
+- (void)dealloc {
+  [self stop];
+}
+
+@end
+
 @implementation DaMenuItemOwner
 
 @synthesize item = _item;
@@ -83,6 +173,7 @@ std::atomic<uint64_t> g_async_release_epoch{1};
 bool g_defers_application_termination_requests = false;
 int64_t g_pending_application_termination_operation_id = 0;
 bool g_programmatic_application_termination = false;
+DaApplicationAppearanceObserver* g_application_appearance_observer = nil;
 constexpr uint64_t kStableModifierMask =
     DA_MODIFIER_CAPS_LOCK | DA_MODIFIER_SHIFT | DA_MODIFIER_CONTROL |
     DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND | DA_MODIFIER_NUMERIC_PAD |
@@ -717,6 +808,31 @@ void PostApplicationReopenRequested(bool has_visible_windows) {
   (void)PostEvent(event);
 }
 
+void PostApplicationAppearanceChanged(bool is_dark) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.state = is_dark;
+  (void)PostEvent(event);
+}
+
+bool ApplicationUsesDarkAppearance() {
+  return DaApplicationUsesDarkAppearance(NSApp);
+}
+
+void StartApplicationAppearanceObservation() {
+  StopApplicationAppearanceObservation();
+  if (NSApp != nil) {
+    g_application_appearance_observer =
+        [[DaApplicationAppearanceObserver alloc] initWithApplication:NSApp];
+  }
+}
+
+void StopApplicationAppearanceObservation() {
+  [g_application_appearance_observer stop];
+  g_application_appearance_observer = nil;
+}
+
 ApplicationTerminationDecision HandleApplicationShouldTerminate() {
   if (g_programmatic_application_termination) {
     g_programmatic_application_termination = false;
@@ -748,6 +864,7 @@ void ShutdownBridge() {
   }
   g_accept_async_releases.store(false, std::memory_order_release);
   g_async_release_epoch.fetch_add(1, std::memory_order_acq_rel);
+  StopApplicationAppearanceObservation();
   DisableEventPoster();
   g_defers_application_termination_requests = false;
   g_pending_application_termination_operation_id = 0;
@@ -821,6 +938,7 @@ int32_t da_application_set_event_port(int64_t dart_port) {
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
+  dart_appkit::StopApplicationAppearanceObservation();
   return dart_appkit::SetEventPort(dart_port);
 }
 
@@ -835,10 +953,16 @@ int32_t da_application_set_event_port_versioned(
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
+  dart_appkit::StopApplicationAppearanceObservation();
   const int32_t status = dart_appkit::SetEventPortVersioned(
       dart_port, min_version, max_version, out_selected_version);
   if (status == DA_STATUS_OK) {
     dart_appkit::PostApplicationActiveChanged(NSApp != nil && NSApp.isActive);
+    if (*out_selected_version >= 7) {
+      dart_appkit::StartApplicationAppearanceObservation();
+      dart_appkit::PostApplicationAppearanceChanged(
+          dart_appkit::ApplicationUsesDarkAppearance());
+    }
   }
   return status;
 }

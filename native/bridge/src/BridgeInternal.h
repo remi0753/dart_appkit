@@ -73,6 +73,10 @@ enum class ApplicationTerminationDecision {
 
 void PostApplicationActiveChanged(bool is_active);
 void PostApplicationReopenRequested(bool has_visible_windows);
+void PostApplicationAppearanceChanged(bool is_dark);
+bool ApplicationUsesDarkAppearance();
+void StartApplicationAppearanceObservation();
+void StopApplicationAppearanceObservation();
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
 
 inline bool EventTypeSupportedByProtocol(DaEventType type,
@@ -96,6 +100,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
     case DA_EVENT_WINDOW_FRAME_CHANGED:
     case DA_EVENT_WINDOW_FULLSCREEN_CHANGED:
       return protocol_version >= 6;
+    case DA_EVENT_APPLICATION_APPEARANCE_CHANGED:
+      return protocol_version >= 7;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

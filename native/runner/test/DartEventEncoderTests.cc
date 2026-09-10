@@ -169,6 +169,15 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectInt(values[4], 1234567890);
     ExpectInt(values[5], 0);
     ExpectBool(values[6], true);
+  } else if (g_expected_case == 11) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(7));
+    ExpectInt(values[0], 7);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_APPEARANCE_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectBool(values[6], true);
   } else {
     EXPECT_TRUE(false);
   }
@@ -258,7 +267,14 @@ int main() {
   g_expected_case = 10;
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 6, event));
 
+  event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
+  event.window = 0;
+  event.state = true;
+  g_expected_case = 11;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 7, event));
+
   const int accepted_posts = g_post_count;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 6, event));
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 5, event));
   event.type = DA_EVENT_WINDOW_FRAME_CHANGED;
   event.width = 0.0;
@@ -301,7 +317,7 @@ int main() {
   event.operation_id = 1;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 1, event));
   event.operation_id = 0;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 8, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

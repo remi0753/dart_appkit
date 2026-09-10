@@ -91,8 +91,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 6 &&
-        app.eventProtocolVersion == 6,
+        bindings.requestedMaximumEventProtocolVersion == 7 &&
+        app.eventProtocolVersion == 7,
     'current event protocol negotiation',
   );
 
@@ -1174,6 +1174,7 @@ Future<void> _testLifecycleRequestEvents() async {
   var activeCount = 0;
   var reopenCount = 0;
   var terminationCount = 0;
+  var appearanceCount = 0;
   var closeRequestCount = 0;
   var activeStateWasCurrent = true;
   final List<AppKitEvent> events = <AppKitEvent>[];
@@ -1184,6 +1185,9 @@ Future<void> _testLifecycleRequestEvents() async {
     events.add(event);
     if (event case ApplicationActiveChangedEvent(:final isActive)) {
       activeStateWasCurrent &= app.isActive == isActive;
+    }
+    if (event case ApplicationAppearanceChangedEvent(:final appearance)) {
+      activeStateWasCurrent &= app.effectiveAppearance == appearance;
     }
   }, onError: (Object error) => errors.add(error));
   final StreamSubscription<ApplicationActiveChangedEvent> activeEvents = app
@@ -1203,6 +1207,11 @@ Future<void> _testLifecycleRequestEvents() async {
     (ApplicationTerminateRequestedEvent event) => ++terminationCount,
     onError: (Object _) {},
   );
+  final StreamSubscription<ApplicationAppearanceChangedEvent> appearanceEvents =
+      app.onAppearanceChanged.listen(
+        (ApplicationAppearanceChangedEvent event) => ++appearanceCount,
+        onError: (Object _) {},
+      );
   final StreamSubscription<WindowCloseRequestedEvent> closeEvents = window
       .onCloseRequested
       .listen((WindowCloseRequestedEvent event) => ++closeRequestCount);
@@ -1227,6 +1236,7 @@ Future<void> _testLifecycleRequestEvents() async {
 
   raw
     ..add(<Object?>[4, 30, 0, 0, 400000, 0, true])
+    ..add(<Object?>[7, 33, 0, 0, 400500, 0, true])
     ..add(<Object?>[4, 31, 0, 0, 401000, 0, false])
     ..add(<Object?>[4, 8, handle, 7, 402000, 41])
     ..add(<Object?>[4, 32, 0, 0, 403000, 42])
@@ -1237,18 +1247,23 @@ Future<void> _testLifecycleRequestEvents() async {
     activeCount == 1 &&
         reopenCount == 1 &&
         terminationCount == 1 &&
+        appearanceCount == 1 &&
         closeRequestCount == 1,
     'typed lifecycle event streams',
   );
-  _expect(events.length == 5, 'all lifecycle events reach application');
+  _expect(
+    app.effectiveAppearance == AppKitAppearance.dark,
+    'appearance state cached before observer',
+  );
+  _expect(events.length == 6, 'all lifecycle events reach application');
   final ApplicationReopenRequestedEvent reopen =
-      events[1] as ApplicationReopenRequestedEvent;
+      events[2] as ApplicationReopenRequestedEvent;
   _expect(!reopen.hasVisibleWindows, 'reopen payload');
   final WindowCloseRequestedEvent close =
-      events[2] as WindowCloseRequestedEvent;
+      events[3] as WindowCloseRequestedEvent;
   final ApplicationTerminateRequestedEvent termination =
-      events[3] as ApplicationTerminateRequestedEvent;
-  final MenuItemInvokedEvent menu = events[4] as MenuItemInvokedEvent;
+      events[4] as ApplicationTerminateRequestedEvent;
+  final MenuItemInvokedEvent menu = events[5] as MenuItemInvokedEvent;
   _expect(
     close.operationId == 41 &&
         termination.operationId == 42 &&
@@ -1286,9 +1301,11 @@ Future<void> _testLifecycleRequestEvents() async {
     ..add(<Object?>[4, 30, 0, 0, 408000, 1, false])
     ..add(<Object?>[4, 32, 0, 0, 409000, 0])
     ..add(<Object?>[3, 30, 0, 0, 410000, 0, true])
-    ..add(<Object?>[4, 40, 0, 0, 411000, 0]);
+    ..add(<Object?>[4, 40, 0, 0, 411000, 0])
+    ..add(<Object?>[6, 33, 0, 0, 412000, 0, true])
+    ..add(<Object?>[7, 33, 0, 0, 413000, 0, 1]);
   _expect(
-    errors.length == 7 &&
+    errors.length == 9 &&
         errors.every((Object error) => error is FormatException),
     'malformed lifecycle events are surfaced',
   );
@@ -1304,6 +1321,7 @@ Future<void> _testLifecycleRequestEvents() async {
   await activeEvents.cancel();
   await reopenEvents.cancel();
   await terminationEvents.cancel();
+  await appearanceEvents.cancel();
   await closeEvents.cancel();
   await appEvents.cancel();
   other.dispose();

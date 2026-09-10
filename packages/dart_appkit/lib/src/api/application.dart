@@ -59,6 +59,7 @@ final class AppKitApplication {
   late final StreamSubscription<Object?> _eventSubscription;
   bool _terminated = false;
   bool _active = false;
+  AppKitAppearance? _effectiveAppearance;
   bool _defersTerminationRequests = false;
   Pasteboard? _generalPasteboard;
   Menu? _mainMenu;
@@ -166,8 +167,12 @@ final class AppKitApplication {
   Stream<ApplicationTerminateRequestedEvent> get onTerminateRequested => events
       .where((AppKitEvent event) => event is ApplicationTerminateRequestedEvent)
       .map((AppKitEvent event) => event as ApplicationTerminateRequestedEvent);
+  Stream<ApplicationAppearanceChangedEvent> get onAppearanceChanged => events
+      .where((AppKitEvent event) => event is ApplicationAppearanceChangedEvent)
+      .map((AppKitEvent event) => event as ApplicationAppearanceChangedEvent);
   bool get isTerminated => _terminated;
   bool get isActive => _active;
+  AppKitAppearance? get effectiveAppearance => _effectiveAppearance;
 
   Pasteboard get generalPasteboard {
     _ensureRunning();
@@ -325,6 +330,9 @@ final class AppKitApplication {
       if (event case ApplicationActiveChangedEvent(:final isActive)) {
         _active = isActive;
       }
+      if (event case ApplicationAppearanceChangedEvent(:final appearance)) {
+        _effectiveAppearance = appearance;
+      }
       Window? window;
       if (event is WindowEvent) {
         final WeakReference<Window>? reference = _windows[event.windowHandle];
@@ -371,6 +379,7 @@ final class AppKitApplication {
     _windows.clear();
     _menuItems.clear();
     _active = false;
+    _effectiveAppearance = null;
     _defersTerminationRequests = false;
     _generalPasteboard = null;
     _mainMenu = null;

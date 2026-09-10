@@ -3,6 +3,62 @@
 This is the append-oriented evidence log for `ROADMAP.md`. Each completed task
 ends with a roadmap checkpoint stating the current position and remaining path.
 
+## 2026-09-10 — Application effective-appearance event
+
+### Purpose and boundary
+
+Expose the reusable AppKit application light/dark state required by consuming
+applications without moving any product theme names, colors, or palette policy
+into the native bridge. Keep the C ABI at version 1 and extend only the
+independently negotiated immutable event protocol.
+
+### Scope and verification plan
+
+- Add protocol v7 application appearance event type 33. Its zero-source,
+  zero-operation notification payload is one boolean: false for light and true
+  for dark.
+- Best-match `NSApplication.effectiveAppearance` against Aqua/Dark Aqua, post
+  an initial v7 snapshot, observe the SDK-recommended KVO key, deduplicate the
+  resulting two-state projection, and remove observation on re-registration or
+  shutdown.
+- Expose `AppKitAppearance`, `ApplicationAppearanceChangedEvent`, nullable
+  `AppKitApplication.effectiveAppearance`, and a typed change stream. Update
+  the cache before application observers receive an event.
+- Verify v1–v6 filtering, exact shared JIT/AOT encoder layout, KVO lifecycle,
+  strict/malformed Dart decode, typed cache/stream, and legacy registration.
+
+### Findings and verification
+
+- AppKit's effective appearance can represent more than two named variants.
+  `bestMatchFromAppearancesWithNames:` provides the stable application-level
+  light/dark projection while allowing accessibility variants to remain owned
+  by later APIs.
+- Event-port registration happens before the Dart receive-port listener is
+  installed, but `ReceivePort` queues the native snapshot. The public cache is
+  therefore nullable only until that queued v7 record is decoded; old v1–v6
+  native images retain the nullable fallback indefinitely.
+- Re-registering any event protocol first removes the observer. Successful v7
+  registration installs a fresh observer and snapshot; older registration and
+  failed negotiation cannot retain a stale appearance callback.
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test
+  event-encoder-test dart-test` passed warning-clean Objective-C++/C++ builds,
+  actual Aqua/Dark Aqua KVO change and deduplication, shutdown silence, exact v7
+  wire encoding, Dart analysis, cache-before-stream routing, malformed v6/v7
+  records, and legacy selection.
+- Complete `CI=true DART_SUPPRESS_ANALYTICS=true make test` passed scaffold and
+  C/C++ contract checks, every native bridge/Runner/runtime/capability/renderer/
+  PTY suite, all Dart analyzers and tests, example Kernel compilation, current
+  bridge FFI smoke, and the v1 legacy event fallback.
+- Final diff and documentation review plus `git diff --check` passed. The C ABI
+  remains version 1; v1–v6 layouts and behavior are unchanged, and type 33 is
+  rejected before posting to every older negotiated sink.
+
+### Roadmap checkpoint
+
+The application appearance slice of G10 is implemented. G10 remains open for
+its other published window/application operations; no later roadmap item was
+implemented.
+
 ## 2026-09-10 — configurable menu enablement and message-pump budgets
 
 ### Purpose and boundary

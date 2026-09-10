@@ -625,6 +625,34 @@ void TestEventProtocolNegotiation() {
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 7, 7, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(7));
+  EXPECT_TRUE(capture.events.size() >= static_cast<size_t>(2));
+  EXPECT_EQ(capture.events[capture.events.size() - 2].type,
+            DA_EVENT_APPLICATION_ACTIVE_CHANGED);
+  EXPECT_EQ(capture.events.back().type,
+            DA_EVENT_APPLICATION_APPEARANCE_CHANGED);
+  EXPECT_EQ(capture.events.back().state,
+            dart_appkit::ApplicationUsesDarkAppearance());
+
+  event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
+  event.window = 0;
+  event.state = true;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(7));
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(6));
+  const size_t before_version_seven_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_seven_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 8, 8, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -638,6 +666,8 @@ void TestEventProtocolNegotiation() {
             DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(da_application_set_event_port(4242), DA_STATUS_OK);
+  event.type = DA_EVENT_WINDOW_CLOSED;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(1));
 }
@@ -648,26 +678,30 @@ void TestLifecycleRequests() {
 
   dart_appkit::PostApplicationActiveChanged(true);
   dart_appkit::PostApplicationReopenRequested(false);
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  dart_appkit::PostApplicationAppearanceChanged(true);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
   EXPECT_EQ(capture.events[0].type, DA_EVENT_APPLICATION_ACTIVE_CHANGED);
   EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
   EXPECT_TRUE(capture.events[0].state);
   EXPECT_EQ(capture.events[0].operation_id, static_cast<int64_t>(0));
   EXPECT_EQ(capture.events[1].type, DA_EVENT_APPLICATION_REOPEN_REQUESTED);
   EXPECT_TRUE(!capture.events[1].state);
+  EXPECT_EQ(capture.events[2].type,
+            DA_EVENT_APPLICATION_APPEARANCE_CHANGED);
+  EXPECT_TRUE(capture.events[2].state);
 
   EXPECT_EQ(da_application_set_termination_request_deferral(2),
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_application_set_termination_request_deferral(1), DA_STATUS_OK);
   EXPECT_EQ(da_debug_request_application_termination(), DA_STATUS_OK);
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
   const int64_t termination_operation = capture.events.back().operation_id;
   EXPECT_EQ(capture.events.back().type,
             DA_EVENT_APPLICATION_TERMINATE_REQUESTED);
   EXPECT_TRUE(termination_operation > 0);
   EXPECT_TRUE(dart_appkit::HandleApplicationShouldTerminate() ==
               dart_appkit::ApplicationTerminationDecision::kTerminateLater);
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(3));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
   EXPECT_EQ(da_application_set_termination_request_deferral(0),
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(
@@ -694,13 +728,13 @@ void TestLifecycleRequests() {
   EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 1),
             DA_STATUS_OK);
   EXPECT_EQ(da_window_request_close(window_handle), DA_STATUS_OK);
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(5));
   const int64_t close_operation = capture.events.back().operation_id;
   EXPECT_EQ(capture.events.back().type, DA_EVENT_WINDOW_CLOSE_REQUESTED);
   EXPECT_EQ(capture.events.back().window, window_handle);
   EXPECT_TRUE(close_operation > 0);
   EXPECT_EQ(da_window_request_close(window_handle), DA_STATUS_OK);
-  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(5));
   EXPECT_EQ(da_window_set_close_request_deferral(window_handle, 0),
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(
@@ -728,6 +762,37 @@ void TestLifecycleRequests() {
   EXPECT_TRUE([legacy_owner windowShouldClose:legacy_owner.window]);
   EXPECT_TRUE(legacy_capture.events.empty());
   EXPECT_EQ(da_release(legacy_window), DA_STATUS_OK);
+}
+
+void TestApplicationAppearanceObservation() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  NSAppearance* original_appearance = NSApp.appearance;
+
+  NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+  capture.events.clear();
+  capture.protocol_versions.clear();
+
+  NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_APPEARANCE_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(capture.events.back().type,
+            DA_EVENT_APPLICATION_APPEARANCE_CHANGED);
+  EXPECT_TRUE(capture.events.back().state);
+  EXPECT_EQ(capture.events.back().window, static_cast<DaHandle>(0));
+  EXPECT_EQ(capture.events.back().operation_id, static_cast<int64_t>(0));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(7));
+
+  NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_APPEARANCE_CHANGED),
+            static_cast<size_t>(1));
+
+  dart_appkit::ShutdownBridge();
+  const size_t after_shutdown = capture.events.size();
+  NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
+  EXPECT_EQ(capture.events.size(), after_shutdown);
+  NSApp.appearance = original_appearance;
+  dart_appkit::ResetBridgeForTesting();
 }
 
 void TestPasteboardText() {
@@ -2467,6 +2532,7 @@ int main() {
     TestWindowConfiguration();
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
+    TestApplicationAppearanceObservation();
     TestPasteboardText();
     TestExternalUrlOpening();
     TestMenus();

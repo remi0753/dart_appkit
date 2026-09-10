@@ -61,7 +61,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   既存pipelineへ統合することである。
 - 現在の検証済み基準は、arm64上のDeveloper JIT／Release AOT、Timer動作、
   ウィンドウ・メニュー・入力イベント、close/terminate応答、native handle解放、
-  event protocol v5のprecision scrollとv6のouter-frame／native-fullscreen state、
+  event protocol v5のprecision scroll、v6のouter-frame／native-fullscreen state、
+  v7のapplication effective-appearance、
   native window tab、2-child SplitView、first responder設定、window presentation metadata、
   boundedなplain-text pasteboard read、allowlist付き外部URL起動、capability loading、
   PTY ABI v5のprocess snapshot／consumer-configured read scheduling、process exit 0に加え、
@@ -126,7 +127,7 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   `appKitOnly` をWindow単位で選択可能にした。
 - event protocol v5に、flipped content座標、pixel精度delta、通常／momentum phase、
   device inversion、modifierを持つWindow発生元の `AppKitScrollEvent` を追加。
-- input、window、application eventをversion 1〜6でstrict decode／routeし、旧protocolでは
+- input、window、application eventをversion 1〜7でstrict decode／routeし、旧protocolでは
   新しいeventを安全に除外する仕組みを実装。
 
 ### [x] B4 — MenuとプレーンテキストPasteboard
@@ -416,7 +417,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   device inversion、modifierを持つtyped `AppKitScrollEvent` を追加した。
 - `KeyEventRouting.appKitOnly` を追加し、menu shortcut処理後のkeyをDartのWindow eventへ
   重複配送せず、first-responder／`NSTextInputClient` chainだけへ渡せるようにした。
-- v1〜v6のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
+- v1〜v7のstrict encoder／decoder、旧protocol filtering、有限値／phase検証を追加した。
 - `Window.makeFirstResponder(View)` を追加し、同じWindowのcontent hierarchy内にあるViewだけを
   AppKit first responderへ設定できるようにした。
 - package-createdな基底／簡易text viewのfocus可否を `ViewConfiguration` で選択可能にした。
@@ -627,6 +628,8 @@ window/application操作を提供する。
   従来の4-style windowを互換defaultとして維持する。
 - 起動前manifest／`RunnerConfiguration` でactivation、launch activation、last-window close、
   reopen handled policyを選択可能にし、従来挙動を互換defaultとして維持する。
+- event protocol v7にapplication-scopedなeffective light/dark appearance snapshot／changeを
+  追加し、typed cache／stream、KVO deduplication、再登録／shutdown cleanupを実装した。
 
 未実装:
 
@@ -639,7 +642,7 @@ window/application操作を提供する。
 - Window registry、複数Window lifecycle、last-window close policy、state restorationを
   追加する。
 - regular/accessory/prohibited activation policy、Dock menu／badge、status itemを追加する。
-- screen列挙、座標変換、sleep/wake、session、application appearance changeを追加する。
+- screen列挙、座標変換、sleep/wake、sessionを追加する。
 
 完了条件:
 

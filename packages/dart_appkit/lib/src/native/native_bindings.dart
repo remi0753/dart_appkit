@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 6;
+const int dartAppKitCurrentEventProtocolVersion = 7;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;

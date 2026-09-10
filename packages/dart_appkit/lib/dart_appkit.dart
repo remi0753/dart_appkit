@@ -4,8 +4,10 @@ library;
 export 'src/api.dart'
     show
         AppKitApplication,
+        AppKitAppearance,
         AppKitEvent,
         ApplicationActiveChangedEvent,
+        ApplicationAppearanceChangedEvent,
         ApplicationEvent,
         ApplicationReopenRequestedEvent,
         ApplicationTerminateRequestedEvent,
