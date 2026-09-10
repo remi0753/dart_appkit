@@ -34,8 +34,10 @@ __attribute__((visibility("default"))) uint32_t dmr_runtime_abi_version(void);
 __attribute__((visibility("default"))) int32_t
 dmr_runtime_set_exit_code(int32_t exit_code);
 
-// Records a non-zero process result and asynchronously asks NSApplication to
-// terminate. Repeating the same request is idempotent.
+// Optionally records a process result in 0..255 and asynchronously asks
+// NSApplication to terminate. Zero requests clean termination without
+// replacing a previously recorded non-zero result. Repeating the same request
+// is idempotent.
 __attribute__((visibility("default"))) int32_t
 dmr_runtime_request_termination(int32_t exit_code);
 

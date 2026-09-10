@@ -99,6 +99,9 @@ abstract final class MacosRuntime {
     _checkStatus(_bindings.setExitCode(exitCode), 'set process exit code');
   }
 
+  /// Requests host termination with a process result in 0 through 255.
+  ///
+  /// Zero requests a clean exit and preserves any earlier non-zero result.
   static void requestTermination({required int exitCode}) {
     _checkStatus(
       _bindings.requestTermination(exitCode),

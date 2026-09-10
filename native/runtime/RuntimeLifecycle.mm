@@ -71,9 +71,17 @@ extern "C" int32_t dmr_runtime_set_exit_code(int32_t exit_code) {
 }
 
 extern "C" int32_t dmr_runtime_request_termination(int32_t exit_code) {
-  const int32_t result = dart_macos_runtime::RecordExitCode(exit_code);
-  if (result != DMR_RUNTIME_OK) {
-    return result;
+  if (pthread_main_np() == 0) {
+    return DMR_RUNTIME_WRONG_THREAD;
+  }
+  if (exit_code < 0 || exit_code > 255) {
+    return DMR_RUNTIME_INVALID_ARGUMENT;
+  }
+  if (exit_code != 0) {
+    const int32_t result = dart_macos_runtime::RecordExitCode(exit_code);
+    if (result != DMR_RUNTIME_OK) {
+      return result;
+    }
   }
   bool expected = false;
   if (dart_macos_runtime::termination_requested.compare_exchange_strong(
