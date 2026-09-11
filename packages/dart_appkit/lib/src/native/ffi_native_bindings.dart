@@ -331,6 +331,11 @@ typedef _WindowCreateConfiguredDart = int Function(
 );
 typedef _HandleRectNative = Int32 Function(Uint64, _DaRectNative);
 typedef _HandleRectDart = int Function(int, _DaRectNative);
+typedef _HandleRectOutputNative = Int32 Function(
+  Uint64,
+  Pointer<_DaRectNative>,
+);
+typedef _HandleRectOutputDart = int Function(int, Pointer<_DaRectNative>);
 typedef _HandleStatusNative = Int32 Function(Uint64);
 typedef _HandleStatusDart = int Function(int);
 typedef _HandleBoolStatusNative = Int32 Function(Uint64, Int32);
@@ -791,6 +796,18 @@ _HandleRectDart? _lookupHandleRect(DynamicLibrary library, String symbol) {
   }
 }
 
+_HandleRectOutputDart? _lookupHandleRectOutput(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library
+        .lookupFunction<_HandleRectOutputNative, _HandleRectOutputDart>(symbol);
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleBoolStatusDart? _lookupWindowCloseDeferral(DynamicLibrary library) {
   try {
     return library
@@ -1120,6 +1137,10 @@ final class FfiNativeBindings
             'da_window_close',
           ),
       _windowSetFrame = _lookupHandleRect(library, 'da_window_set_frame'),
+      _windowGetContentLayoutRect = _lookupHandleRectOutput(
+        library,
+        'da_window_get_content_layout_rect',
+      ),
       _windowSetFullscreen = _lookupHandleInt(
         library,
         'da_window_set_fullscreen',
@@ -1264,6 +1285,7 @@ final class FfiNativeBindings
   final _HandleStatusDart _windowShow;
   final _HandleStatusDart _windowClose;
   final _HandleRectDart? _windowSetFrame;
+  final _HandleRectOutputDart? _windowGetContentLayoutRect;
   final _HandleBoolStatusDart? _windowSetFullscreen;
   final _HandleStatusDart? _windowRequestClose;
   final _HandleBoolStatusDart? _windowCloseDeferral;
@@ -1938,6 +1960,34 @@ final class FfiNativeBindings
         ..width = width
         ..height = height;
       return _callResult(function(handle, rectPointer.ref));
+    } finally {
+      _free(rectPointer.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<NativeRect> windowGetContentLayoutRect(int handle) {
+    final _HandleRectOutputDart? function = _windowGetContentLayoutRect;
+    if (function == null) {
+      return const NativeValueResult<NativeRect>.failure(
+        8,
+        'legacy native bridge does not support window content layout queries',
+      );
+    }
+    final Pointer<_DaRectNative> rectPointer = _malloc(sizeOf<_DaRectNative>())
+        .cast<_DaRectNative>();
+    try {
+      final int status = function(handle, rectPointer);
+      final _DaRectNative rect = rectPointer.ref;
+      return _valueResult<NativeRect>(
+        status,
+        NativeRect(
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        ),
+      );
     } finally {
       _free(rectPointer.cast<Void>());
     }

@@ -482,6 +482,10 @@ DA_EXPORT int32_t da_window_create_configured(
 /** Main thread only. Replaces the finite positive outer window frame. */
 DA_EXPORT int32_t da_window_set_frame(DaHandle window, DaRect frame);
 
+/** Main thread only. Copies the current native content layout rectangle. */
+DA_EXPORT int32_t da_window_get_content_layout_rect(DaHandle window,
+                                                    DaRect* out_rect);
+
 /**
  * Main thread only. Requests native AppKit fullscreen entry or exit.
  *

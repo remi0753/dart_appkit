@@ -54,6 +54,7 @@ final class FakeNativeBindings
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
   final Map<int, List<double>> windowFrames = <int, List<double>>{};
+  final Map<int, List<double>> windowContentLayoutRects = <int, List<double>>{};
   final Map<int, int> windowStyleMasks = <int, int>{};
   final Map<int, bool> windowFullscreenStates = <int, bool>{};
   final Map<int, String> windowRepresentedFilePaths = <int, String>{};
@@ -393,6 +394,7 @@ final class FakeNativeBindings
       objects[handle] = FakeObjectKind.window;
       windowTitles[handle] = title;
       windowFrames[handle] = <double>[x, y, width, height];
+      windowContentLayoutRects[handle] = <double>[0, 0, width, height];
       windowStyleMasks[handle] = styleMask;
       windowFullscreenStates[handle] = false;
       windowKeyEventRoutings[handle] = 0;
@@ -417,8 +419,27 @@ final class FakeNativeBindings
     final NativeCallResult result = _status('windowSetFrame');
     if (result.isSuccess) {
       windowFrames[handle] = <double>[x, y, width, height];
+      windowContentLayoutRects[handle] = <double>[0, 0, width, height];
     }
     return result;
+  }
+
+  @override
+  NativeValueResult<NativeRect> windowGetContentLayoutRect(int handle) {
+    final NativeCallResult status = _status('windowGetContentLayoutRect');
+    if (!status.isSuccess) {
+      return NativeValueResult<NativeRect>.failure(
+        status.status,
+        status.message,
+      );
+    }
+    final List<double>? rect = windowContentLayoutRects[handle];
+    if (rect == null) {
+      return const NativeValueResult<NativeRect>.failure(2, 'unknown window');
+    }
+    return NativeValueResult<NativeRect>.success(
+      NativeRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3]),
+    );
   }
 
   @override
@@ -841,6 +862,7 @@ final class FakeNativeBindings
       objects.remove(handle);
       windowTitles.remove(handle);
       windowFrames.remove(handle);
+      windowContentLayoutRects.remove(handle);
       windowFullscreenStates.remove(handle);
       windowRepresentedFilePaths.remove(handle);
       windowTabColors.remove(handle);

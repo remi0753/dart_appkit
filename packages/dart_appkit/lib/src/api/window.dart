@@ -254,6 +254,16 @@ final class Window extends _NativeResource {
     return _frame;
   }
 
+  /// Current drawable content layout inside the native window frame.
+  Rect get contentLayoutRect {
+    ensureAlive();
+    final NativeRect native = _checkValue<NativeRect>(
+      _bindings.windowGetContentLayoutRect(_handle),
+      'Window.contentLayoutRect',
+    );
+    return Rect.fromLTWH(native.x, native.y, native.width, native.height);
+  }
+
   set frame(Rect value) {
     ensureAlive();
     _validateFrame(value);

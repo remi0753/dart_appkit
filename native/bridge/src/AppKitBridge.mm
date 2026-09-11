@@ -1792,6 +1792,31 @@ int32_t da_window_set_frame(DaHandle window, DaRect frame) {
   return DA_STATUS_OK;
 }
 
+int32_t da_window_get_content_layout_rect(DaHandle window,
+                                          DaRect* out_rect) {
+  dart_appkit::ClearLastError();
+  if (out_rect == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_rect must not be null");
+  }
+  *out_rect = {};
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  const NSRect rect = owner.window.contentLayoutRect;
+  out_rect->x = rect.origin.x;
+  out_rect->y = rect.origin.y;
+  out_rect->width = rect.size.width;
+  out_rect->height = rect.size.height;
+  return DA_STATUS_OK;
+}
+
 int32_t da_window_set_fullscreen(DaHandle window, int32_t enabled) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();

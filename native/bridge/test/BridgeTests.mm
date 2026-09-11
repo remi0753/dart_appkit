@@ -2307,6 +2307,17 @@ void TestWindowStateEvents() {
   EXPECT_TRUE(std::abs(created_frame.size.width - 640.0) < 0.001);
   EXPECT_TRUE(std::abs(created_frame.size.height - 480.0) < 0.001);
 
+  DaRect content_layout{};
+  EXPECT_EQ(
+      da_window_get_content_layout_rect(window_handle, &content_layout),
+      DA_STATUS_OK);
+  EXPECT_TRUE(content_layout.width > 0.0);
+  EXPECT_TRUE(content_layout.width <= created_frame.size.width);
+  EXPECT_TRUE(content_layout.height > 0.0);
+  EXPECT_TRUE(content_layout.height < created_frame.size.height);
+  EXPECT_EQ(da_window_get_content_layout_rect(window_handle, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
   [owner daPostFocusState:YES];
   [owner daPostFocusState:YES];
   [owner daPostVisibilityState:YES];
@@ -2366,17 +2377,25 @@ void TestWindowStateEvents() {
   const DaHandle wrong_kind = CreateView();
   EXPECT_EQ(da_window_set_frame(wrong_kind, moved_frame),
             DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_get_content_layout_rect(wrong_kind, &content_layout),
+            DA_STATUS_WRONG_HANDLE_TYPE);
   EXPECT_EQ(da_window_set_fullscreen(wrong_kind, 0),
             DA_STATUS_WRONG_HANDLE_TYPE);
   std::atomic<int32_t> frame_worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> content_layout_worker_status{DA_STATUS_OK};
   std::atomic<int32_t> fullscreen_worker_status{DA_STATUS_OK};
   std::thread state_worker([&]() {
     frame_worker_status.store(da_window_set_frame(window_handle, moved_frame));
+    DaRect worker_content_layout{};
+    content_layout_worker_status.store(
+        da_window_get_content_layout_rect(window_handle,
+                                          &worker_content_layout));
     fullscreen_worker_status.store(
         da_window_set_fullscreen(window_handle, 0));
   });
   state_worker.join();
   EXPECT_EQ(frame_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(content_layout_worker_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(fullscreen_worker_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
 

@@ -115,6 +115,20 @@ Future<void> _testLifecycleAndErrors() async {
   );
   _expect(bindings.windowTitles.values.single == 'Updated', 'title update');
   _expect(window.contentView == view, 'content-view Dart ownership');
+  _expect(
+    window.contentLayoutRect == const Rect.fromLTWH(0, 0, 640, 480),
+    'window content layout query',
+  );
+  bindings.failNextOperation = 'windowGetContentLayoutRect';
+  final AppKitNativeException contentLayoutError =
+      await _expectThrows<AppKitNativeException>(
+        () => window.contentLayoutRect,
+      );
+  _expect(
+    contentLayoutError.status == 7 &&
+        contentLayoutError.nativeMessage == 'injected native failure',
+    'window content layout native failure',
+  );
   _expect(app.debugLiveObjectCount == 2, 'debug live count');
   _expect(bindings.attachedFinalizers.length == 2, 'finalizers attached');
 

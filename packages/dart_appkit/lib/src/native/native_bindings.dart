@@ -260,6 +260,20 @@ final class NativePasteboardTextSnapshot {
   final int changeCount;
 }
 
+final class NativeRect {
+  const NativeRect({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+}
+
 abstract interface class NativeBindings {
   int abiVersion();
 
@@ -319,6 +333,7 @@ abstract interface class NativeBindings {
     required double width,
     required double height,
   });
+  NativeValueResult<NativeRect> windowGetContentLayoutRect(int handle);
   NativeCallResult windowSetFullscreen(int handle, bool enabled);
   NativeCallResult windowRequestClose(int handle);
   NativeCallResult windowSetCloseRequestDeferral(int handle, bool enabled);
