@@ -66,6 +66,32 @@ void main(List<String> arguments) {
       externalUrl.message.isEmpty) {
     _fail('external URL symbol did not preserve its main-thread guard');
   }
+  final NativeCallResult userNotification = bindings
+      .applicationPostUserNotification(
+        identifier: 'ffi-smoke-1',
+        title: 'Smoke',
+        body: 'Main-thread guard',
+      );
+  if (userNotification.isSuccess ||
+      userNotification.status != 5 ||
+      userNotification.message.isEmpty) {
+    _fail('user notification symbol did not preserve its main-thread guard');
+  }
+  final NativeCallResult notificationRemoval = bindings
+      .applicationRemoveUserNotification('ffi-smoke-1');
+  if (notificationRemoval.isSuccess ||
+      notificationRemoval.status != 5 ||
+      notificationRemoval.message.isEmpty) {
+    _fail('notification removal did not preserve its main-thread guard');
+  }
+  final NativeCallResult dockBadge = bindings.applicationSetDockBadgeLabel(
+    '1%',
+  );
+  if (dockBadge.isSuccess ||
+      dockBadge.status != 5 ||
+      dockBadge.message.isEmpty) {
+    _fail('Dock badge symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> menu = bindings.menuCreate(
     'FFI smoke',
     autoEnablesItems: true,

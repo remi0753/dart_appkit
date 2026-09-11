@@ -52,6 +52,12 @@ struct NativeEvent {
 using EventPoster = bool (*)(int64_t dart_port, uint32_t event_protocol_version,
                              const NativeEvent& event, void* context);
 
+enum class UserNotificationOperation { kPost, kRemove };
+
+using UserNotificationHandler = bool (*)(
+    UserNotificationOperation operation, std::string_view identifier,
+    std::string_view title, std::string_view body, void* context);
+
 void ClearLastError();
 int32_t SetLastError(DaStatus status, std::string_view message);
 int32_t RequireMainThread();
@@ -78,6 +84,8 @@ bool ApplicationUsesDarkAppearance();
 void StartApplicationAppearanceObservation();
 void StopApplicationAppearanceObservation();
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
+void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
+                                              void* context);
 
 inline bool EventTypeSupportedByProtocol(DaEventType type,
                                          uint32_t protocol_version) {

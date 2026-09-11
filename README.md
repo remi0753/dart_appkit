@@ -11,6 +11,7 @@ first-responder selection, menus and menu-item actions, periodic `Timer`
 updates, lifecycle/window/input events, cached application light/dark
 appearance, 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
+bounded local user-notification delivery and a short Dock badge label,
 per-window key-event routing, mutable outer frames, asynchronous native
 fullscreen state, a bounded attributed multiline text editor, and a
 restart-based developer command.
@@ -243,6 +244,18 @@ non-authority `mailto`; applications may instead define their own schemes and
 authority, host, credential, and path requirements. The library always retains
 its 4096-byte limit and malformed, control, invisible, backslash, and unsafe
 escape rejection, and the native boundary repeats those checks.
+
+Local notification policy is also application-owned. Construct a bounded
+`AppKitUserNotification`, then call `postUserNotification` or
+`removeUserNotification` on the attached application. Identifiers are at most
+128 ASCII bytes, title and body are individually at most 4096 UTF-8 bytes, and
+unsafe display controls and invisible formatting characters are rejected at
+both Dart and native boundaries. Posting requests alert authorization
+asynchronously and replaces an outstanding request with the same identifier;
+removing it also prevents a still-pending authorization callback from posting
+stale content. The bridge deliberately does not decide rate, focus, pane, or
+title-fallback policy. `dockBadgeLabel` similarly exposes only a copied,
+32-byte-bounded label or `null` to clear it.
 
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
 the embedded root isolate. Ordinary in-process workers are not part of the

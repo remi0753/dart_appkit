@@ -286,6 +286,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] 現在のSplitViewを汎用化するか、明示的な2-pane helperとして境界を定める。
 - [x] 基底Viewと簡易TextViewのfocus／autoresize／font／padding／colorをparameter化する。
 - [x] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
+- [x] bounded user notification送信／取消とDock badge更新を、product policyを持たない
+  application mechanismとして追加する。
 
 実装内容:
 

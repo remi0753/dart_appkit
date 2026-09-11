@@ -30,6 +30,13 @@ extern "C" {
 /** Maximum UTF-8 bytes accepted for one application policy scheme. */
 #define DA_EXTERNAL_URL_SCHEME_MAX_UTF8_BYTES ((size_t)64u)
 
+/** Hard copied-input bounds for application user notifications. */
+#define DA_USER_NOTIFICATION_IDENTIFIER_MAX_UTF8_BYTES ((size_t)128u)
+#define DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES ((size_t)4096u)
+
+/** Hard copied-input bound for the short application Dock badge label. */
+#define DA_DOCK_BADGE_LABEL_MAX_UTF8_BYTES ((size_t)32u)
+
 /** Stable application-selected conditions for one external URL scheme. */
 typedef enum DaExternalUrlPolicyFlag {
   DA_EXTERNAL_URL_POLICY_REQUIRE_AUTHORITY = 1u << 0,
@@ -410,6 +417,28 @@ DA_EXPORT int32_t da_application_open_external_url_with_policy(
     const char* url, size_t url_length, const char* expected_scheme,
     size_t expected_scheme_length, uint64_t policy_flags,
     int32_t* out_opened);
+
+/**
+ * Main thread only. Submits one immediate alert-only local notification.
+ *
+ * All UTF-8 inputs are copied before return. identifier must be nonempty,
+ * bounded ASCII suitable for later cancellation, and title/body must contain
+ * safe display text with at least one nonempty field. Authorization and final
+ * scheduling complete asynchronously; this call reports synchronous admission.
+ */
+DA_EXPORT int32_t da_application_post_user_notification(
+    const char* identifier, size_t identifier_length, const char* title,
+    size_t title_length, const char* body, size_t body_length);
+
+/** Main thread only. Cancels pending and delivered notification identity. */
+DA_EXPORT int32_t da_application_remove_user_notification(
+    const char* identifier, size_t identifier_length);
+
+/**
+ * Main thread only. Sets a copied short Dock badge, or clears it for zero bytes.
+ */
+DA_EXPORT int32_t da_application_set_dock_badge_label(
+    const char* label, size_t label_length);
 
 /**
  * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.

@@ -46,6 +46,11 @@ final class FakeNativeBindings
   final List<String> openedExternalUrls = <String>[];
   final List<String> openedExternalUrlSchemes = <String>[];
   final List<int> openedExternalUrlPolicyFlags = <int>[];
+  final List<({String identifier, String title, String body})>
+  postedUserNotifications =
+      <({String identifier, String title, String body})>[];
+  final List<String> removedUserNotifications = <String>[];
+  String? dockBadgeLabel;
   String? pasteboardText;
   int pasteboardChangeCount = 0;
   int? pasteboardTextUtf8LengthOverride;
@@ -217,6 +222,39 @@ final class FakeNativeBindings
       openedExternalUrlSchemes.add(scheme);
       openedExternalUrlPolicyFlags.add(policyFlags);
     }
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationPostUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+  }) {
+    final NativeCallResult result = _status('applicationPostUserNotification');
+    if (result.isSuccess) {
+      postedUserNotifications.add((
+        identifier: identifier,
+        title: title,
+        body: body,
+      ));
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationRemoveUserNotification(String identifier) {
+    final NativeCallResult result = _status(
+      'applicationRemoveUserNotification',
+    );
+    if (result.isSuccess) removedUserNotifications.add(identifier);
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationSetDockBadgeLabel(String? label) {
+    final NativeCallResult result = _status('applicationSetDockBadgeLabel');
+    if (result.isSuccess) dockBadgeLabel = label;
     return result;
   }
 

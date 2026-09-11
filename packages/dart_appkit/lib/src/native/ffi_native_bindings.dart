@@ -253,6 +253,24 @@ typedef _ExternalUrlOpenWithPolicyDart = int Function(
   int,
   Pointer<Int32>,
 );
+typedef _StringStatusNative = Int32 Function(Pointer<Uint8>, Size);
+typedef _StringStatusDart = int Function(Pointer<Uint8>, int);
+typedef _ThreeStringsStatusNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+);
+typedef _ThreeStringsStatusDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+);
 typedef _PasteboardReadNative = Int32 Function(
   Pointer<_DaPasteboardTextNative>,
 );
@@ -765,6 +783,30 @@ _ExternalUrlOpenWithPolicyDart? _lookupApplicationOpenExternalUrlWithPolicy(
   }
 }
 
+_StringStatusDart? _lookupStringStatus(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_StringStatusNative, _StringStatusDart>(
+      symbol,
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_ThreeStringsStatusDart? _lookupThreeStringsStatus(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library
+        .lookupFunction<_ThreeStringsStatusNative, _ThreeStringsStatusDart>(
+          symbol,
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleStatusDart? _lookupWindowRequestClose(DynamicLibrary library) {
   try {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
@@ -1110,6 +1152,18 @@ final class FfiNativeBindings
       _applicationOpenExternalUrl = _lookupApplicationOpenExternalUrl(library),
       _applicationOpenExternalUrlWithPolicy =
           _lookupApplicationOpenExternalUrlWithPolicy(library),
+      _applicationPostUserNotification = _lookupThreeStringsStatus(
+        library,
+        'da_application_post_user_notification',
+      ),
+      _applicationRemoveUserNotification = _lookupStringStatus(
+        library,
+        'da_application_remove_user_notification',
+      ),
+      _applicationSetDockBadgeLabel = _lookupStringStatus(
+        library,
+        'da_application_set_dock_badge_label',
+      ),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
@@ -1267,6 +1321,9 @@ final class FfiNativeBindings
   final _NoArgsStatusDart? _debugRequestApplicationTermination;
   final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
   final _ExternalUrlOpenWithPolicyDart? _applicationOpenExternalUrlWithPolicy;
+  final _ThreeStringsStatusDart? _applicationPostUserNotification;
+  final _StringStatusDart? _applicationRemoveUserNotification;
+  final _StringStatusDart? _applicationSetDockBadgeLabel;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
@@ -1576,6 +1633,72 @@ final class FfiNativeBindings
         _free(output.cast<Void>());
       }
     });
+  }
+
+  @override
+  NativeCallResult applicationPostUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+  }) {
+    final _ThreeStringsStatusDart? function = _applicationPostUserNotification;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support user notifications',
+      );
+    }
+    return _withUtf8(identifier, (
+      Pointer<Uint8> identifierPointer,
+      int identifierLength,
+    ) {
+      return _withUtf8(title, (Pointer<Uint8> titlePointer, int titleLength) {
+        return _withUtf8(body, (Pointer<Uint8> bodyPointer, int bodyLength) {
+          return _callResult(
+            function(
+              identifierPointer,
+              identifierLength,
+              titlePointer,
+              titleLength,
+              bodyPointer,
+              bodyLength,
+            ),
+          );
+        });
+      });
+    });
+  }
+
+  @override
+  NativeCallResult applicationRemoveUserNotification(String identifier) {
+    final _StringStatusDart? function = _applicationRemoveUserNotification;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support user notification removal',
+      );
+    }
+    return _withUtf8(
+      identifier,
+      (Pointer<Uint8> pointer, int length) =>
+          _callResult(function(pointer, length)),
+    );
+  }
+
+  @override
+  NativeCallResult applicationSetDockBadgeLabel(String? label) {
+    final _StringStatusDart? function = _applicationSetDockBadgeLabel;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support a Dock badge label',
+      );
+    }
+    return _withUtf8(
+      label ?? '',
+      (Pointer<Uint8> pointer, int length) =>
+          _callResult(function(pointer, length)),
+    );
   }
 
   @override

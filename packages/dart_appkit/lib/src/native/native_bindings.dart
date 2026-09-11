@@ -7,6 +7,9 @@ const int dartAppKitCurrentEventProtocolVersion = 7;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
+const int dartAppKitUserNotificationIdentifierMaximumUtf8Bytes = 128;
+const int dartAppKitUserNotificationTextMaximumUtf8Bytes = 4096;
+const int dartAppKitDockBadgeLabelMaximumUtf8Bytes = 32;
 const int dartAppKitExternalUrlPolicyRequireAuthority = 1 << 0;
 const int dartAppKitExternalUrlPolicyForbidAuthority = 1 << 1;
 const int dartAppKitExternalUrlPolicyRequireHost = 1 << 2;
@@ -294,6 +297,13 @@ abstract interface class NativeBindings {
     required String scheme,
     required int policyFlags,
   });
+  NativeCallResult applicationPostUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+  });
+  NativeCallResult applicationRemoveUserNotification(String identifier);
+  NativeCallResult applicationSetDockBadgeLabel(String? label);
 
   NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText();
   NativeValueResult<int> pasteboardWriteText(String text);

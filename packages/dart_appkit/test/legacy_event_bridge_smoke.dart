@@ -177,6 +177,18 @@ void main(List<String> arguments) {
       8) {
     _fail('legacy bridge accepted a custom external URL policy');
   }
+  if (bindings
+              .applicationPostUserNotification(
+                identifier: 'legacy-1',
+                title: 'Legacy',
+                body: 'Unsupported',
+              )
+              .status !=
+          8 ||
+      bindings.applicationRemoveUserNotification('legacy-1').status != 8 ||
+      bindings.applicationSetDockBadgeLabel('1%').status != 8) {
+    _fail('legacy bridge accepted additive notification or Dock APIs');
+  }
   final NativeValueResult<int> configuredWindow = bindings.windowCreate(
     x: 0,
     y: 0,

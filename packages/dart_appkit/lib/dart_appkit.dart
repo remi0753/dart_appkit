@@ -11,6 +11,7 @@ export 'src/api.dart'
         ApplicationEvent,
         ApplicationReopenRequestedEvent,
         ApplicationTerminateRequestedEvent,
+        AppKitUserNotification,
         AllowedExternalUrl,
         AppKitInitializationException,
         AppKitKeyEvent,
@@ -74,6 +75,9 @@ export 'src/api.dart'
 export 'src/native/native_bindings.dart'
     show
         dartAppKitCurrentEventProtocolVersion,
+        dartAppKitDockBadgeLabelMaximumUtf8Bytes,
         dartAppKitExternalUrlMaximumUtf8Bytes,
         dartAppKitMinimumEventProtocolVersion,
-        dartAppKitPasteboardMaximumTextUtf8Bytes;
+        dartAppKitPasteboardMaximumTextUtf8Bytes,
+        dartAppKitUserNotificationIdentifierMaximumUtf8Bytes,
+        dartAppKitUserNotificationTextMaximumUtf8Bytes;

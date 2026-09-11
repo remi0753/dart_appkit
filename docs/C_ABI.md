@@ -361,6 +361,32 @@ for those exact rules; a custom policy on such an image returns
 workspace opener after validation and therefore never launch an external
 application.
 
+## User notification and Dock badge policy
+
+`da_application_post_user_notification` accepts a required notification
+identifier of at most 128 UTF-8 bytes and title/body fields of at most 4096
+UTF-8 bytes each. Identifiers are restricted to ASCII letters, digits, dot,
+underscore, plus, and hyphen. Title and body reject controls, bidi overrides,
+and invisible formatting characters, and may not both be empty. All input is
+copied before the function returns. The call is main-thread-only, starts an
+asynchronous alert-authorization check when needed, and schedules an immediate
+`UNNotificationRequest` only if that identifier has not subsequently been
+removed or replaced. The bridge retains at most 256 authorization-pending
+identifiers and returns `DA_STATUS_LIMIT_EXCEEDED` before growing past that
+bound.
+
+`da_application_remove_user_notification` cancels the bridge's pending token
+and removes both pending and delivered system notifications for the identifier.
+Neither operation exposes or transfers an Objective-C handle. Notification
+rate, application-focus suppression, pane ownership, title fallback, and
+lifecycle admission remain product policy rather than C ABI behavior.
+
+`da_application_set_dock_badge_label` copies a nullable label of at most 32
+UTF-8 bytes, applies the same unsafe-display-text rejection, and uses null to
+clear `NSApplication.dockTile.badgeLabel`. It does not interpret progress or
+draw a custom Dock tile. Current Dart bindings discover all three additive
+symbols independently; an older image returns `DA_STATUS_UNSUPPORTED_VERSION`.
+
 ## Menu policy
 
 Menu and item titles plus key equivalents use the same copied UTF-8 convention

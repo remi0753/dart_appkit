@@ -36,6 +36,80 @@ final class _ProvidedEventSource implements _EventSource {
   void close() => _onClose?.call();
 }
 
+/// Immutable copied payload for one application local notification.
+final class AppKitUserNotification {
+  AppKitUserNotification({
+    required this.identifier,
+    required this.title,
+    required this.body,
+  }) {
+    if (!isValidIdentifier(identifier)) {
+      throw ArgumentError.value(
+        identifier,
+        'identifier',
+        'must be 1–$maximumIdentifierUtf8Bytes ASCII bytes using '
+            'letters, digits, dot, plus, underscore, or hyphen',
+      );
+    }
+    if (!_isSafeDisplayText(title, maximumTextUtf8Bytes) ||
+        !_isSafeDisplayText(body, maximumTextUtf8Bytes) ||
+        title.isEmpty && body.isEmpty) {
+      throw ArgumentError(
+        'title and body must be bounded safe display text and not both empty',
+      );
+    }
+  }
+
+  static const int maximumIdentifierUtf8Bytes =
+      dartAppKitUserNotificationIdentifierMaximumUtf8Bytes;
+  static const int maximumTextUtf8Bytes =
+      dartAppKitUserNotificationTextMaximumUtf8Bytes;
+
+  final String identifier;
+  final String title;
+  final String body;
+
+  static bool isValidIdentifier(String value) {
+    final List<int> bytes = utf8.encode(value);
+    if (bytes.isEmpty || bytes.length > maximumIdentifierUtf8Bytes) {
+      return false;
+    }
+    for (final int byte in bytes) {
+      final bool valid =
+          byte >= 0x30 && byte <= 0x39 ||
+          byte >= 0x41 && byte <= 0x5a ||
+          byte >= 0x61 && byte <= 0x7a ||
+          byte == 0x2d ||
+          byte == 0x2e ||
+          byte == 0x2b ||
+          byte == 0x5f;
+      if (!valid) return false;
+    }
+    return true;
+  }
+}
+
+bool _isSafeDisplayText(String value, int maximumUtf8Bytes) {
+  if (utf8.encode(value).length > maximumUtf8Bytes) return false;
+  for (final int scalar in value.runes) {
+    final bool unsafe =
+        scalar <= 0x1f ||
+        scalar >= 0x7f && scalar <= 0x9f ||
+        scalar == 0xa0 ||
+        scalar == 0xad ||
+        scalar == 0x61c ||
+        scalar == 0x1680 ||
+        scalar == 0x180e ||
+        scalar >= 0x2000 && scalar <= 0x200f ||
+        scalar >= 0x2028 && scalar <= 0x202f ||
+        scalar >= 0x205f && scalar <= 0x206f ||
+        scalar == 0x3000 ||
+        scalar == 0xfeff;
+    if (unsafe) return false;
+  }
+  return true;
+}
+
 final class AppKitApplication {
   AppKitApplication._(
     this._bindings,
@@ -63,6 +137,7 @@ final class AppKitApplication {
   bool _defersTerminationRequests = false;
   Pasteboard? _generalPasteboard;
   Menu? _mainMenu;
+  String? _dockBadgeLabel;
 
   static Future<AppKitApplication> attach({
     ExternalUrlPolicy? externalUrlPolicy,
@@ -271,6 +346,52 @@ final class AppKitApplication {
     return opened == 1;
   }
 
+  /// Submits one bounded alert-only notification for asynchronous delivery.
+  void postUserNotification(AppKitUserNotification notification) {
+    _ensureRunning();
+    _checkCall(
+      _bindings.applicationPostUserNotification(
+        identifier: notification.identifier,
+        title: notification.title,
+        body: notification.body,
+      ),
+      'AppKitApplication.postUserNotification',
+    );
+  }
+
+  /// Removes pending and delivered native state for one application identity.
+  void removeUserNotification(String identifier) {
+    _ensureRunning();
+    if (!AppKitUserNotification.isValidIdentifier(identifier)) {
+      throw ArgumentError.value(identifier, 'identifier');
+    }
+    _checkCall(
+      _bindings.applicationRemoveUserNotification(identifier),
+      'AppKitApplication.removeUserNotification',
+    );
+  }
+
+  String? get dockBadgeLabel => _dockBadgeLabel;
+
+  /// Sets a short application Dock badge, or clears it with null/empty text.
+  set dockBadgeLabel(String? value) {
+    _ensureRunning();
+    final String? normalized = value == null || value.isEmpty ? null : value;
+    if (normalized != null &&
+        !_isSafeDisplayText(
+          normalized,
+          dartAppKitDockBadgeLabelMaximumUtf8Bytes,
+        )) {
+      throw ArgumentError.value(value, 'dockBadgeLabel');
+    }
+    if (normalized == _dockBadgeLabel) return;
+    _checkCall(
+      _bindings.applicationSetDockBadgeLabel(normalized),
+      'AppKitApplication.dockBadgeLabel',
+    );
+    _dockBadgeLabel = normalized;
+  }
+
   int get debugLiveObjectCount {
     _ensureRunning();
     return _checkValue<int>(
@@ -383,6 +504,7 @@ final class AppKitApplication {
     _defersTerminationRequests = false;
     _generalPasteboard = null;
     _mainMenu = null;
+    _dockBadgeLabel = null;
   }
 }
 

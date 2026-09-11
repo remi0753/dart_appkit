@@ -1,7 +1,7 @@
 # MVP Verification
 
 Verification date: 2026-09-04 (Asia/Tokyo). Latest regression update:
-2026-09-11.
+2026-09-12.
 
 ## Result
 
@@ -35,6 +35,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | v7 application effective appearance | Initial light/dark snapshot, KVO change/deduplication/shutdown native tests, exact shared encoder record, strict Dart cache/typed-stream/malformed/legacy filtering tests | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Application-owned external URL policy | Dart default/custom typed-policy matrix, native condition recorder after repeated validation, invariant bound/text/thread guards, current and exact-default legacy FFI smoke | Verified |
+| Bounded local notifications and Dock badge mechanism | Immutable Dart input validation, native main-thread/boundary/recorder tests, duplicate badge suppression, authorization-pending cancellation contract, and current/legacy FFI smoke | Verified |
 | Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Configurable base/display-text views | Immutable Dart configurations, native focus/autoresize/font/padding/color validation and state inspection, current/legacy FFI | Verified |

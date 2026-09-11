@@ -1756,6 +1756,106 @@ Future<void> _testExternalUrlApi() async {
   await customRaw.close();
 }
 
+Future<void> _testUserNotificationAndDockBadgeApi() async {
+  await _expectThrows<ArgumentError>(
+    () => AppKitUserNotification(identifier: '', title: 'title', body: ''),
+  );
+  await _expectThrows<ArgumentError>(
+    () => AppKitUserNotification(
+      identifier: 'invalid/id',
+      title: 'title',
+      body: '',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => AppKitUserNotification(identifier: 'valid-id', title: '', body: ''),
+  );
+  await _expectThrows<ArgumentError>(
+    () => AppKitUserNotification(
+      identifier: 'valid-id',
+      title: 'unsafe\u202evalue',
+      body: '',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => AppKitUserNotification(
+      identifier: 'valid-id',
+      title: 'x' * (AppKitUserNotification.maximumTextUtf8Bytes + 1),
+      body: '',
+    ),
+  );
+
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final AppKitUserNotification notification = AppKitUserNotification(
+    identifier: 'pane-4-session-2-notification-1',
+    title: 'Build complete',
+    body: 'The bounded task finished.',
+  );
+  app.postUserNotification(notification);
+  _expect(
+    bindings.postedUserNotifications.single ==
+        (
+          identifier: notification.identifier,
+          title: notification.title,
+          body: notification.body,
+        ),
+    'immutable notification payload reaches native bindings exactly once',
+  );
+  app.dockBadgeLabel = '73%';
+  app.dockBadgeLabel = '73%';
+  _expect(
+    app.dockBadgeLabel == '73%' &&
+        bindings.dockBadgeLabel == '73%' &&
+        bindings.operations
+                .where(
+                  (String operation) =>
+                      operation == 'applicationSetDockBadgeLabel',
+                )
+                .length ==
+            1,
+    'Dock badge caches and suppresses duplicate native updates',
+  );
+  app.dockBadgeLabel = '';
+  _expect(
+    app.dockBadgeLabel == null && bindings.dockBadgeLabel == null,
+    'empty Dock badge input canonicalizes to clear',
+  );
+  await _expectThrows<ArgumentError>(() => app.dockBadgeLabel = 'x' * 33);
+  app.removeUserNotification(notification.identifier);
+  _expect(
+    bindings.removedUserNotifications.single == notification.identifier,
+    'notification removal keeps the exact validated identity',
+  );
+
+  bindings.failNextOperation = 'applicationPostUserNotification';
+  final AppKitNativeException postError =
+      await _expectThrows<AppKitNativeException>(
+        () => app.postUserNotification(notification),
+      );
+  _expect(
+    postError.status == 7 && bindings.postedUserNotifications.length == 1,
+    'failed native submission does not mutate fake notification state',
+  );
+  bindings.failNextOperation = 'applicationSetDockBadgeLabel';
+  await _expectThrows<AppKitNativeException>(() => app.dockBadgeLabel = '9%');
+  _expect(
+    app.dockBadgeLabel == null && bindings.dockBadgeLabel == null,
+    'failed Dock update does not publish a Dart or fake cache value',
+  );
+
+  await app.terminate();
+  await _expectThrows<StateError>(() => app.postUserNotification(notification));
+  await _expectThrows<StateError>(
+    () => app.removeUserNotification(notification.identifier),
+  );
+  await _expectThrows<StateError>(() => app.dockBadgeLabel = '1%');
+  await raw.close();
+}
+
 Future<void> _testMenuApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -2102,6 +2202,10 @@ Future<void> main() async {
   );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
   await _test('allowlisted external URL opening', _testExternalUrlApi);
+  await _test(
+    'bounded user notification and Dock badge API',
+    _testUserNotificationAndDockBadgeApi,
+  );
   await _test('menu ownership and action routing', _testMenuApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);

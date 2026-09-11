@@ -1,6 +1,7 @@
 #include "dart_appkit.h"
 
 #import <AppKit/AppKit.h>
+#import <UserNotifications/UserNotifications.h>
 
 #include <dispatch/dispatch.h>
 #include <pthread.h>
@@ -175,10 +176,20 @@ bool g_defers_application_termination_requests = false;
 int64_t g_pending_application_termination_operation_id = 0;
 bool g_programmatic_application_termination = false;
 DaApplicationAppearanceObserver* g_application_appearance_observer = nil;
+NSMutableDictionary<NSString*, NSNumber*>* g_pending_user_notifications = nil;
+uint64_t g_next_user_notification_token = 1;
+constexpr NSUInteger kMaximumPendingUserNotifications = 256;
 constexpr uint64_t kStableModifierMask =
     DA_MODIFIER_CAPS_LOCK | DA_MODIFIER_SHIFT | DA_MODIFIER_CONTROL |
     DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND | DA_MODIFIER_NUMERIC_PAD |
     DA_MODIFIER_FUNCTION;
+
+bool HandleUserNotificationWithSystem(
+    UserNotificationOperation operation, std::string_view identifier,
+    std::string_view title, std::string_view body, void* context);
+UserNotificationHandler g_user_notification_handler =
+    HandleUserNotificationWithSystem;
+void* g_user_notification_context = nullptr;
 
 bool IsAsciiSchemeCharacter(unichar unit, bool first) {
   const bool alpha = (unit >= 'A' && unit <= 'Z') ||
@@ -286,6 +297,111 @@ NSString* CopyUtf8(const char* bytes, size_t length, int32_t* out_status) {
   }
   *out_status = DA_STATUS_OK;
   return value;
+}
+
+bool ContainsUnsafeDisplayText(NSString* value) {
+  for (NSUInteger index = 0; index < value.length; ++index) {
+    const unichar unit = [value characterAtIndex:index];
+    if (unit <= 0x1f || (unit >= 0x7f && unit <= 0x9f) || unit == 0xa0 ||
+        unit == 0xad || unit == 0x61c || unit == 0x1680 || unit == 0x180e ||
+        (unit >= 0x2000 && unit <= 0x200f) ||
+        (unit >= 0x2028 && unit <= 0x202f) ||
+        (unit >= 0x205f && unit <= 0x206f) || unit == 0x3000 ||
+        unit == 0xfeff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ValidUserNotificationIdentifier(const char* bytes, size_t length) {
+  if (bytes == nullptr || length == 0 ||
+      length > DA_USER_NOTIFICATION_IDENTIFIER_MAX_UTF8_BYTES) {
+    return false;
+  }
+  for (size_t index = 0; index < length; ++index) {
+    const unsigned char byte = static_cast<unsigned char>(bytes[index]);
+    const bool valid = (byte >= '0' && byte <= '9') ||
+                       (byte >= 'A' && byte <= 'Z') ||
+                       (byte >= 'a' && byte <= 'z') || byte == '-' ||
+                       byte == '.' || byte == '+' || byte == '_';
+    if (!valid) {
+      return false;
+    }
+  }
+  return true;
+}
+
+NSString* CopyStringView(std::string_view value) {
+  return [[NSString alloc] initWithBytes:value.data()
+                                  length:value.size()
+                                encoding:NSUTF8StringEncoding];
+}
+
+bool HandleUserNotificationWithSystem(
+    UserNotificationOperation operation, std::string_view identifier,
+    std::string_view title, std::string_view body, void* context) {
+  (void)context;
+  NSString* copied_identifier = CopyStringView(identifier);
+  UNUserNotificationCenter* center =
+      [UNUserNotificationCenter currentNotificationCenter];
+  if (operation == UserNotificationOperation::kRemove) {
+    [g_pending_user_notifications removeObjectForKey:copied_identifier];
+    NSArray<NSString*>* identifiers = @[ copied_identifier ];
+    [center removePendingNotificationRequestsWithIdentifiers:identifiers];
+    [center removeDeliveredNotificationsWithIdentifiers:identifiers];
+    return true;
+  }
+
+  if (g_pending_user_notifications == nil) {
+    g_pending_user_notifications = [[NSMutableDictionary alloc] init];
+  }
+  if (g_pending_user_notifications[copied_identifier] == nil &&
+      g_pending_user_notifications.count >= kMaximumPendingUserNotifications) {
+    return false;
+  }
+  uint64_t token = g_next_user_notification_token++;
+  if (token == 0) {
+    token = g_next_user_notification_token++;
+  }
+  g_pending_user_notifications[copied_identifier] = @(token);
+  NSString* copied_title = CopyStringView(title);
+  NSString* copied_body = CopyStringView(body);
+  [center requestAuthorizationWithOptions:UNAuthorizationOptionAlert
+                        completionHandler:^(BOOL granted, NSError* error) {
+    (void)error;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSNumber* current =
+          g_pending_user_notifications[copied_identifier];
+      if (!granted || current == nil || current.unsignedLongLongValue != token) {
+        if (current != nil && current.unsignedLongLongValue == token) {
+          [g_pending_user_notifications removeObjectForKey:copied_identifier];
+        }
+        return;
+      }
+      UNMutableNotificationContent* content =
+          [[UNMutableNotificationContent alloc] init];
+      content.title = copied_title;
+      content.body = copied_body;
+      UNNotificationRequest* request =
+          [UNNotificationRequest requestWithIdentifier:copied_identifier
+                                                content:content
+                                                trigger:nil];
+      [center addNotificationRequest:request
+               withCompletionHandler:^(NSError* scheduling_error) {
+        (void)scheduling_error;
+        dispatch_async(dispatch_get_main_queue(), ^{
+          NSNumber* completed =
+              g_pending_user_notifications[copied_identifier];
+          if (completed != nil &&
+              completed.unsignedLongLongValue == token) {
+            [g_pending_user_notifications removeObjectForKey:copied_identifier];
+          }
+        });
+      }];
+    });
+  }];
+  return true;
 }
 
 int32_t ValidateRect(DaRect frame) {
@@ -1066,6 +1182,13 @@ ApplicationTerminationDecision HandleApplicationShouldTerminate() {
   return ApplicationTerminationDecision::kTerminateLater;
 }
 
+void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
+                                               void* context) {
+  g_user_notification_handler =
+      handler == nullptr ? HandleUserNotificationWithSystem : handler;
+  g_user_notification_context = handler == nullptr ? nullptr : context;
+}
+
 void ShutdownBridge() {
   if (pthread_main_np() == 0) {
     return;
@@ -1077,6 +1200,12 @@ void ShutdownBridge() {
   g_defers_application_termination_requests = false;
   g_pending_application_termination_operation_id = 0;
   g_programmatic_application_termination = false;
+  [g_pending_user_notifications removeAllObjects];
+  g_pending_user_notifications = nil;
+  if (NSApp != nil) {
+    NSApp.dockTile.badgeLabel = nil;
+    [NSApp.dockTile display];
+  }
 
   ObjectRegistry& registry = ObjectRegistry::Shared();
   const std::vector<DaHandle> handles = registry.LiveHandles();
@@ -1094,6 +1223,7 @@ void ShutdownBridge() {
 void ResetBridgeForTesting() {
   ShutdownBridge();
   ClearCustomViewClassesForTesting();
+  InstallUserNotificationHandlerForTesting(nullptr, nullptr);
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
@@ -1314,6 +1444,142 @@ int32_t da_application_open_external_url_with_policy(
         DA_STATUS_INTERNAL_ERROR, exception.reason.UTF8String != nullptr
                                       ? exception.reason.UTF8String
                                       : "external URL open failed");
+  }
+}
+
+int32_t da_application_post_user_notification(
+    const char* identifier, size_t identifier_length, const char* title,
+    size_t title_length, const char* body, size_t body_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (identifier_length > DA_USER_NOTIFICATION_IDENTIFIER_MAX_UTF8_BYTES ||
+      title_length > DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES ||
+      body_length > DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "user notification input exceeds a UTF-8 byte limit");
+  }
+  if (!dart_appkit::ValidUserNotificationIdentifier(identifier,
+                                                     identifier_length)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "user notification identifier must be bounded nonempty ASCII");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_title =
+      dart_appkit::CopyUtf8(title, title_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* copied_body = dart_appkit::CopyUtf8(body, body_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if ((copied_title.length == 0 && copied_body.length == 0) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_title) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_body)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "user notification requires safe nonempty display text");
+  }
+  const std::string_view identifier_view(identifier, identifier_length);
+  const std::string_view title_view(title == nullptr ? "" : title,
+                                    title_length);
+  const std::string_view body_view(body == nullptr ? "" : body, body_length);
+  @try {
+    if (!dart_appkit::g_user_notification_handler(
+            dart_appkit::UserNotificationOperation::kPost, identifier_view,
+            title_view, body_view,
+            dart_appkit::g_user_notification_context)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_LIMIT_EXCEEDED,
+          "user notification native pending limit is exhausted");
+    }
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "user notification submission failed");
+  }
+}
+
+int32_t da_application_remove_user_notification(const char* identifier,
+                                                size_t identifier_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (identifier_length > DA_USER_NOTIFICATION_IDENTIFIER_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "user notification identifier exceeds the UTF-8 byte limit");
+  }
+  if (!dart_appkit::ValidUserNotificationIdentifier(identifier,
+                                                     identifier_length)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "user notification identifier must be bounded nonempty ASCII");
+  }
+  @try {
+    const std::string_view identifier_view(identifier, identifier_length);
+    if (!dart_appkit::g_user_notification_handler(
+            dart_appkit::UserNotificationOperation::kRemove, identifier_view,
+            std::string_view(), std::string_view(),
+            dart_appkit::g_user_notification_context)) {
+      return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                       "user notification removal failed");
+    }
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "user notification removal failed");
+  }
+}
+
+int32_t da_application_set_dock_badge_label(const char* label,
+                                            size_t label_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (label_length > DA_DOCK_BADGE_LABEL_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED, "Dock badge exceeds the UTF-8 byte limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_label = dart_appkit::CopyUtf8(label, label_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (dart_appkit::ContainsUnsafeDisplayText(copied_label)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "Dock badge must contain safe display text");
+  }
+  if (NSApp == nil) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "NSApplication is not initialized");
+  }
+  @try {
+    NSApp.dockTile.badgeLabel = copied_label.length == 0 ? nil : copied_label;
+    [NSApp.dockTile display];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "Dock badge update failed");
   }
 }
 

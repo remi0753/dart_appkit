@@ -220,6 +220,14 @@ namespace {
 
 int g_failures = 0;
 std::vector<std::string> g_opened_external_urls;
+struct RecordedUserNotification {
+  dart_appkit::UserNotificationOperation operation;
+  std::string identifier;
+  std::string title;
+  std::string body;
+};
+std::vector<RecordedUserNotification> g_user_notifications;
+bool g_accept_user_notifications = true;
 
 bool RecordExternalUrl(NSURL* url) {
   if (url == nil || url.absoluteString.UTF8String == nullptr) {
@@ -234,6 +242,20 @@ bool RefuseExternalUrl(NSURL* url) {
     g_opened_external_urls.emplace_back(url.absoluteString.UTF8String);
   }
   return false;
+}
+
+bool RecordUserNotification(
+    dart_appkit::UserNotificationOperation operation,
+    std::string_view identifier, std::string_view title,
+    std::string_view body, void* context) {
+  if (context != &g_user_notifications) {
+    ++g_failures;
+    return false;
+  }
+  g_user_notifications.push_back(
+      {operation, std::string(identifier), std::string(title),
+       std::string(body)});
+  return g_accept_user_notifications;
 }
 
 #define EXPECT_TRUE(condition)                                      \
@@ -1101,6 +1123,96 @@ void TestExternalUrlOpening() {
   EXPECT_EQ(da_application_open_external_url_with_policy(
                 nullptr, 0, nullptr, 0, 0, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
+}
+
+void TestUserNotificationsAndDockBadge() {
+  dart_appkit::ResetBridgeForTesting();
+  g_user_notifications.clear();
+  g_accept_user_notifications = true;
+  dart_appkit::InstallUserNotificationHandlerForTesting(
+      RecordUserNotification, &g_user_notifications);
+
+  const std::string identifier = "pane-4-session-2-notification-1";
+  const std::string title = "Build complete";
+  const std::string body = "The bounded task finished.";
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), title.data(),
+                title.size(), body.data(), body.size()),
+            DA_STATUS_OK);
+  EXPECT_EQ(g_user_notifications.size(), static_cast<size_t>(1));
+  EXPECT_TRUE(g_user_notifications[0].operation ==
+              dart_appkit::UserNotificationOperation::kPost);
+  EXPECT_EQ(g_user_notifications[0].identifier, identifier);
+  EXPECT_EQ(g_user_notifications[0].title, title);
+  EXPECT_EQ(g_user_notifications[0].body, body);
+
+  EXPECT_EQ(da_application_remove_user_notification(identifier.data(),
+                                                    identifier.size()),
+            DA_STATUS_OK);
+  EXPECT_EQ(g_user_notifications.size(), static_cast<size_t>(2));
+  EXPECT_TRUE(g_user_notifications[1].operation ==
+              dart_appkit::UserNotificationOperation::kRemove);
+  EXPECT_EQ(g_user_notifications[1].identifier, identifier);
+
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  const std::string invalid_identifier = "invalid/id";
+  const std::string unsafe_title = "unsafe\xe2\x80\xaevalue";
+  const std::string oversized(DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES + 1,
+                              'x');
+  const size_t accepted_count = g_user_notifications.size();
+  EXPECT_EQ(da_application_post_user_notification(
+                nullptr, 0, title.data(), title.size(), body.data(),
+                body.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_post_user_notification(
+                invalid_identifier.data(), invalid_identifier.size(),
+                title.data(), title.size(), body.data(), body.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), invalid_utf8,
+                sizeof(invalid_utf8), body.data(), body.size()),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), unsafe_title.data(),
+                unsafe_title.size(), body.data(), body.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), oversized.data(),
+                oversized.size(), body.data(), body.size()),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), nullptr, 0, nullptr, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(g_user_notifications.size(), accepted_count);
+
+  g_accept_user_notifications = false;
+  EXPECT_EQ(da_application_post_user_notification(
+                identifier.data(), identifier.size(), title.data(),
+                title.size(), body.data(), body.size()),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(g_user_notifications.size(), accepted_count + 1);
+  g_accept_user_notifications = true;
+
+  EXPECT_EQ(da_application_set_dock_badge_label("73%", 3), DA_STATUS_OK);
+  EXPECT_TRUE([NSApp.dockTile.badgeLabel isEqualToString:@"73%"]);
+  EXPECT_EQ(da_application_set_dock_badge_label(nullptr, 0), DA_STATUS_OK);
+  EXPECT_TRUE(NSApp.dockTile.badgeLabel == nil);
+  EXPECT_EQ(da_application_set_dock_badge_label(unsafe_title.data(),
+                                               unsafe_title.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_set_dock_badge_label(oversized.data(),
+                                               oversized.size()),
+            DA_STATUS_LIMIT_EXCEEDED);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(da_application_remove_user_notification(
+        identifier.data(), identifier.size()));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  dart_appkit::InstallUserNotificationHandlerForTesting(nullptr, nullptr);
 }
 
 void TestMenus() {
@@ -3027,6 +3139,7 @@ int main() {
     TestApplicationAppearanceObservation();
     TestPasteboardText();
     TestExternalUrlOpening();
+    TestUserNotificationsAndDockBadge();
     TestMenus();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();

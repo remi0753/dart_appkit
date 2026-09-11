@@ -3073,3 +3073,39 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   Kernel compilation、current/legacy FFIまで回帰なしを確認した。
 - 実画面、旧実装negative-control、native initial-paint contract、focused/full matrixが揃い、key入力を必要とする
   初回glyph欠落に対する追補タスクの完了条件を満たした。G5本体は後続のIME/Undo workがあるため未完了を維持する。
+
+## 2026-09-12 — Bounded application notifications and Dock badge
+
+- Dart Terminal の現在の Phase 9 作業は、bounded OSC notification と progress
+  state を AppKit main-thread boundary へ投影する必要がある。既存 public API は
+  application appearance、pasteboard、external URL までで、user notification の
+  送信／取消や application Dock badge の更新 mechanism を持たない。
+- 本作業は application 固有の rate、focus、pane、title fallback、progress 表示文言を
+  bridge に入れない。bridge は copied UTF-8、hard byte bound、main-thread guard、
+  optional additive symbol、明示的な notification identifier に限定し、admission と
+  lifecycle policy は consumer が所有する。
+- Apple の current API contract に従い、notification は `UNUserNotificationCenter` で
+  authorization を確認／要求して即時 local request を追加する。Dock progress は
+  `NSApplication.dockTile.badgeLabel` の短い copied string だけを設定し、custom drawing
+  や product-specific state mapping は追加しない。
+- 完了条件は public/fake API、native validation/recorder、current/legacy FFI、README、
+  verification、warning-clean focused tests、完全 `make test`、diff review、および
+  standalone dependency commit である。
+- Native default path は同一 identifier ごとの monotonically increasing token を
+  bounded dictionary に保持する。remove または replacement 後に古い authorization
+  callback が返っても token 不一致で schedule しないため、consumer が reset/close
+  lifecycle を確実に閉じられる。pending map の上限は 256 とした。
+- Dart facade は immutable `AppKitUserNotification` で identifier/title/body を構築時に
+  検査し、native boundary でも同じ byte/safety invariant を繰り返す。Dock badge は
+  facade 内の last-written cache で同値更新を抑止し、native failure 時には cache を
+  commit しない。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test dart-test
+  ffi-smoke` は warning-error native bridge、Dart public/fake API、current Mach-O FFI
+  main-thread guard、legacy optional-symbol fallback をすべて通過した。
+- Complete `CI=true DART_SUPPRESS_ANALYTICS=true make test` も成功した。C/C++
+  header/scaffold、warning-clean bridge、Runner、message pump、lifecycle/diagnostics、
+  native capability、terminal renderer、macOS PTY、全 Dart package の analysis/test、
+  Kernel compilation、current/legacy FFI まで回帰なしを確認した。
+- `git diff --check` は clean。公開 header、native/Dart validation、optional FFI、
+  fake/native/current/legacy tests、README/C ABI/verification の差分を見直し、product
+  policy、秘密情報、無関係な生成物を含めていないことを確認した。
