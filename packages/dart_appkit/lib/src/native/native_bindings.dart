@@ -429,3 +429,9 @@ abstract interface class NativeTextEditorBindings {
   NativeCallResult textEditorScrollSelectionToVisible(int handle);
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
 }
+
+/// Optional split-view observation surface kept separate for older bridges and
+/// test bindings that implement only the mutation API.
+abstract interface class NativeSplitViewPositionBindings {
+  NativeValueResult<double> splitViewGetFraction(int handle);
+}

@@ -399,6 +399,8 @@ typedef _HandleThreeDoublesNative = Int32 Function(
   Double,
 );
 typedef _HandleThreeDoublesDart = int Function(int, double, double, double);
+typedef _HandleDoubleOutputNative = Int32 Function(Uint64, Pointer<Double>);
+typedef _HandleDoubleOutputDart = int Function(int, Pointer<Double>);
 typedef _CreateHandleNative = Int32 Function(Pointer<Uint64>);
 typedef _CreateHandleDart = int Function(Pointer<Uint64>);
 typedef _ViewCreateConfiguredNative = Int32 Function(
@@ -1111,6 +1113,20 @@ _HandleThreeDoublesDart? _lookupHandleThreeDoubles(
   }
 }
 
+_HandleDoubleOutputDart? _lookupHandleDoubleOutput(
+  DynamicLibrary library,
+  String symbol,
+) {
+  try {
+    return library
+        .lookupFunction<_HandleDoubleOutputNative, _HandleDoubleOutputDart>(
+          symbol,
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _IntCreateHandleDart? _lookupIntCreateHandle(
   DynamicLibrary library,
   String symbol,
@@ -1125,7 +1141,10 @@ _IntCreateHandleDart? _lookupIntCreateHandle(
 }
 
 final class FfiNativeBindings
-    implements NativeBindings, NativeTextEditorBindings {
+    implements
+        NativeBindings,
+        NativeTextEditorBindings,
+        NativeSplitViewPositionBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
         'da_abi_version',
@@ -1239,6 +1258,10 @@ final class FfiNativeBindings
       _splitViewSetPosition = _lookupHandleThreeDoubles(
         library,
         'da_split_view_set_position',
+      ),
+      _splitViewGetFraction = _lookupHandleDoubleOutput(
+        library,
+        'da_split_view_get_fraction',
       ),
       _splitViewEqualize = _lookupHandleStatus(
         library,
@@ -1361,6 +1384,7 @@ final class FfiNativeBindings
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
+  final _HandleDoubleOutputDart? _splitViewGetFraction;
   final _HandleStatusDart? _splitViewEqualize;
   final _HandleBoolStatusDart? _splitViewSetZoomedChild;
   final _StringCreateDart? _customViewCreate;
@@ -2392,6 +2416,25 @@ final class FfiNativeBindings
     return _callResult(
       function(handle, fraction, firstMinimumExtent, secondMinimumExtent),
     );
+  }
+
+  @override
+  NativeValueResult<double> splitViewGetFraction(int handle) {
+    final _HandleDoubleOutputDart? function = _splitViewGetFraction;
+    if (function == null) {
+      return const NativeValueResult<double>.failure(
+        8,
+        'legacy native bridge does not support split position observation',
+      );
+    }
+    final Pointer<Double> output = _allocate(sizeOf<Double>()).cast<Double>();
+    try {
+      output.value = 0;
+      final int status = function(handle, output);
+      return _valueResult<double>(status, output.value);
+    } finally {
+      _free(output.cast<Void>());
+    }
   }
 
   @override

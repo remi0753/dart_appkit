@@ -750,6 +750,18 @@ Future<void> _testNativeTabsSplitViewAndFocusApi() async {
     'nested split view retains ordered children, axis, fraction, and minima',
   );
 
+  bindings.splitViewFractions[rootHandle] = 0.625;
+  _expect(
+    root.refreshFraction() == 0.625 && root.fraction == 0.625,
+    'split fraction refresh observes a native divider mutation',
+  );
+  bindings.failNextOperation = 'splitViewGetFraction';
+  await _expectThrows<AppKitNativeException>(() => root.refreshFraction());
+  _expect(
+    root.fraction == 0.625,
+    'failed split fraction refresh preserves the last observed value',
+  );
+
   root.equalize();
   root.zoomedChild = SplitViewChild.second;
   _expect(

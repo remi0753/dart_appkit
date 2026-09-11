@@ -640,6 +640,13 @@ DA_EXPORT int32_t da_split_view_set_position(
     DaHandle split_view, double fraction, double first_minimum_extent,
     double second_minimum_extent);
 
+/**
+ * Main thread only. Returns the current first-child fraction after native
+ * divider constraints and user interaction. The result is finite in [0, 1].
+ */
+DA_EXPORT int32_t da_split_view_get_fraction(DaHandle split_view,
+                                             double* out_fraction);
+
 /** Main thread only. Sets the first-child fraction to one half. */
 DA_EXPORT int32_t da_split_view_equalize(DaHandle split_view);
 

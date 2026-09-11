@@ -164,6 +164,12 @@ width/height-sizable, monospaced 18-point regular text with 20-point padding,
 label foreground, and window background. Registered custom views remain wholly
 provider-owned.
 
+`TwoPaneSplitView.refreshFraction()` explicitly observes the current native
+first-child fraction after a user drags its divider. The cached `fraction`
+continues to represent the last requested or observed value, so an application
+can mirror native interaction into its own layout state without polling during
+ordinary rendering.
+
 `TextEditor` is a separate, scrollable `NSTextView` surface for multiline
 editing. `setDocument` publishes one bounded plain-text buffer, UTF-16
 selection, and ordered non-overlapping foreground/underline runs atomically;

@@ -29,7 +29,10 @@ final class FakeMenuItemState {
 }
 
 final class FakeNativeBindings
-    implements NativeBindings, NativeTextEditorBindings {
+    implements
+        NativeBindings,
+        NativeTextEditorBindings,
+        NativeSplitViewPositionBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
   int nextHandle = 100;
@@ -706,6 +709,22 @@ final class FakeNativeBindings
       splitViewSecondMinimumExtents[handle] = secondMinimumExtent;
     }
     return result;
+  }
+
+  @override
+  NativeValueResult<double> splitViewGetFraction(int handle) {
+    final NativeCallResult result = _status('splitViewGetFraction');
+    if (!result.isSuccess) {
+      return NativeValueResult<double>.failure(result.status, result.message);
+    }
+    final double? fraction = splitViewFractions[handle];
+    if (fraction == null) {
+      return const NativeValueResult<double>.failure(
+        3,
+        'split view handle is invalid',
+      );
+    }
+    return NativeValueResult<double>.success(fraction);
   }
 
   @override

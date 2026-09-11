@@ -54,6 +54,35 @@ final class TwoPaneSplitView extends View {
     return _fraction;
   }
 
+  /// Refreshes the first-child fraction after native divider interaction.
+  ///
+  /// This is an explicit observation because native drags do not mutate Dart
+  /// application state automatically. Older bridges report unsupported rather
+  /// than returning the last Dart-requested value as if it were current.
+  double refreshFraction() {
+    ensureAlive();
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeSplitViewPositionBindings) {
+      throw const AppKitNativeException(
+        operation: 'TwoPaneSplitView.refreshFraction',
+        status: 8,
+        nativeMessage:
+            'native bridge does not support split position observation',
+      );
+    }
+    final NativeSplitViewPositionBindings positionBindings =
+        bindings as NativeSplitViewPositionBindings;
+    final double value = _checkValue<double>(
+      positionBindings.splitViewGetFraction(_handle),
+      'TwoPaneSplitView.refreshFraction',
+    );
+    if (!value.isFinite || value < 0 || value > 1) {
+      throw StateError('native split fraction is outside [0, 1]');
+    }
+    _fraction = value;
+    return value;
+  }
+
   double get firstMinimumExtent {
     ensureAlive();
     return _firstMinimumExtent;

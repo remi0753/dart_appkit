@@ -2915,6 +2915,10 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
             DA_STATUS_OK);
   EXPECT_EQ(da_split_view_set_position(nested_split_handle, 0.75, 30.0, 40.0),
             DA_STATUS_OK);
+  double observed_fraction = -1.0;
+  EXPECT_EQ(da_split_view_get_fraction(root_split_handle, &observed_fraction),
+            DA_STATUS_OK);
+  EXPECT_TRUE(std::abs(observed_fraction - 0.1) < 0.001);
   EXPECT_EQ(root_split.daAxis, DA_SPLIT_AXIS_HORIZONTAL);
   EXPECT_TRUE(root_split.isVertical);
   EXPECT_EQ(nested_split.daAxis, DA_SPLIT_AXIS_VERTICAL);
@@ -2926,6 +2930,20 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
   EXPECT_TRUE(NSWidth(nested_split.frame) >= 90.0);
   EXPECT_TRUE(NSHeight(second_view.frame) >= 30.0);
   EXPECT_TRUE(NSHeight(third_view.frame) >= 40.0);
+
+  first_view.frame = NSMakeRect(NSMinX(root_split.bounds),
+                                NSMinY(root_split.bounds), 220.0,
+                                NSHeight(root_split.bounds));
+  [root_split splitViewDidResizeSubviews:
+                  [NSNotification
+                      notificationWithName:NSSplitViewDidResizeSubviewsNotification
+                                    object:root_split]];
+  EXPECT_EQ(da_split_view_get_fraction(root_split_handle, &observed_fraction),
+            DA_STATUS_OK);
+  const double root_usable_extent =
+      NSWidth(root_split.bounds) - root_split.dividerThickness;
+  EXPECT_TRUE(
+      std::abs(observed_fraction - 220.0 / root_usable_extent) < 0.001);
 
   EXPECT_EQ(da_split_view_equalize(root_split_handle), DA_STATUS_OK);
   EXPECT_TRUE(std::abs(root_split.daFraction - 0.5) < 0.001);
@@ -2951,6 +2969,10 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
             DA_STATUS_INVALID_ARGUMENT);
 
   EXPECT_EQ(da_split_view_create(-1, nullptr), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_get_fraction(root_split_handle, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_get_fraction(first_view_handle, &observed_fraction),
+            DA_STATUS_WRONG_HANDLE_TYPE);
   DaHandle invalid_axis_handle = 99;
   EXPECT_EQ(da_split_view_create(2, &invalid_axis_handle),
             DA_STATUS_INVALID_ARGUMENT);
@@ -2973,7 +2995,8 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
 
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::thread worker([&]() {
-    worker_status.store(da_split_view_equalize(root_split_handle));
+    worker_status.store(
+        da_split_view_get_fraction(root_split_handle, &observed_fraction));
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);

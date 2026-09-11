@@ -2652,6 +2652,33 @@ int32_t da_split_view_set_position(DaHandle split_view, double fraction,
   return DA_STATUS_OK;
 }
 
+int32_t da_split_view_get_fraction(DaHandle split_view,
+                                   double* out_fraction) {
+  dart_appkit::ClearLastError();
+  if (out_fraction == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_fraction must not be null");
+  }
+  *out_fraction = 0.0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) {
+    return status;
+  }
+  const double fraction = split.daFraction;
+  if (!std::isfinite(fraction) || fraction < 0.0 || fraction > 1.0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        "native split fraction is not finite or outside [0, 1]");
+  }
+  *out_fraction = fraction;
+  return DA_STATUS_OK;
+}
+
 int32_t da_split_view_equalize(DaHandle split_view) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
