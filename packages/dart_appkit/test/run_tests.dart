@@ -341,12 +341,15 @@ Future<void> _testAttributedTextEditorApi() async {
   editor
     ..isEditable = true
     ..setSelection(const TextEditorSelection(start: 13, length: 2));
+  editor.scrollSelectionToVisible();
   final TextEditorSnapshot editable = editor.snapshot;
   _expect(
     editable.text == text &&
         editable.isEditable &&
-        editable.selection == const TextEditorSelection(start: 13, length: 2),
-    'editable/selection mutation replaced text or lost UTF-16 selection',
+        editable.selection == const TextEditorSelection(start: 13, length: 2) &&
+        bindings.operations.contains('textEditorScrollSelectionToVisible') &&
+        bindings.textEditorLineHighlights[handle]!.location == 13,
+    'selection reveal changed editor state or missed native bindings',
   );
   final List<TextEditorStyleRun> replacement = <TextEditorStyleRun>[
     TextEditorStyleRun(
@@ -433,6 +436,7 @@ Future<void> _testAttributedTextEditorApi() async {
 
   editor.dispose();
   await _expectThrows<StateError>(() => editor.snapshot);
+  await _expectThrows<StateError>(() => editor.scrollSelectionToVisible());
   _expect(bindings.objects.isEmpty, 'text editor handle leaked');
   await app.terminate();
   await raw.close();

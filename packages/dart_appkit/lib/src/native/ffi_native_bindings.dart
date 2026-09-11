@@ -1193,6 +1193,10 @@ final class FfiNativeBindings
         'da_text_editor_set_editable',
       ),
       _textEditorSetSelection = _lookupTextEditorSetSelection(library),
+      _textEditorScrollSelectionToVisible = _lookupHandleStatus(
+        library,
+        'da_text_editor_scroll_selection_to_visible',
+      ),
       _textEditorGetSnapshot = _lookupTextEditorGetSnapshot(library),
       _windowSetContentView = library
           .lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(
@@ -1291,6 +1295,7 @@ final class FfiNativeBindings
   final _TextEditorSetLineHighlightDart? _textEditorSetLineHighlight;
   final _HandleBoolStatusDart? _textEditorSetEditable;
   final _TextEditorSetSelectionDart? _textEditorSetSelection;
+  final _HandleStatusDart? _textEditorScrollSelectionToVisible;
   final _TextEditorGetSnapshotDart? _textEditorGetSnapshot;
   final _TwoHandlesDart _windowSetContentView;
   final _HandleStatusDart _release;
@@ -2491,6 +2496,18 @@ final class FfiNativeBindings
       );
     }
     return _callResult(function(handle, start, length));
+  }
+
+  @override
+  NativeCallResult textEditorScrollSelectionToVisible(int handle) {
+    final _HandleStatusDart? function = _textEditorScrollSelectionToVisible;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editor selection reveal',
+      );
+    }
+    return _callResult(function(handle));
   }
 
   @override

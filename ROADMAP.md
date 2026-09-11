@@ -462,8 +462,9 @@ IME bridgeに加え、標準 `NSTextView` を使う汎用の編集surfaceが動�
 - scroll可能な汎用 `TextEditor` として、同一native surface上のeditable切替、16 MiB UTF-8
   text、UTF-16 selection、65,536件までのordered non-overlapping foreground／underline
   run、marked-text付きsnapshot、foreground／underline／selectionと独立したfull-width
-  logical-line backgroundを実装した。style-only更新はtext storageとselectionを置換せず、
-  command／editing modeで同じsyntax projectionを維持できる。
+  logical-line background、現在selectionを明示的にviewportへ入れるreveal操作を実装した。
+  style-only更新とrevealはtext storage、selection、syntax属性を置換せず、command／editing
+  modeで同じsyntax projectionを維持できる。
 - `TextEditor` のnative selection／first responder／IME input client／Undo基盤を標準
   `NSTextView` に保持し、Dart fake、warning-clean native契約、current／legacy FFIで境界を
   検証した。

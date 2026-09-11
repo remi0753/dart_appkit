@@ -401,5 +401,6 @@ abstract interface class NativeTextEditorBindings {
     required int start,
     required int length,
   });
+  NativeCallResult textEditorScrollSelectionToVisible(int handle);
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
 }

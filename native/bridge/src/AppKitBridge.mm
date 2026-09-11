@@ -2784,6 +2784,30 @@ int32_t da_text_editor_set_selection(DaHandle editor, uint64_t location,
   return DA_STATUS_OK;
 }
 
+int32_t da_text_editor_scroll_selection_to_visible(DaHandle editor) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  @try {
+    [text_editor.daTextView
+        scrollRangeToVisible:text_editor.daTextView.selectedRange];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native text editor selection reveal failed");
+  }
+}
+
 int32_t da_text_editor_get_snapshot(DaHandle editor,
                                     DaTextEditorSnapshot* out_snapshot) {
   dart_appkit::ClearLastError();

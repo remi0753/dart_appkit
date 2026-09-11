@@ -321,6 +321,19 @@ final class TextEditor extends View {
     );
   }
 
+  /// Scrolls the current selection into the visible editor viewport.
+  ///
+  /// This does not change the document, selection, attributed styles, or line
+  /// highlight. Call it explicitly after a Dart-owned navigation change when
+  /// the viewport should follow that selection.
+  void scrollSelectionToVisible() {
+    ensureAlive();
+    _checkCall(
+      _editorBindings.textEditorScrollSelectionToVisible(_handle),
+      'TextEditor.scrollSelectionToVisible',
+    );
+  }
+
   static void _validateDocument(TextEditorDocument document) {
     final int bytes = utf8.encode(document.text).length;
     if (bytes > TextEditorLimits.maximumTextUtf8Bytes) {

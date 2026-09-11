@@ -1655,6 +1655,53 @@ void TestAttributedTextEditor() {
                                         runs, 2, 0, 0),
             DA_STATUS_OK);
   EXPECT_TRUE(!editor.daHasLineHighlight);
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 0), DA_STATUS_OK);
+  EXPECT_TRUE(!editor.daTextView.isEditable);
+
+  std::string long_text;
+  for (size_t line = 0; line < 80; ++line) {
+    if (!long_text.empty()) {
+      long_text.push_back('\n');
+    }
+    long_text += "line";
+  }
+  const uint64_t last_location = long_text.size() - 1;
+  DaTextEditorStyleRun long_style = runs[0];
+  long_style.length = 4;
+  EXPECT_EQ(da_text_editor_set_document(
+                editor_handle, long_text.data(), long_text.size(), &long_style,
+                1, 0, 0),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, last_location, &line_highlight_color),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_selection(editor_handle, last_location, 0),
+            DA_STATUS_OK);
+  [editor.daTextView.layoutManager
+      ensureLayoutForTextContainer:editor.daTextView.textContainer];
+  const NSUInteger last_glyph = [editor.daTextView.layoutManager
+      glyphIndexForCharacterAtIndex:last_location];
+  NSRect last_fragment = [editor.daTextView.layoutManager
+      lineFragmentRectForGlyphAtIndex:last_glyph
+                         effectiveRange:nullptr];
+  last_fragment.origin.y += editor.daTextView.textContainerOrigin.y;
+  const NSRect visible_before_reveal = editor.daTextView.visibleRect;
+  EXPECT_TRUE(NSMinY(last_fragment) >= NSMaxY(visible_before_reveal));
+  NSAttributedString* before_reveal = [editor.daTextView.textStorage copy];
+  EXPECT_EQ(da_text_editor_scroll_selection_to_visible(editor_handle),
+            DA_STATUS_OK);
+  const NSRect visible_after_reveal = editor.daTextView.visibleRect;
+  EXPECT_TRUE(NSMinY(visible_after_reveal) > NSMinY(visible_before_reveal));
+  EXPECT_TRUE(NSMinY(last_fragment) >= NSMinY(visible_after_reveal));
+  EXPECT_TRUE(NSMaxY(last_fragment) <= NSMaxY(visible_after_reveal));
+  EXPECT_EQ(editor.daTextView.selectedRange.location,
+            static_cast<NSUInteger>(last_location));
+  EXPECT_EQ(editor.daTextView.selectedRange.length, static_cast<NSUInteger>(0));
+  EXPECT_TRUE([editor.daTextView.textStorage
+      isEqualToAttributedString:before_reveal]);
+  EXPECT_TRUE(editor.daHasLineHighlight);
+  EXPECT_EQ(editor.daLineHighlightLocation,
+            static_cast<NSUInteger>(last_location));
 
   DaTextEditorConfiguration invalid_configuration = configuration;
   invalid_configuration.initially_editable = 2;
@@ -1678,16 +1725,22 @@ void TestAttributedTextEditor() {
   EXPECT_EQ(da_text_editor_set_line_highlight(
                 generic_view, 0, &line_highlight_color),
             DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_text_editor_scroll_selection_to_visible(generic_view),
+            DA_STATUS_WRONG_HANDLE_TYPE);
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::atomic<int32_t> worker_highlight_status{DA_STATUS_OK};
+  std::atomic<int32_t> worker_reveal_status{DA_STATUS_OK};
   std::thread worker([&]() {
     worker_status.store(da_text_editor_set_editable(editor_handle, 0));
     worker_highlight_status.store(da_text_editor_set_line_highlight(
         editor_handle, 0, &line_highlight_color));
+    worker_reveal_status.store(
+        da_text_editor_scroll_selection_to_visible(editor_handle));
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(worker_highlight_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_reveal_status.load(), DA_STATUS_WRONG_THREAD);
 
   EXPECT_EQ(da_release(generic_view), DA_STATUS_OK);
   EXPECT_EQ(da_release(editor_handle), DA_STATUS_OK);
@@ -1695,6 +1748,8 @@ void TestAttributedTextEditor() {
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_text_editor_set_line_highlight(
                 editor_handle, 0, &line_highlight_color),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_text_editor_scroll_selection_to_visible(editor_handle),
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));

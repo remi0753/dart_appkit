@@ -172,7 +172,10 @@ so applications can keep identical syntax colors in command and editing modes.
 An optional `TextEditorLineHighlight` paints one logical line across the full
 editor width without changing its foreground, underline, selection, or caret;
 document replacement clears it so an old UTF-16 location cannot leak into a
-new buffer.
+new buffer. `scrollSelectionToVisible` explicitly reveals the current checked
+selection without changing the buffer, attributes, highlight, or selection, so
+Dart-owned command navigation can follow the viewport without changing the
+semantics of ordinary programmatic selection.
 Snapshots return text, selection, editability, and marked-text presence.
 Text is limited to 16 MiB of UTF-8 and style projections to 65,536 runs. The
 surface retains native scrolling, selection, first-responder routing, IME

@@ -38,7 +38,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Configurable base/display-text views | Immutable Dart configurations, native focus/autoresize/font/padding/color validation and state inspection, current/legacy FFI | Verified |
-| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; independent full-width logical-line background; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
+| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; independent full-width logical-line background; explicit selection-to-visible viewport follow; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
 | Explicit two-pane split helper boundary | `TwoPaneSplitView` current API, deprecated `SplitView` construction alias, nested two-child state tests, and unchanged C ABI | Verified |
 | Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |
 | Configurable bounded diagnostics | Native validation, permissions, phase ordering, previous-unclean retention, and clean finish tests | Verified |

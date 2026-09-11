@@ -690,6 +690,12 @@ DA_EXPORT int32_t da_text_editor_set_selection(DaHandle editor,
                                                uint64_t location,
                                                uint64_t length);
 
+/**
+ * Main thread only. Scrolls the current checked selection into the visible
+ * text-editor viewport without changing text, selection, or attributes.
+ */
+DA_EXPORT int32_t da_text_editor_scroll_selection_to_visible(DaHandle editor);
+
 /** Main thread only. Returns a borrowed plain-text and selection snapshot. */
 DA_EXPORT int32_t da_text_editor_get_snapshot(
     DaHandle editor, DaTextEditorSnapshot* out_snapshot);

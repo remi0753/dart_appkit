@@ -3004,3 +3004,32 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   bridge, Runner, scheduler, lifecycle/diagnostics, native capability,
   renderer, PTY, every Dart package analyzer/test, Kernel compilation, and
   current/legacy FFI checks without regression.
+
+## 2026-09-11 — Explicit attributed-editor selection reveal
+
+- Dart Terminal's modal Settings editor moves its caret in Dart while NORMAL
+  or SEARCH owns key routing. `TextEditor.setSelection` correctly changed the
+  checked native UTF-16 selection, but the native bridge did not ask
+  `NSTextView` to scroll that programmatic selection into view. INSERT appeared
+  different because AppKit owns ordinary caret navigation and scrolling there.
+- Changing `setSelection` to scroll implicitly would alter viewport semantics
+  for every consumer. The additive `TextEditor.scrollSelectionToVisible`
+  operation instead makes that intent explicit and invokes
+  `scrollRangeToVisible:` for the native editor's already-validated current
+  selection. It does not accept a second unchecked range and does not mutate
+  text, selection, style runs, or the independent line highlight.
+- The C ABI remains additive and main-thread-only. FFI lookup is optional so an
+  older bridge returns status 8; wrong handle type, released handle, and
+  off-main-thread calls retain the existing typed failures.
+- Native coverage attaches a read-only editor containing 80 logical lines,
+  proves the last selected line begins outside the initial viewport, reveals
+  it completely, and verifies the viewport moved while selection, attributed
+  storage, and line highlight stayed unchanged. Public fake, current Mach-O
+  FFI, and legacy-symbol tests cover the Dart boundary.
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test dart-test
+  ffi-smoke` passed warning-clean native tests, package analysis and Dart API
+  tests, current FFI main-thread guards, and legacy optional-symbol fallback.
+- Complete `CI=true DART_SUPPRESS_ANALYTICS=true make test` also passed the
+  scaffold/header, bridge, Runner, scheduler, lifecycle/diagnostics, capability,
+  renderer, PTY, all package analyzer/test, Kernel compilation, and both FFI
+  paths without regression.

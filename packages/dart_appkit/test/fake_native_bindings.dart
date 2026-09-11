@@ -809,6 +809,10 @@ final class FakeNativeBindings
   }
 
   @override
+  NativeCallResult textEditorScrollSelectionToVisible(int handle) =>
+      _status('textEditorScrollSelectionToVisible');
+
+  @override
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle) =>
       _value<NativeTextEditorSnapshot>(
         'textEditorSnapshot',

@@ -145,6 +145,8 @@ void main(List<String> arguments) {
           alpha: 1,
         ),
       );
+  final NativeCallResult editorSelectionReveal = bindings
+      .textEditorScrollSelectionToVisible(1);
   if (configuredTextEditor.isSuccess ||
       configuredTextEditor.status != 5 ||
       configuredTextEditor.message.isEmpty ||
@@ -156,7 +158,10 @@ void main(List<String> arguments) {
       editorSnapshot.message.isEmpty ||
       editorLineHighlight.isSuccess ||
       editorLineHighlight.status != 5 ||
-      editorLineHighlight.message.isEmpty) {
+      editorLineHighlight.message.isEmpty ||
+      editorSelectionReveal.isSuccess ||
+      editorSelectionReveal.status != 5 ||
+      editorSelectionReveal.message.isEmpty) {
     _fail('text-editor FFI did not preserve its main-thread guard');
   }
   final NativeValueResult<int> splitView = bindings.splitViewCreate(0);
