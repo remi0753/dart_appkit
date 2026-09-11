@@ -31,6 +31,8 @@ const int dartAppKitDefaultViewAutoresizingMask =
 const double dartAppKitTextViewFontMaximumSize = 512;
 const int dartAppKitTextViewFontFamilyMaximumUtf8Bytes = 256;
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
+const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
+const int dartAppKitTextEditorMaximumStyleRuns = 64 * 1024;
 
 final class NativeViewConfiguration {
   const NativeViewConfiguration({
@@ -130,6 +132,78 @@ final class NativeTextViewConfiguration {
       paddingLeft == 20 &&
       foregroundColorKind == 0 &&
       backgroundColorKind == 1;
+}
+
+final class NativeTextEditorConfiguration {
+  const NativeTextEditorConfiguration({
+    required this.presentation,
+    required this.initiallyEditable,
+  });
+
+  final NativeTextViewConfiguration presentation;
+  final bool initiallyEditable;
+}
+
+final class NativeTextEditorStyleRun {
+  const NativeTextEditorStyleRun({
+    required this.start,
+    required this.length,
+    required this.foregroundColorKind,
+    required this.foregroundRed,
+    required this.foregroundGreen,
+    required this.foregroundBlue,
+    required this.foregroundAlpha,
+    required this.underlineStyle,
+    required this.underlineColorKind,
+    required this.underlineRed,
+    required this.underlineGreen,
+    required this.underlineBlue,
+    required this.underlineAlpha,
+  });
+
+  final int start;
+  final int length;
+  final int foregroundColorKind;
+  final double foregroundRed;
+  final double foregroundGreen;
+  final double foregroundBlue;
+  final double foregroundAlpha;
+  final int underlineStyle;
+  final int underlineColorKind;
+  final double underlineRed;
+  final double underlineGreen;
+  final double underlineBlue;
+  final double underlineAlpha;
+}
+
+final class NativeTextEditorDocument {
+  const NativeTextEditorDocument({
+    required this.text,
+    required this.selectionStart,
+    required this.selectionLength,
+    required this.styleRuns,
+  });
+
+  final String text;
+  final int selectionStart;
+  final int selectionLength;
+  final List<NativeTextEditorStyleRun> styleRuns;
+}
+
+final class NativeTextEditorSnapshot {
+  const NativeTextEditorSnapshot({
+    required this.text,
+    required this.selectionStart,
+    required this.selectionLength,
+    required this.isEditable,
+    required this.hasMarkedText,
+  });
+
+  final String text;
+  final int selectionStart;
+  final int selectionLength;
+  final bool isEditable;
+  final bool hasMarkedText;
 }
 
 final class NativeCallResult {
@@ -284,4 +358,26 @@ abstract interface class NativeBindings {
 
   void attachFinalizer(Finalizable value, int handle, Object detachKey);
   void detachFinalizer(Object detachKey);
+}
+
+/// Optional native surface kept separate so existing binding fakes stay valid.
+abstract interface class NativeTextEditorBindings {
+  NativeValueResult<int> textEditorCreate(
+    NativeTextEditorConfiguration configuration,
+  );
+  NativeCallResult textEditorSetDocument(
+    int handle,
+    NativeTextEditorDocument document,
+  );
+  NativeCallResult textEditorSetStyleRuns(
+    int handle,
+    List<NativeTextEditorStyleRun> styleRuns,
+  );
+  NativeCallResult textEditorSetEditable(int handle, bool editable);
+  NativeCallResult textEditorSetSelection(
+    int handle, {
+    required int start,
+    required int length,
+  });
+  NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
 }

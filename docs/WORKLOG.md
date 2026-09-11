@@ -2880,3 +2880,57 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   bridge, Runner, scheduler/event encoding, runtime lifecycle/diagnostics,
   capability/renderer/PTY native contracts, all package analyzers and Dart
   suites, launcher/Kernel compilation, FFI bridge, and legacy-event fallback.
+
+## 2026-09-11 — Bounded attributed multiline editor surface
+
+- Dart Terminal's editable Settings design requires NORMAL and INSERT to use
+  exactly one visual editor: changing interaction mode must not replace the
+  buffer or remove syntax colors. The reusable boundary is consequently a
+  generic `TextEditor`, not a terminal/settings-specific native view.
+- `TextEditor.setDocument` publishes one text, UTF-16 selection, and attributed
+  projection. Text is capped at 16 MiB of UTF-8; projections are capped at
+  65,536 ordered, positive, non-overlapping runs whose endpoints cannot split
+  a surrogate pair. `setStyleRuns` resets and reapplies foreground/underline
+  attributes on the existing `NSTextStorage`, preserving its string and
+  selection. `isEditable` and `setSelection` mutate that same surface.
+- The native object is a generic-view handle wrapping one `NSScrollView` and
+  one plain-text `NSTextView`. It retains native selection, scrolling,
+  responder/input-client behavior, marked text, Undo infrastructure, and find
+  panel support while disabling rich paste, smart substitution, and automatic
+  spelling changes. `da_window_make_first_responder` first validates the
+  wrapper's window hierarchy, then targets its inner `NSTextView`.
+- The additive C structs and functions keep ABI/event-protocol versions
+  unchanged. Dart FFI discovers every editor symbol optionally through the
+  separate `NativeTextEditorBindings` capability, so older bridges continue to
+  load and return unsupported status 8. Existing third-party `NativeBindings`
+  fakes do not gain source-breaking abstract members.
+- Public/fake tests cover atomic configuration/document transfer, editable and
+  UTF-16 selection changes, style-only text preservation, invalid scalar and
+  ordering boundaries, limits, and release. Native tests inspect actual sRGB
+  foreground/underline attributes, removal of stale underline attributes,
+  identical text-storage identity across restyling, native snapshot state,
+  inner first-responder routing, invalid configuration/runs/UTF-8, wrong handle,
+  stale handle, and wrong thread. Current and legacy FFI smoke tests cover the
+  new signatures and optional-symbol fallback.
+- The first formatting command used package paths while already inside the
+  package and then encountered the sandboxed Dart telemetry timestamp; it
+  changed no source. The corrected relative paths with analytics suppressed
+  completed. Initial analysis also showed that a value typed as
+  `NativeBindings` is not promoted to an unrelated optional interface; an
+  explicit checked cast now follows the capability guard.
+- The first expanded native build rejected an unused test helper under
+  `-Werror`; it was removed. The next run exposed two test-only `NSString`
+  pointer comparisons even though both printed equal; assertions now use
+  `isEqualToString:`. No editor implementation change was needed for those
+  comparisons.
+- A whole-file `clang-format --dry-run` was not usable as an incremental gate:
+  the `depot_tools` wrapper requires a Chromium checkout, while Xcode's binary
+  reports extensive pre-existing style differences across these bridge files.
+  No bulk reformat was applied. The established warning-as-error builds and
+  `git diff --check` remain clean.
+- Verification passes: package formatting and analysis; the Dart API suite
+  including `attributed multiline text editor`; warning-clean native bridge
+  tests; current Mach-O FFI smoke; and legacy bridge fallback smoke. Complete
+  `make test` also passed scaffold/header contracts, Runner and scheduler,
+  runtime/capability/renderer/PTY suites, every package analyzer/test,
+  launcher/Kernel compilation, and both FFI paths without regression.

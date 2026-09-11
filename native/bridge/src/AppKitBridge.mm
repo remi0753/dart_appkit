@@ -168,6 +168,7 @@ struct ErrorState {
 
 thread_local ErrorState g_last_error;
 thread_local std::string g_pasteboard_text;
+thread_local std::string g_text_editor_snapshot;
 std::atomic<bool> g_accept_async_releases{true};
 std::atomic<uint64_t> g_async_release_epoch{1};
 bool g_defers_application_termination_requests = false;
@@ -383,6 +384,213 @@ NSFontWeight TextViewFontWeight(int32_t weight) {
       return NSFontWeightBlack;
   }
   return NSFontWeightRegular;
+}
+
+int32_t ResolveTextViewFont(const DaTextViewConfiguration* configuration,
+                            const char* font_family,
+                            size_t font_family_length,
+                            NSFont** out_font) {
+  if (configuration == nullptr ||
+      configuration->struct_size <
+          DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view configuration is missing or smaller than version 1");
+  }
+  const int32_t view_status =
+      ValidateViewConfiguration(&configuration->view);
+  if (view_status != DA_STATUS_OK) {
+    return view_status;
+  }
+  if (configuration->font_kind < DA_TEXT_VIEW_FONT_SYSTEM ||
+      configuration->font_kind > DA_TEXT_VIEW_FONT_NAMED ||
+      configuration->font_weight < DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT ||
+      configuration->font_weight > DA_TEXT_VIEW_FONT_WEIGHT_BLACK ||
+      (configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED &&
+       configuration->font_weight != DA_TEXT_VIEW_FONT_WEIGHT_REGULAR) ||
+      !std::isfinite(configuration->font_size) ||
+      configuration->font_size <= 0.0 ||
+      configuration->font_size > DA_TEXT_VIEW_FONT_MAX_SIZE) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view font kind, weight, or size is invalid");
+  }
+  const double padding[] = {
+      configuration->padding_top,
+      configuration->padding_right,
+      configuration->padding_bottom,
+      configuration->padding_left,
+  };
+  for (const double extent : padding) {
+    if (!std::isfinite(extent) || extent < 0.0 ||
+        extent > DA_TEXT_VIEW_PADDING_MAX_EXTENT) {
+      return SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "text view padding must be finite and within the bound");
+    }
+  }
+  if (!ValidTextViewColor(configuration->foreground_color) ||
+      !ValidTextViewColor(configuration->background_color)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view color kind, reserved field, or components are invalid");
+  }
+  if (font_family_length > DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES) {
+    return SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "text view font family exceeds the UTF-8 byte limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_font_family =
+      CopyUtf8(font_family, font_family_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  const bool uses_named_font =
+      configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED;
+  if ((uses_named_font && copied_font_family.length == 0) ||
+      (!uses_named_font && copied_font_family.length != 0)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "font family must be present only for a named text view font");
+  }
+  const NSFontWeight weight = TextViewFontWeight(configuration->font_weight);
+  NSFont* font = nil;
+  if (configuration->font_kind == DA_TEXT_VIEW_FONT_SYSTEM) {
+    font = [NSFont systemFontOfSize:configuration->font_size weight:weight];
+  } else if (configuration->font_kind ==
+             DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM) {
+    font = [NSFont monospacedSystemFontOfSize:configuration->font_size
+                                      weight:weight];
+  } else {
+    font = [NSFont fontWithName:copied_font_family
+                          size:configuration->font_size];
+  }
+  if (font == nil) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text view named font is not available on this system");
+  }
+  *out_font = font;
+  return DA_STATUS_OK;
+}
+
+DaTextEditor* TextEditor(DaHandle handle, int32_t* out_status) {
+  NSView* view = static_cast<NSView*>(ObjectRegistry::Shared().Lookup(
+      handle, ObjectKind::kView, ThreadDomain::kAppKitMain, out_status));
+  if (view == nil) {
+    return nil;
+  }
+  if (![view isKindOfClass:DaTextEditor.class]) {
+    *out_status = SetLastError(DA_STATUS_WRONG_HANDLE_TYPE,
+                               "expected text editor handle");
+    return nil;
+  }
+  *out_status = DA_STATUS_OK;
+  return static_cast<DaTextEditor*>(view);
+}
+
+bool Utf16ScalarBoundary(NSString* text, uint64_t offset) {
+  const uint64_t length = static_cast<uint64_t>(text.length);
+  if (offset == 0 || offset == length) {
+    return true;
+  }
+  if (offset > length) {
+    return false;
+  }
+  const unichar before = [text characterAtIndex:offset - 1];
+  const unichar after = [text characterAtIndex:offset];
+  const bool before_is_high = before >= 0xd800 && before <= 0xdbff;
+  const bool after_is_low = after >= 0xdc00 && after <= 0xdfff;
+  return !(before_is_high && after_is_low);
+}
+
+int32_t ValidateTextEditorSelection(NSString* text,
+                                    uint64_t location,
+                                    uint64_t length) {
+  const uint64_t text_length = static_cast<uint64_t>(text.length);
+  if (location > text_length || length > text_length - location ||
+      !Utf16ScalarBoundary(text, location) ||
+      !Utf16ScalarBoundary(text, location + length)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text editor selection must be in bounds and aligned to UTF-16 scalar boundaries");
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t ValidateTextEditorStyleRuns(NSString* text,
+                                    const DaTextEditorStyleRun* runs,
+                                    size_t count) {
+  if (count > DA_TEXT_EDITOR_MAX_STYLE_RUNS) {
+    return SetLastError(DA_STATUS_LIMIT_EXCEEDED,
+                        "text editor style run count exceeds the limit");
+  }
+  if (runs == nullptr && count != 0) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "text editor style runs must not be null when non-empty");
+  }
+  const uint64_t text_length = static_cast<uint64_t>(text.length);
+  uint64_t previous_end = 0;
+  for (size_t index = 0; index < count; ++index) {
+    const DaTextEditorStyleRun& run = runs[index];
+    if (run.location < previous_end || run.length == 0 ||
+        run.location > text_length ||
+        run.length > text_length - run.location ||
+        !Utf16ScalarBoundary(text, run.location) ||
+        !Utf16ScalarBoundary(text, run.location + run.length) ||
+        !ValidTextViewColor(run.foreground_color) ||
+        !ValidTextViewColor(run.underline_color) || run.reserved != 0 ||
+        (run.underline_style != DA_TEXT_EDITOR_UNDERLINE_NONE &&
+         run.underline_style != DA_TEXT_EDITOR_UNDERLINE_SINGLE)) {
+      return SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "text editor style runs must be ordered, non-overlapping, valid, and aligned to UTF-16 scalar boundaries");
+    }
+    previous_end = run.location + run.length;
+  }
+  return DA_STATUS_OK;
+}
+
+void ApplyTextEditorStyleRunsToStorage(
+    DaTextEditor* editor,
+    NSMutableAttributedString* storage,
+    const DaTextEditorStyleRun* runs,
+    size_t count) {
+  [storage beginEditing];
+  const NSRange entire_range = NSMakeRange(0, storage.length);
+  if (entire_range.length != 0) {
+    [storage setAttributes:@{
+      NSFontAttributeName : editor.daFont,
+      NSForegroundColorAttributeName : editor.daForegroundColor,
+    }
+                    range:entire_range];
+  }
+  for (size_t index = 0; index < count; ++index) {
+    const DaTextEditorStyleRun& run = runs[index];
+    NSMutableDictionary<NSAttributedStringKey, id>* attributes =
+        [@{NSForegroundColorAttributeName :
+               TextViewColor(run.foreground_color)} mutableCopy];
+    if (run.underline_style == DA_TEXT_EDITOR_UNDERLINE_SINGLE) {
+      attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
+      attributes[NSUnderlineColorAttributeName] =
+          TextViewColor(run.underline_color);
+    }
+    [storage addAttributes:attributes
+                     range:NSMakeRange(run.location, run.length)];
+  }
+  [storage endEditing];
+}
+
+void ApplyTextEditorStyleRuns(DaTextEditor* editor,
+                              const DaTextEditorStyleRun* runs,
+                              size_t count) {
+  ApplyTextEditorStyleRunsToStorage(editor, editor.daTextView.textStorage,
+                                    runs, count);
+  editor.daTextView.typingAttributes = @{
+    NSFontAttributeName : editor.daFont,
+    NSForegroundColorAttributeName : editor.daForegroundColor,
+  };
 }
 
 DaWindowOwner* WindowOwner(DaHandle handle, int32_t* out_status) {
@@ -2011,6 +2219,15 @@ int32_t da_window_make_first_responder(DaHandle window, DaHandle view) {
         DA_STATUS_INVALID_ARGUMENT,
         "first responder view must belong to the window content hierarchy");
   }
+  if ([responder isKindOfClass:DaTextEditor.class]) {
+    if (!responder.acceptsFirstResponder) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "text editor wrapper does not accept first responder status");
+    }
+    DaTextEditor* editor = static_cast<DaTextEditor*>(responder);
+    responder = editor.daTextView;
+  }
   if (![owner.window makeFirstResponder:responder]) {
     return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
                                      "view refused first responder status");
@@ -2259,87 +2476,11 @@ int32_t da_text_view_create_configured(
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
   }
-  if (configuration == nullptr ||
-      configuration->struct_size <
-          DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "text view configuration is missing or smaller than version 1");
-  }
-  const int32_t view_status =
-      dart_appkit::ValidateViewConfiguration(&configuration->view);
-  if (view_status != DA_STATUS_OK) {
-    return view_status;
-  }
-  if (configuration->font_kind < DA_TEXT_VIEW_FONT_SYSTEM ||
-      configuration->font_kind > DA_TEXT_VIEW_FONT_NAMED ||
-      configuration->font_weight < DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT ||
-      configuration->font_weight > DA_TEXT_VIEW_FONT_WEIGHT_BLACK ||
-      (configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED &&
-       configuration->font_weight != DA_TEXT_VIEW_FONT_WEIGHT_REGULAR) ||
-      !std::isfinite(configuration->font_size) ||
-      configuration->font_size <= 0.0 ||
-      configuration->font_size > DA_TEXT_VIEW_FONT_MAX_SIZE) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "text view font kind, weight, or size is invalid");
-  }
-  const double padding[] = {
-      configuration->padding_top,
-      configuration->padding_right,
-      configuration->padding_bottom,
-      configuration->padding_left,
-  };
-  for (const double extent : padding) {
-    if (!std::isfinite(extent) || extent < 0.0 ||
-        extent > DA_TEXT_VIEW_PADDING_MAX_EXTENT) {
-      return dart_appkit::SetLastError(
-          DA_STATUS_INVALID_ARGUMENT,
-          "text view padding must be finite and within the bound");
-    }
-  }
-  if (!dart_appkit::ValidTextViewColor(configuration->foreground_color) ||
-      !dart_appkit::ValidTextViewColor(configuration->background_color)) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "text view color kind, reserved field, or components are invalid");
-  }
-  if (font_family_length > DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_LIMIT_EXCEEDED,
-        "text view font family exceeds the UTF-8 byte limit");
-  }
-  int32_t status = DA_STATUS_OK;
-  NSString* copied_font_family =
-      dart_appkit::CopyUtf8(font_family, font_family_length, &status);
-  if (status != DA_STATUS_OK) {
-    return status;
-  }
-  const bool uses_named_font =
-      configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED;
-  if ((uses_named_font && copied_font_family.length == 0) ||
-      (!uses_named_font && copied_font_family.length != 0)) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "font family must be present only for a named text view font");
-  }
-  const NSFontWeight weight =
-      dart_appkit::TextViewFontWeight(configuration->font_weight);
   NSFont* font = nil;
-  if (configuration->font_kind == DA_TEXT_VIEW_FONT_SYSTEM) {
-    font = [NSFont systemFontOfSize:configuration->font_size weight:weight];
-  } else if (configuration->font_kind ==
-             DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM) {
-    font = [NSFont monospacedSystemFontOfSize:configuration->font_size
-                                      weight:weight];
-  } else {
-    font = [NSFont fontWithName:copied_font_family
-                          size:configuration->font_size];
-  }
-  if (font == nil) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "text view named font is not available on this system");
+  const int32_t configuration_status = dart_appkit::ResolveTextViewFont(
+      configuration, font_family, font_family_length, &font);
+  if (configuration_status != DA_STATUS_OK) {
+    return configuration_status;
   }
   DaTextView* view = [[DaTextView alloc] initWithFrame:NSZeroRect];
   dart_appkit::ApplyViewConfiguration(view, configuration->view);
@@ -2401,6 +2542,246 @@ int32_t da_text_view_set_text(DaHandle view, const char* text,
     return status;
   }
   text_view.displayText = copied_text;
+  return DA_STATUS_OK;
+}
+
+int32_t da_text_editor_create_configured(
+    const DaTextEditorConfiguration* configuration, const char* font_family,
+    size_t font_family_length, DaHandle* out_editor) {
+  dart_appkit::ClearLastError();
+  if (out_editor == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_editor must not be null");
+  }
+  *out_editor = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (configuration == nullptr ||
+      configuration->struct_size <
+          DA_TEXT_EDITOR_CONFIGURATION_VERSION_1_SIZE ||
+      (configuration->initially_editable != 0 &&
+       configuration->initially_editable != 1) ||
+      configuration->reserved != 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text editor configuration is missing, undersized, or invalid");
+  }
+  NSFont* font = nil;
+  const int32_t configuration_status = dart_appkit::ResolveTextViewFont(
+      &configuration->presentation, font_family, font_family_length, &font);
+  if (configuration_status != DA_STATUS_OK) {
+    return configuration_status;
+  }
+  @try {
+    DaTextEditor* editor = [[DaTextEditor alloc] initWithFrame:NSZeroRect];
+    dart_appkit::ApplyViewConfiguration(editor,
+                                        configuration->presentation.view);
+    editor.daFont = font;
+    editor.daPadding = NSEdgeInsetsMake(
+        configuration->presentation.padding_top,
+        configuration->presentation.padding_left,
+        configuration->presentation.padding_bottom,
+        configuration->presentation.padding_right);
+    editor.daForegroundColor = dart_appkit::TextViewColor(
+        configuration->presentation.foreground_color);
+    editor.daBackgroundColor = dart_appkit::TextViewColor(
+        configuration->presentation.background_color);
+    [editor daApplyPresentation];
+    editor.daTextView.editable = configuration->initially_editable == 1;
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        editor, dart_appkit::ObjectKind::kView,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    *out_editor = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native text editor creation failed");
+  }
+}
+
+int32_t da_text_editor_set_document(
+    DaHandle editor, const char* text, size_t text_length,
+    const DaTextEditorStyleRun* style_runs, size_t style_run_count,
+    uint64_t selection_location, uint64_t selection_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  if (text_length > DA_TEXT_EDITOR_MAX_TEXT_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "text editor document exceeds the UTF-8 byte limit");
+  }
+  NSString* copied_text = dart_appkit::CopyUtf8(text, text_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  status = dart_appkit::ValidateTextEditorSelection(
+      copied_text, selection_location, selection_length);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  status = dart_appkit::ValidateTextEditorStyleRuns(
+      copied_text, style_runs, style_run_count);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    NSMutableAttributedString* replacement = [[NSMutableAttributedString alloc]
+        initWithString:copied_text
+            attributes:@{
+              NSFontAttributeName : text_editor.daFont,
+              NSForegroundColorAttributeName :
+                  text_editor.daForegroundColor,
+            }];
+    dart_appkit::ApplyTextEditorStyleRunsToStorage(
+        text_editor, replacement, style_runs, style_run_count);
+    [text_editor.daTextView.textStorage setAttributedString:replacement];
+    text_editor.daTextView.typingAttributes = @{
+      NSFontAttributeName : text_editor.daFont,
+      NSForegroundColorAttributeName : text_editor.daForegroundColor,
+    };
+    text_editor.daTextView.selectedRange =
+        NSMakeRange(selection_location, selection_length);
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native text editor document update failed");
+  }
+}
+
+int32_t da_text_editor_set_style_runs(
+    DaHandle editor, const DaTextEditorStyleRun* style_runs,
+    size_t style_run_count) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  NSString* current_text = text_editor.daTextView.string;
+  status = dart_appkit::ValidateTextEditorStyleRuns(
+      current_text, style_runs, style_run_count);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  @try {
+    const NSRange selection = text_editor.daTextView.selectedRange;
+    dart_appkit::ApplyTextEditorStyleRuns(text_editor, style_runs,
+                                          style_run_count);
+    text_editor.daTextView.selectedRange = selection;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native text editor style update failed");
+  }
+}
+
+int32_t da_text_editor_set_editable(DaHandle editor, int32_t editable) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (editable != 0 && editable != 1) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text editor editable value must be zero or one");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  text_editor.daTextView.editable = editable == 1;
+  return DA_STATUS_OK;
+}
+
+int32_t da_text_editor_set_selection(DaHandle editor, uint64_t location,
+                                     uint64_t length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  status = dart_appkit::ValidateTextEditorSelection(
+      text_editor.daTextView.string, location, length);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  text_editor.daTextView.selectedRange = NSMakeRange(location, length);
+  return DA_STATUS_OK;
+}
+
+int32_t da_text_editor_get_snapshot(DaHandle editor,
+                                    DaTextEditorSnapshot* out_snapshot) {
+  dart_appkit::ClearLastError();
+  if (out_snapshot == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_snapshot must not be null");
+  }
+  *out_snapshot = {};
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  NSData* utf8 = [text_editor.daTextView.string
+      dataUsingEncoding:NSUTF8StringEncoding
+   allowLossyConversion:NO];
+  if (utf8 == nil) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        "native text editor contents could not be encoded as UTF-8");
+  }
+  if (utf8.length == 0) {
+    dart_appkit::g_text_editor_snapshot.clear();
+  } else {
+    dart_appkit::g_text_editor_snapshot.assign(
+        static_cast<const char*>(utf8.bytes), utf8.length);
+  }
+  const NSRange selection = text_editor.daTextView.selectedRange;
+  out_snapshot->text = dart_appkit::g_text_editor_snapshot.empty()
+                           ? nullptr
+                           : dart_appkit::g_text_editor_snapshot.data();
+  out_snapshot->text_length = dart_appkit::g_text_editor_snapshot.size();
+  out_snapshot->selection_location = selection.location;
+  out_snapshot->selection_length = selection.length;
+  out_snapshot->is_editable = text_editor.daTextView.isEditable ? 1 : 0;
+  out_snapshot->has_marked_text = text_editor.daTextView.hasMarkedText ? 1 : 0;
   return DA_STATUS_OK;
 }
 

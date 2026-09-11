@@ -17,6 +17,7 @@ part 'api/menu.dart';
 part 'api/native_resource.dart';
 part 'api/pasteboard.dart';
 part 'api/split_view.dart';
+part 'api/text_editor.dart';
 part 'api/text_view.dart';
 part 'api/view.dart';
 part 'api/window.dart';

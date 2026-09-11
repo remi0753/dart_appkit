@@ -325,6 +325,75 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 @end
 
+@implementation DaTextEditor {
+  NSScrollView* _daScrollView;
+  NSTextView* _daTextView;
+}
+
+@synthesize daScrollView = _daScrollView;
+@synthesize daTextView = _daTextView;
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self != nil) {
+    _daFont =
+        [NSFont monospacedSystemFontOfSize:14.0 weight:NSFontWeightRegular];
+    _daPadding = NSEdgeInsetsMake(12.0, 12.0, 12.0, 12.0);
+    _daForegroundColor = NSColor.labelColor;
+    _daBackgroundColor = NSColor.windowBackgroundColor;
+
+    _daScrollView = [NSTextView scrollableTextView];
+    _daScrollView.frame = self.bounds;
+    _daScrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    _daScrollView.borderType = NSNoBorder;
+    _daScrollView.drawsBackground = YES;
+    _daScrollView.hasVerticalScroller = YES;
+    _daScrollView.hasHorizontalScroller = YES;
+    _daScrollView.automaticallyAdjustsContentInsets = NO;
+
+    _daTextView = static_cast<NSTextView*>(_daScrollView.documentView);
+    _daTextView.richText = NO;
+    _daTextView.importsGraphics = NO;
+    _daTextView.editable = NO;
+    _daTextView.selectable = YES;
+    _daTextView.allowsUndo = YES;
+    _daTextView.usesFindPanel = YES;
+    _daTextView.smartInsertDeleteEnabled = NO;
+    _daTextView.automaticQuoteSubstitutionEnabled = NO;
+    _daTextView.automaticDashSubstitutionEnabled = NO;
+    _daTextView.automaticTextReplacementEnabled = NO;
+    _daTextView.automaticSpellingCorrectionEnabled = NO;
+    _daTextView.continuousSpellCheckingEnabled = NO;
+    _daTextView.grammarCheckingEnabled = NO;
+    _daTextView.horizontallyResizable = YES;
+    _daTextView.verticallyResizable = YES;
+    _daTextView.maxSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
+    _daTextView.textContainer.widthTracksTextView = NO;
+    _daTextView.textContainer.containerSize =
+        NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
+    _daTextView.textContainer.lineFragmentPadding = 0.0;
+    _daTextView.textContainerInset = NSZeroSize;
+    [self addSubview:_daScrollView];
+    [self daApplyPresentation];
+  }
+  return self;
+}
+
+- (void)daApplyPresentation {
+  self.daScrollView.contentInsets = self.daPadding;
+  self.daScrollView.backgroundColor = self.daBackgroundColor;
+  self.daTextView.backgroundColor = self.daBackgroundColor;
+  self.daTextView.font = self.daFont;
+  self.daTextView.textColor = self.daForegroundColor;
+  self.daTextView.insertionPointColor = self.daForegroundColor;
+  self.daTextView.typingAttributes = @{
+    NSFontAttributeName : self.daFont,
+    NSForegroundColorAttributeName : self.daForegroundColor,
+  };
+}
+
+@end
+
 @implementation DaWindow
 
 - (BOOL)canBecomeKeyWindow {

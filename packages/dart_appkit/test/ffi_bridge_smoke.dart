@@ -100,6 +100,50 @@ void main(List<String> arguments) {
       configuredTextView.message.isEmpty) {
     _fail('configured text-view symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> configuredTextEditor = bindings.textEditorCreate(
+    const NativeTextEditorConfiguration(
+      presentation: NativeTextViewConfiguration.compatibilityDefault,
+      initiallyEditable: false,
+    ),
+  );
+  final NativeCallResult editorDocument = bindings.textEditorSetDocument(
+    1,
+    const NativeTextEditorDocument(
+      text: 'theme = dark',
+      selectionStart: 0,
+      selectionLength: 5,
+      styleRuns: <NativeTextEditorStyleRun>[
+        NativeTextEditorStyleRun(
+          start: 0,
+          length: 5,
+          foregroundColorKind: 2,
+          foregroundRed: 0.3,
+          foregroundGreen: 0.6,
+          foregroundBlue: 1,
+          foregroundAlpha: 1,
+          underlineStyle: 0,
+          underlineColorKind: 0,
+          underlineRed: 0,
+          underlineGreen: 0,
+          underlineBlue: 0,
+          underlineAlpha: 1,
+        ),
+      ],
+    ),
+  );
+  final NativeValueResult<NativeTextEditorSnapshot> editorSnapshot = bindings
+      .textEditorSnapshot(1);
+  if (configuredTextEditor.isSuccess ||
+      configuredTextEditor.status != 5 ||
+      configuredTextEditor.message.isEmpty ||
+      editorDocument.isSuccess ||
+      editorDocument.status != 5 ||
+      editorDocument.message.isEmpty ||
+      editorSnapshot.isSuccess ||
+      editorSnapshot.status != 5 ||
+      editorSnapshot.message.isEmpty) {
+    _fail('text-editor FFI did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> splitView = bindings.splitViewCreate(0);
   if (splitView.isSuccess ||
       splitView.status != 5 ||

@@ -275,6 +275,125 @@ Future<void> _testGenericViewBoundary() async {
   await raw.close();
 }
 
+Future<void> _testAttributedTextEditorApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final TextEditorConfiguration configuration = TextEditorConfiguration(
+    view: const ViewConfiguration(acceptsFirstResponder: true),
+    font: TextViewFont.named('Menlo', size: 13),
+    padding: const TextViewPadding(top: 8, right: 9, bottom: 10, left: 11),
+    foregroundColor: TextViewColor.sRgb(red: 0.8, green: 0.8, blue: 0.8),
+    backgroundColor: TextViewColor.sRgb(red: 0.1, green: 0.1, blue: 0.1),
+  );
+  final TextEditor editor = TextEditor(configuration: configuration);
+  final String text = 'theme = dark\n👻';
+  final List<TextEditorStyleRun> styles = <TextEditorStyleRun>[
+    TextEditorStyleRun(
+      start: 0,
+      length: 5,
+      foregroundColor: TextViewColor.sRgb(red: 0.3, green: 0.6, blue: 1),
+    ),
+    TextEditorStyleRun(
+      start: 8,
+      length: 4,
+      foregroundColor: TextViewColor.sRgb(red: 0.4, green: 0.9, blue: 0.5),
+      underlineStyle: TextEditorUnderlineStyle.single,
+      underlineColor: TextViewColor.sRgb(red: 1, green: 0.3, blue: 0.3),
+    ),
+  ];
+  editor.setDocument(
+    TextEditorDocument(
+      text: text,
+      selection: const TextEditorSelection(start: 8, length: 4),
+      styleRuns: styles,
+    ),
+  );
+  final TextEditorSnapshot initial = editor.snapshot;
+  final int handle = bindings.textEditorConfigurations.keys.single;
+  _expect(
+    editor.configuration == configuration &&
+        editor.viewConfiguration == configuration.view &&
+        initial.text == text &&
+        initial.selection == const TextEditorSelection(start: 8, length: 4) &&
+        !initial.isEditable &&
+        !initial.hasMarkedText &&
+        bindings.textEditorStyleRuns[handle]!.length == 2 &&
+        bindings.textEditorConfigurations[handle]!.presentation.fontFamily ==
+            'Menlo',
+    'atomic editor document/configuration did not reach native bindings',
+  );
+
+  editor
+    ..isEditable = true
+    ..setSelection(const TextEditorSelection(start: 13, length: 2));
+  final TextEditorSnapshot editable = editor.snapshot;
+  _expect(
+    editable.text == text &&
+        editable.isEditable &&
+        editable.selection == const TextEditorSelection(start: 13, length: 2),
+    'editable/selection mutation replaced text or lost UTF-16 selection',
+  );
+  final List<TextEditorStyleRun> replacement = <TextEditorStyleRun>[
+    TextEditorStyleRun(
+      start: 8,
+      length: 4,
+      foregroundColor: TextViewColor.sRgb(red: 1, green: 0.7, blue: 0.2),
+    ),
+  ];
+  editor.setStyleRuns(replacement);
+  _expect(
+    editor.snapshot.text == text &&
+        bindings.textEditorStyleRuns[handle]!.single.foregroundRed == 1,
+    'style-only update replaced editor text',
+  );
+
+  await _expectThrows<RangeError>(
+    () => editor.setSelection(const TextEditorSelection(start: 14)),
+  );
+  await _expectThrows<RangeError>(
+    () => editor.setStyleRuns(<TextEditorStyleRun>[
+      const TextEditorStyleRun(
+        start: 8,
+        length: 4,
+        foregroundColor: TextViewColor.label(),
+      ),
+      const TextEditorStyleRun(
+        start: 2,
+        length: 2,
+        foregroundColor: TextViewColor.label(),
+      ),
+    ]),
+  );
+  await _expectThrows<RangeError>(
+    () => editor.setDocument(
+      TextEditorDocument(
+        text: text,
+        styleRuns: const <TextEditorStyleRun>[
+          TextEditorStyleRun(
+            start: 13,
+            length: 1,
+            foregroundColor: TextViewColor.label(),
+          ),
+        ],
+      ),
+    ),
+  );
+  _expect(
+    TextEditorLimits.maximumTextUtf8Bytes == 16 * 1024 * 1024 &&
+        TextEditorLimits.maximumStyleRuns == 64 * 1024,
+    'public editor bounds changed',
+  );
+
+  editor.dispose();
+  await _expectThrows<StateError>(() => editor.snapshot);
+  _expect(bindings.objects.isEmpty, 'text editor handle leaked');
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testWindowConfigurationApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -1892,6 +2011,7 @@ Future<void> main() async {
     'generic and specialized view boundary',
     _testGenericViewBoundary,
   );
+  await _test('attributed multiline text editor', _testAttributedTextEditorApi);
   await _test('immutable window configuration', _testWindowConfigurationApi);
   await _test(
     'native tabs, split views, and explicit focus',

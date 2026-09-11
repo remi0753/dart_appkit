@@ -443,8 +443,8 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 達成目標: 日本語を含む実用的なテキスト入力・編集をDartアプリケーションで扱える
 ようにする。
 
-進捗: **部分実装（terminal専用）**。汎用Controlは未実装だが、custom terminal Viewで
-IME bridgeのboundedな先行実装が動作している。
+進捗: **部分実装（terminal専用IME＋汎用multiline editor基盤）**。custom terminal Viewの
+IME bridgeに加え、標準 `NSTextView` を使う汎用の編集surfaceが動作している。
 
 実装済み:
 
@@ -459,11 +459,18 @@ IME bridgeのboundedな先行実装が動作している。
 - 表示専用 `TextView` のmonospaced/system/exact named font、font size／weight、padding、
   dynamic system／fixed sRGB foreground/backgroundと、基底focus／autoresizeをimmutable
   creation configurationとして実装した。
+- scroll可能な汎用 `TextEditor` として、同一native surface上のeditable切替、16 MiB UTF-8
+  text、UTF-16 selection、65,536件までのordered non-overlapping foreground／underline
+  run、marked-text付きsnapshotを実装した。style-only更新はtext storageとselectionを
+  置換せず、command／editing modeで同じsyntax projectionを維持できる。
+- `TextEditor` のnative selection／first responder／IME input client／Undo基盤を標準
+  `NSTextView` に保持し、Dart fake、warning-clean native契約、current／legacy FFIで境界を
+  検証した。
 
 未実装:
 
-- 現在の表示専用 `TextView` と区別したLabel、single-line TextField、SecureTextField、
-  multiline TextEditorを追加する。
+- 現在の表示専用 `TextView` と区別したLabel、single-line TextField、SecureTextFieldを
+  追加する。
 - terminal専用event／caret contractを汎用のeditable Controlへ拡張し、text、selection、
   replacement range、marked text、surrounding text、commit／cancel compositionを扱う。
 - native TextField／TextEditorとcustom Viewの双方で使えるIME、dead key、candidate-window、

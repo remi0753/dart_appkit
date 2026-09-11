@@ -4,7 +4,15 @@ import 'dart:typed_data';
 
 import 'package:dart_appkit/src/native/native_bindings.dart';
 
-enum FakeObjectKind { window, view, splitView, textView, menu, menuItem }
+enum FakeObjectKind {
+  window,
+  view,
+  splitView,
+  textView,
+  textEditor,
+  menu,
+  menuItem,
+}
 
 final class FakeMenuItemState {
   const FakeMenuItemState({
@@ -20,7 +28,8 @@ final class FakeMenuItemState {
   final bool isSeparator;
 }
 
-final class FakeNativeBindings implements NativeBindings {
+final class FakeNativeBindings
+    implements NativeBindings, NativeTextEditorBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
   int nextHandle = 100;
@@ -54,6 +63,14 @@ final class FakeNativeBindings implements NativeBindings {
       <int, NativeViewConfiguration>{};
   final Map<int, NativeTextViewConfiguration> textViewConfigurations =
       <int, NativeTextViewConfiguration>{};
+  final Map<int, NativeTextEditorConfiguration> textEditorConfigurations =
+      <int, NativeTextEditorConfiguration>{};
+  final Map<int, List<NativeTextEditorStyleRun>> textEditorStyleRuns =
+      <int, List<NativeTextEditorStyleRun>>{};
+  final Map<int, int> textEditorSelectionStarts = <int, int>{};
+  final Map<int, int> textEditorSelectionLengths = <int, int>{};
+  final Map<int, bool> textEditorEditable = <int, bool>{};
+  final Map<int, bool> textEditorHasMarkedText = <int, bool>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
   final Map<int, List<Uint8List>> customViewOperations =
@@ -703,6 +720,94 @@ final class FakeNativeBindings implements NativeBindings {
   }
 
   @override
+  NativeValueResult<int> textEditorCreate(
+    NativeTextEditorConfiguration configuration,
+  ) {
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'textEditorCreate',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.textEditor;
+      viewConfigurations[handle] = configuration.presentation.view;
+      textEditorConfigurations[handle] = configuration;
+      texts[handle] = '';
+      textEditorStyleRuns[handle] = const <NativeTextEditorStyleRun>[];
+      textEditorSelectionStarts[handle] = 0;
+      textEditorSelectionLengths[handle] = 0;
+      textEditorEditable[handle] = configuration.initiallyEditable;
+      textEditorHasMarkedText[handle] = false;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult textEditorSetDocument(
+    int handle,
+    NativeTextEditorDocument document,
+  ) {
+    final NativeCallResult result = _status('textEditorSetDocument');
+    if (result.isSuccess) {
+      texts[handle] = document.text;
+      textEditorSelectionStarts[handle] = document.selectionStart;
+      textEditorSelectionLengths[handle] = document.selectionLength;
+      textEditorStyleRuns[handle] = List<NativeTextEditorStyleRun>.unmodifiable(
+        document.styleRuns,
+      );
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult textEditorSetStyleRuns(
+    int handle,
+    List<NativeTextEditorStyleRun> styleRuns,
+  ) {
+    final NativeCallResult result = _status('textEditorSetStyleRuns');
+    if (result.isSuccess) {
+      textEditorStyleRuns[handle] = List<NativeTextEditorStyleRun>.unmodifiable(
+        styleRuns,
+      );
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult textEditorSetEditable(int handle, bool editable) {
+    final NativeCallResult result = _status('textEditorSetEditable');
+    if (result.isSuccess) textEditorEditable[handle] = editable;
+    return result;
+  }
+
+  @override
+  NativeCallResult textEditorSetSelection(
+    int handle, {
+    required int start,
+    required int length,
+  }) {
+    final NativeCallResult result = _status('textEditorSetSelection');
+    if (result.isSuccess) {
+      textEditorSelectionStarts[handle] = start;
+      textEditorSelectionLengths[handle] = length;
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle) =>
+      _value<NativeTextEditorSnapshot>(
+        'textEditorSnapshot',
+        NativeTextEditorSnapshot(
+          text: texts[handle]!,
+          selectionStart: textEditorSelectionStarts[handle]!,
+          selectionLength: textEditorSelectionLengths[handle]!,
+          isEditable: textEditorEditable[handle]!,
+          hasMarkedText: textEditorHasMarkedText[handle]!,
+        ),
+      );
+
+  @override
   NativeCallResult windowSetContentView(int windowHandle, int viewHandle) {
     final NativeCallResult result = _status('windowSetContentView');
     if (result.isSuccess) {
@@ -723,6 +828,12 @@ final class FakeNativeBindings implements NativeBindings {
       windowTabColors.remove(handle);
       viewConfigurations.remove(handle);
       textViewConfigurations.remove(handle);
+      textEditorConfigurations.remove(handle);
+      textEditorStyleRuns.remove(handle);
+      textEditorSelectionStarts.remove(handle);
+      textEditorSelectionLengths.remove(handle);
+      textEditorEditable.remove(handle);
+      textEditorHasMarkedText.remove(handle);
       texts.remove(handle);
       customViewProviders.remove(handle);
       customViewOperations.remove(handle);

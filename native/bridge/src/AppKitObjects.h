@@ -21,6 +21,19 @@
 
 @end
 
+@interface DaTextEditor : DaView
+
+@property(nonatomic, strong, readonly) NSScrollView* daScrollView;
+@property(nonatomic, strong, readonly) NSTextView* daTextView;
+@property(nonatomic, strong) NSFont* daFont;
+@property(nonatomic, assign) NSEdgeInsets daPadding;
+@property(nonatomic, strong) NSColor* daForegroundColor;
+@property(nonatomic, strong) NSColor* daBackgroundColor;
+
+- (void)daApplyPresentation;
+
+@end
+
 @interface DaSplitView : NSSplitView <NSSplitViewDelegate>
 
 @property(nonatomic, assign, readonly) DaSplitAxis daAxis;

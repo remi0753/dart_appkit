@@ -173,6 +173,51 @@ typedef struct DaTextViewConfiguration {
 #define DA_TEXT_VIEW_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaTextViewConfiguration))
 
+#define DA_TEXT_EDITOR_MAX_TEXT_UTF8_BYTES ((size_t)(16u * 1024u * 1024u))
+#define DA_TEXT_EDITOR_MAX_STYLE_RUNS ((size_t)(64u * 1024u))
+
+typedef enum DaTextEditorUnderlineStyle {
+  DA_TEXT_EDITOR_UNDERLINE_NONE = 0,
+  DA_TEXT_EDITOR_UNDERLINE_SINGLE = 1
+} DaTextEditorUnderlineStyle;
+
+/** Size-prefixed immutable multiline editor creation configuration. */
+typedef struct DaTextEditorConfiguration {
+  uint64_t struct_size;
+  DaTextViewConfiguration presentation;
+  int32_t initially_editable;
+  int32_t reserved;
+} DaTextEditorConfiguration;
+
+#define DA_TEXT_EDITOR_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaTextEditorConfiguration))
+
+/** One ordered, non-overlapping UTF-16 attributed range. */
+typedef struct DaTextEditorStyleRun {
+  uint64_t location;
+  uint64_t length;
+  DaTextViewColorConfiguration foreground_color;
+  int32_t underline_style;
+  int32_t reserved;
+  DaTextViewColorConfiguration underline_color;
+} DaTextEditorStyleRun;
+
+/**
+ * Current multiline editor state.
+ *
+ * text is borrowed from thread-local bridge storage until the next snapshot
+ * call on the same thread. It is not NUL-termination-dependent. Selection
+ * coordinates use NSString-compatible UTF-16 code units.
+ */
+typedef struct DaTextEditorSnapshot {
+  const char* text;
+  size_t text_length;
+  uint64_t selection_location;
+  uint64_t selection_length;
+  int32_t is_editable;
+  int32_t has_marked_text;
+} DaTextEditorSnapshot;
+
 /** Size-prefixed immutable menu creation configuration. */
 typedef struct DaMenuConfiguration {
   uint64_t struct_size;
@@ -601,6 +646,45 @@ DA_EXPORT int32_t da_text_view_create_configured(
 /** Main thread only. UTF-8 bytes are copied before return. */
 DA_EXPORT int32_t da_text_view_set_text(DaHandle view, const char* text,
                                         size_t text_length);
+
+/**
+ * Main thread only. Creates one scrollable native multiline text editor.
+ * font_family follows da_text_view_create_configured's ownership contract.
+ */
+DA_EXPORT int32_t da_text_editor_create_configured(
+    const DaTextEditorConfiguration* configuration, const char* font_family,
+    size_t font_family_length, DaHandle* out_editor);
+
+/**
+ * Main thread only. Atomically replaces text, attributed runs, and selection.
+ * Text and runs are copied. Ranges and selection use UTF-16 code units and
+ * must not split a surrogate pair.
+ */
+DA_EXPORT int32_t da_text_editor_set_document(
+    DaHandle editor, const char* text, size_t text_length,
+    const DaTextEditorStyleRun* style_runs, size_t style_run_count,
+    uint64_t selection_location, uint64_t selection_length);
+
+/**
+ * Main thread only. Replaces attributed runs without replacing editor text.
+ * This preserves the native editing/IME surface and current selection.
+ */
+DA_EXPORT int32_t da_text_editor_set_style_runs(
+    DaHandle editor, const DaTextEditorStyleRun* style_runs,
+    size_t style_run_count);
+
+/** Main thread only. Enables or disables native text editing in place. */
+DA_EXPORT int32_t da_text_editor_set_editable(DaHandle editor,
+                                              int32_t editable);
+
+/** Main thread only. Sets a checked UTF-16 selection without replacing text. */
+DA_EXPORT int32_t da_text_editor_set_selection(DaHandle editor,
+                                               uint64_t location,
+                                               uint64_t length);
+
+/** Main thread only. Returns a borrowed plain-text and selection snapshot. */
+DA_EXPORT int32_t da_text_editor_get_snapshot(
+    DaHandle editor, DaTextEditorSnapshot* out_snapshot);
 
 /**
  * Main thread only. Accepts a generic or specialized view and consumes

@@ -335,6 +335,20 @@ DaTextViewConfiguration DefaultTextViewConfiguration() {
   return configuration;
 }
 
+DaTextEditorConfiguration DefaultTextEditorConfiguration() {
+  DaTextEditorConfiguration configuration{};
+  configuration.struct_size = DA_TEXT_EDITOR_CONFIGURATION_VERSION_1_SIZE;
+  configuration.presentation = DefaultTextViewConfiguration();
+  configuration.presentation.font_size = 14.0;
+  configuration.presentation.padding_top = 12.0;
+  configuration.presentation.padding_right = 12.0;
+  configuration.presentation.padding_bottom = 12.0;
+  configuration.presentation.padding_left = 12.0;
+  configuration.initially_editable = 0;
+  configuration.reserved = 0;
+  return configuration;
+}
+
 DaView* NativeViewFor(DaHandle handle) {
   int32_t status = DA_STATUS_OK;
   id object = dart_appkit::ObjectRegistry::Shared().Lookup(
@@ -353,6 +367,16 @@ DaTextView* NativeTextViewFor(DaHandle handle) {
   EXPECT_EQ(status, DA_STATUS_OK);
   EXPECT_TRUE([object isKindOfClass:DaTextView.class]);
   return static_cast<DaTextView*>(object);
+}
+
+DaTextEditor* NativeTextEditorFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kView,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaTextEditor.class]);
+  return static_cast<DaTextEditor*>(object);
 }
 
 DaHandle CreateSplitView(DaSplitAxis axis) {
@@ -1395,6 +1419,219 @@ void TestConfiguredBaseAndTextViews() {
   EXPECT_EQ(da_release(configured_text_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(default_view_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(configured_view_handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestAttributedTextEditor() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  DaTextEditorConfiguration configuration = DefaultTextEditorConfiguration();
+  configuration.presentation.padding_top = 7.0;
+  configuration.presentation.padding_right = 8.0;
+  configuration.presentation.padding_bottom = 9.0;
+  configuration.presentation.padding_left = 10.0;
+  configuration.presentation.foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.8, 0.8, 0.8, 1.0};
+  configuration.presentation.background_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.1, 0.1, 0.1, 1.0};
+  DaHandle editor_handle = 0;
+  EXPECT_EQ(da_text_editor_create_configured(&configuration, nullptr, 0,
+                                             &editor_handle),
+            DA_STATUS_OK);
+  DaTextEditor* editor = NativeTextEditorFor(editor_handle);
+  EXPECT_TRUE(editor.daScrollView.documentView == editor.daTextView);
+  EXPECT_TRUE(editor.daScrollView.hasVerticalScroller);
+  EXPECT_TRUE(editor.daScrollView.hasHorizontalScroller);
+  EXPECT_TRUE(editor.daTextView.isSelectable);
+  EXPECT_TRUE(!editor.daTextView.isEditable);
+  EXPECT_TRUE(editor.daTextView.allowsUndo);
+  EXPECT_TRUE(std::abs(editor.daScrollView.contentInsets.top - 7.0) < 0.0001);
+  EXPECT_TRUE(std::abs(editor.daScrollView.contentInsets.right - 8.0) <
+              0.0001);
+  EXPECT_TRUE(std::abs(editor.daScrollView.contentInsets.bottom - 9.0) <
+              0.0001);
+  EXPECT_TRUE(std::abs(editor.daScrollView.contentInsets.left - 10.0) <
+              0.0001);
+
+  const std::string text = "theme = dark\n\xf0\x9f\x91\xbb\n";
+  DaTextEditorStyleRun runs[2]{};
+  runs[0].location = 0;
+  runs[0].length = 5;
+  runs[0].foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.3, 0.6, 1.0, 1.0};
+  runs[0].underline_style = DA_TEXT_EDITOR_UNDERLINE_NONE;
+  runs[0].underline_color = {
+      DA_TEXT_VIEW_COLOR_LABEL, 0, 0.0, 0.0, 0.0, 1.0};
+  runs[1].location = 8;
+  runs[1].length = 4;
+  runs[1].foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.4, 0.9, 0.5, 1.0};
+  runs[1].underline_style = DA_TEXT_EDITOR_UNDERLINE_SINGLE;
+  runs[1].underline_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 1.0, 0.3, 0.3, 1.0};
+  EXPECT_EQ(da_text_editor_set_document(editor_handle, text.data(), text.size(),
+                                        runs, 2, 13, 2),
+            DA_STATUS_OK);
+  EXPECT_TRUE([editor.daTextView.string isEqualToString:@"theme = dark\n👻\n"]);
+  EXPECT_EQ(editor.daTextView.selectedRange.location,
+            static_cast<NSUInteger>(13));
+  EXPECT_EQ(editor.daTextView.selectedRange.length,
+            static_cast<NSUInteger>(2));
+
+  NSColor* keyword_color = [editor.daTextView.textStorage
+      attribute:NSForegroundColorAttributeName
+        atIndex:0
+ effectiveRange:nullptr];
+  keyword_color =
+      [keyword_color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(keyword_color != nil);
+  EXPECT_TRUE(std::abs(keyword_color.redComponent - 0.3) < 0.0001);
+  EXPECT_TRUE(std::abs(keyword_color.greenComponent - 0.6) < 0.0001);
+  EXPECT_TRUE(std::abs(keyword_color.blueComponent - 1.0) < 0.0001);
+  NSNumber* underline = [editor.daTextView.textStorage
+      attribute:NSUnderlineStyleAttributeName
+        atIndex:8
+ effectiveRange:nullptr];
+  EXPECT_EQ(underline.integerValue,
+            static_cast<NSInteger>(NSUnderlineStyleSingle));
+  NSColor* underline_color = [editor.daTextView.textStorage
+      attribute:NSUnderlineColorAttributeName
+        atIndex:8
+ effectiveRange:nullptr];
+  underline_color =
+      [underline_color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(underline_color != nil);
+  EXPECT_TRUE(std::abs(underline_color.redComponent - 1.0) < 0.0001);
+
+  DaTextEditorSnapshot snapshot{};
+  EXPECT_EQ(da_text_editor_get_snapshot(editor_handle, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(std::string(snapshot.text, snapshot.text_length), text);
+  EXPECT_EQ(snapshot.selection_location, static_cast<uint64_t>(13));
+  EXPECT_EQ(snapshot.selection_length, static_cast<uint64_t>(2));
+  EXPECT_EQ(snapshot.is_editable, 0);
+  EXPECT_EQ(snapshot.has_marked_text, 0);
+
+  DaTextEditorStyleRun replacement = runs[0];
+  replacement.foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 1.0, 0.7, 0.2, 1.0};
+  NSTextStorage* storage = editor.daTextView.textStorage;
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, &replacement, 1),
+            DA_STATUS_OK);
+  EXPECT_TRUE(editor.daTextView.textStorage == storage);
+  EXPECT_TRUE([editor.daTextView.string isEqualToString:@"theme = dark\n👻\n"]);
+  EXPECT_EQ(editor.daTextView.selectedRange.location,
+            static_cast<NSUInteger>(13));
+  EXPECT_TRUE([editor.daTextView.textStorage
+                  attribute:NSUnderlineStyleAttributeName
+                    atIndex:8
+             effectiveRange:nullptr] == nil);
+
+  NSAttributedString* normal_projection =
+      [editor.daTextView.textStorage copy];
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 1), DA_STATUS_OK);
+  EXPECT_TRUE(editor.daTextView.isEditable);
+  EXPECT_TRUE([editor.daTextView.textStorage
+      isEqualToAttributedString:normal_projection]);
+  EXPECT_EQ(da_text_editor_set_selection(editor_handle, 0, 5), DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_get_snapshot(editor_handle, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(snapshot.is_editable, 1);
+  EXPECT_EQ(snapshot.selection_location, static_cast<uint64_t>(0));
+  EXPECT_EQ(snapshot.selection_length, static_cast<uint64_t>(5));
+
+  const DaHandle window_handle = CreateWindow();
+  EXPECT_EQ(da_window_set_content_view(window_handle, editor_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_make_first_responder(window_handle, editor_handle),
+            DA_STATUS_OK);
+  EXPECT_TRUE(OwnerFor(window_handle).window.firstResponder ==
+              editor.daTextView);
+
+  NSAttributedString* before_invalid_document =
+      [editor.daTextView.textStorage copy];
+  const NSRange before_invalid_selection = editor.daTextView.selectedRange;
+  const std::string rejected_text = "replacement";
+  EXPECT_EQ(da_text_editor_set_document(
+                editor_handle, rejected_text.data(), rejected_text.size(),
+                nullptr, 0, 99, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_TRUE([editor.daTextView.textStorage
+      isEqualToAttributedString:before_invalid_document]);
+  EXPECT_TRUE(NSEqualRanges(editor.daTextView.selectedRange,
+                           before_invalid_selection));
+
+  EXPECT_EQ(da_text_editor_set_selection(editor_handle, 14, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  DaTextEditorStyleRun invalid_run = runs[1];
+  invalid_run.location = 14;
+  invalid_run.length = 1;
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, &invalid_run, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  DaTextEditorStyleRun unsorted[2] = {runs[1], runs[0]};
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, unsorted, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_run = runs[0];
+  invalid_run.underline_style = 99;
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, &invalid_run, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_run = runs[0];
+  invalid_run.foreground_color.red = 2.0;
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, &invalid_run, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_editor_set_style_runs(editor_handle, nullptr, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_editor_set_style_runs(
+                editor_handle, &replacement,
+                DA_TEXT_EDITOR_MAX_STYLE_RUNS + static_cast<size_t>(1)),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(da_text_editor_set_document(
+                editor_handle, nullptr,
+                DA_TEXT_EDITOR_MAX_TEXT_UTF8_BYTES + static_cast<size_t>(1),
+                nullptr, 0, 0, 0),
+            DA_STATUS_LIMIT_EXCEEDED);
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_text_editor_set_document(
+                editor_handle, invalid_utf8, sizeof(invalid_utf8), nullptr, 0,
+                0, 0),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_editor_get_snapshot(editor_handle, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  DaTextEditorConfiguration invalid_configuration = configuration;
+  invalid_configuration.initially_editable = 2;
+  DaHandle invalid_output = 99;
+  EXPECT_EQ(da_text_editor_create_configured(
+                &invalid_configuration, nullptr, 0, &invalid_output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(invalid_output, static_cast<DaHandle>(0));
+  invalid_configuration = configuration;
+  invalid_configuration.struct_size = 0;
+  EXPECT_EQ(da_text_editor_create_configured(
+                &invalid_configuration, nullptr, 0, &invalid_output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_editor_create_configured(&configuration, nullptr, 0,
+                                             nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const DaHandle generic_view = CreateView();
+  EXPECT_EQ(da_text_editor_set_editable(generic_view, 1),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(da_text_editor_set_editable(editor_handle, 0));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(generic_view), DA_STATUS_OK);
+  EXPECT_EQ(da_release(editor_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 0),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
@@ -2538,6 +2775,7 @@ int main() {
     TestMenus();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
+    TestAttributedTextEditor();
     TestRegisteredCustomViews();
     TestNativeExtensionServices();
     TestThreadGuardAndFinalizer();

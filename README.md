@@ -12,7 +12,8 @@ updates, lifecycle/window/input events, cached application light/dark
 appearance, 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 per-window key-event routing, mutable outer frames, asynchronous native
-fullscreen state, and a restart-based developer command.
+fullscreen state, a bounded attributed multiline text editor, and a
+restart-based developer command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -161,6 +162,18 @@ focus and autoresizing behavior. Defaults preserve the original focusable,
 width/height-sizable, monospaced 18-point regular text with 20-point padding,
 label foreground, and window background. Registered custom views remain wholly
 provider-owned.
+
+`TextEditor` is a separate, scrollable `NSTextView` surface for multiline
+editing. `setDocument` publishes one bounded plain-text buffer, UTF-16
+selection, and ordered non-overlapping foreground/underline runs atomically;
+`setStyleRuns` changes only attributes and does not replace the native text
+storage or selection. `isEditable` therefore switches interaction in place,
+so applications can keep identical syntax colors in command and editing modes.
+Snapshots return text, selection, editability, and marked-text presence.
+Text is limited to 16 MiB of UTF-8 and style projections to 65,536 runs. The
+surface retains native scrolling, selection, first-responder routing, IME
+composition, and Undo infrastructure; typed change/composition events and the
+broader controlled-input contract remain later control work.
 
 `MenuConfiguration` selects whether AppKit automatically validates item
 enabled state through its target. The compatibility default is `false`, so

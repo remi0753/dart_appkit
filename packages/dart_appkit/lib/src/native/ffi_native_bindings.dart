@@ -121,6 +121,56 @@ final class _DaTextViewConfigurationNative extends Struct {
   external _DaTextViewColorConfigurationNative backgroundColor;
 }
 
+final class _DaTextEditorConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  external _DaTextViewConfigurationNative presentation;
+
+  @Int32()
+  external int initiallyEditable;
+
+  @Int32()
+  external int reserved;
+}
+
+final class _DaTextEditorStyleRunNative extends Struct {
+  @Uint64()
+  external int location;
+
+  @Uint64()
+  external int length;
+
+  external _DaTextViewColorConfigurationNative foregroundColor;
+
+  @Int32()
+  external int underlineStyle;
+
+  @Int32()
+  external int reserved;
+
+  external _DaTextViewColorConfigurationNative underlineColor;
+}
+
+final class _DaTextEditorSnapshotNative extends Struct {
+  external Pointer<Uint8> text;
+
+  @Size()
+  external int textLength;
+
+  @Uint64()
+  external int selectionLocation;
+
+  @Uint64()
+  external int selectionLength;
+
+  @Int32()
+  external int isEditable;
+
+  @Int32()
+  external int hasMarkedText;
+}
+
 final class _DaMenuConfigurationNative extends Struct {
   @Uint64()
   external int structSize;
@@ -348,6 +398,56 @@ typedef _TextViewCreateConfiguredDart = int Function(
   int,
   Pointer<Uint64>,
 );
+typedef _TextEditorCreateConfiguredNative = Int32 Function(
+  Pointer<_DaTextEditorConfigurationNative>,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint64>,
+);
+typedef _TextEditorCreateConfiguredDart = int Function(
+  Pointer<_DaTextEditorConfigurationNative>,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint64>,
+);
+typedef _TextEditorSetDocumentNative = Int32 Function(
+  Uint64,
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaTextEditorStyleRunNative>,
+  Size,
+  Uint64,
+  Uint64,
+);
+typedef _TextEditorSetDocumentDart = int Function(
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaTextEditorStyleRunNative>,
+  int,
+  int,
+  int,
+);
+typedef _TextEditorSetStyleRunsNative = Int32 Function(
+  Uint64,
+  Pointer<_DaTextEditorStyleRunNative>,
+  Size,
+);
+typedef _TextEditorSetStyleRunsDart = int Function(
+  int,
+  Pointer<_DaTextEditorStyleRunNative>,
+  int,
+);
+typedef _TextEditorSetSelectionNative = Int32 Function(Uint64, Uint64, Uint64);
+typedef _TextEditorSetSelectionDart = int Function(int, int, int);
+typedef _TextEditorGetSnapshotNative = Int32 Function(
+  Uint64,
+  Pointer<_DaTextEditorSnapshotNative>,
+);
+typedef _TextEditorGetSnapshotDart = int Function(
+  int,
+  Pointer<_DaTextEditorSnapshotNative>,
+);
 typedef _IntCreateHandleNative = Int32 Function(Int32, Pointer<Uint64>);
 typedef _IntCreateHandleDart = int Function(int, Pointer<Uint64>);
 typedef _GetLastErrorNative = Void Function(Pointer<_DaErrorNative>);
@@ -408,6 +508,71 @@ _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
   }
 }
 
+_TextEditorCreateConfiguredDart? _lookupTextEditorCreateConfigured(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorCreateConfiguredNative,
+      _TextEditorCreateConfiguredDart
+    >('da_text_editor_create_configured');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorSetDocumentDart? _lookupTextEditorSetDocument(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorSetDocumentNative,
+      _TextEditorSetDocumentDart
+    >('da_text_editor_set_document');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorSetStyleRunsDart? _lookupTextEditorSetStyleRuns(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorSetStyleRunsNative,
+      _TextEditorSetStyleRunsDart
+    >('da_text_editor_set_style_runs');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorSetSelectionDart? _lookupTextEditorSetSelection(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorSetSelectionNative,
+      _TextEditorSetSelectionDart
+    >('da_text_editor_set_selection');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorGetSnapshotDart? _lookupTextEditorGetSnapshot(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorGetSnapshotNative,
+      _TextEditorGetSnapshotDart
+    >('da_text_editor_get_snapshot');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 void _writeViewConfiguration(
   _DaViewConfigurationNative output,
   NativeViewConfiguration configuration,
@@ -434,6 +599,65 @@ void _writeTextViewColor(
     ..green = green
     ..blue = blue
     ..alpha = alpha;
+}
+
+void _writeTextViewConfiguration(
+  _DaTextViewConfigurationNative output,
+  NativeTextViewConfiguration configuration,
+) {
+  output
+    ..structSize = sizeOf<_DaTextViewConfigurationNative>()
+    ..fontKind = configuration.fontKind
+    ..fontWeight = configuration.fontWeight
+    ..fontSize = configuration.fontSize
+    ..paddingTop = configuration.paddingTop
+    ..paddingRight = configuration.paddingRight
+    ..paddingBottom = configuration.paddingBottom
+    ..paddingLeft = configuration.paddingLeft;
+  _writeViewConfiguration(output.view, configuration.view);
+  _writeTextViewColor(
+    output.foregroundColor,
+    kind: configuration.foregroundColorKind,
+    red: configuration.foregroundRed,
+    green: configuration.foregroundGreen,
+    blue: configuration.foregroundBlue,
+    alpha: configuration.foregroundAlpha,
+  );
+  _writeTextViewColor(
+    output.backgroundColor,
+    kind: configuration.backgroundColorKind,
+    red: configuration.backgroundRed,
+    green: configuration.backgroundGreen,
+    blue: configuration.backgroundBlue,
+    alpha: configuration.backgroundAlpha,
+  );
+}
+
+void _writeTextEditorStyleRun(
+  _DaTextEditorStyleRunNative output,
+  NativeTextEditorStyleRun run,
+) {
+  output
+    ..location = run.start
+    ..length = run.length
+    ..underlineStyle = run.underlineStyle
+    ..reserved = 0;
+  _writeTextViewColor(
+    output.foregroundColor,
+    kind: run.foregroundColorKind,
+    red: run.foregroundRed,
+    green: run.foregroundGreen,
+    blue: run.foregroundBlue,
+    alpha: run.foregroundAlpha,
+  );
+  _writeTextViewColor(
+    output.underlineColor,
+    kind: run.underlineColorKind,
+    red: run.underlineRed,
+    green: run.underlineGreen,
+    blue: run.underlineBlue,
+    alpha: run.underlineAlpha,
+  );
 }
 
 _StringCreateDart? _lookupCustomViewCreate(DynamicLibrary library) {
@@ -818,7 +1042,8 @@ _IntCreateHandleDart? _lookupIntCreateHandle(
   }
 }
 
-final class FfiNativeBindings implements NativeBindings {
+final class FfiNativeBindings
+    implements NativeBindings, NativeTextEditorBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
         'da_abi_version',
@@ -936,6 +1161,15 @@ final class FfiNativeBindings implements NativeBindings {
           .lookupFunction<_HandleStringNative, _HandleStringDart>(
             'da_text_view_set_text',
           ),
+      _textEditorCreateConfigured = _lookupTextEditorCreateConfigured(library),
+      _textEditorSetDocument = _lookupTextEditorSetDocument(library),
+      _textEditorSetStyleRuns = _lookupTextEditorSetStyleRuns(library),
+      _textEditorSetEditable = _lookupHandleInt(
+        library,
+        'da_text_editor_set_editable',
+      ),
+      _textEditorSetSelection = _lookupTextEditorSetSelection(library),
+      _textEditorGetSnapshot = _lookupTextEditorGetSnapshot(library),
       _windowSetContentView = library
           .lookupFunction<_TwoHandlesNative, _TwoHandlesDart>(
             'da_window_set_content_view',
@@ -1027,6 +1261,12 @@ final class FfiNativeBindings implements NativeBindings {
   final _CreateHandleDart _textViewCreate;
   final _TextViewCreateConfiguredDart? _textViewCreateConfigured;
   final _HandleStringDart _textViewSetText;
+  final _TextEditorCreateConfiguredDart? _textEditorCreateConfigured;
+  final _TextEditorSetDocumentDart? _textEditorSetDocument;
+  final _TextEditorSetStyleRunsDart? _textEditorSetStyleRuns;
+  final _HandleBoolStatusDart? _textEditorSetEditable;
+  final _TextEditorSetSelectionDart? _textEditorSetSelection;
+  final _TextEditorGetSnapshotDart? _textEditorGetSnapshot;
   final _TwoHandlesDart _windowSetContentView;
   final _HandleStatusDart _release;
   final _GetLastErrorDart _getLastError;
@@ -1105,6 +1345,26 @@ final class FfiNativeBindings implements NativeBindings {
     try {
       pointer.asTypedList(bytes.length).setAll(0, bytes);
       return body(pointer, bytes.length);
+    } finally {
+      _free(pointer.cast<Void>());
+    }
+  }
+
+  T _withTextEditorStyleRuns<T>(
+    List<NativeTextEditorStyleRun> runs,
+    T Function(Pointer<_DaTextEditorStyleRunNative> pointer, int count) body,
+  ) {
+    if (runs.isEmpty) {
+      return body(nullptr, 0);
+    }
+    final Pointer<_DaTextEditorStyleRunNative> pointer = _allocate(
+      sizeOf<_DaTextEditorStyleRunNative>() * runs.length,
+    ).cast<_DaTextEditorStyleRunNative>();
+    try {
+      for (var index = 0; index < runs.length; index++) {
+        _writeTextEditorStyleRun((pointer + index).ref, runs[index]);
+      }
+      return body(pointer, runs.length);
     } finally {
       _free(pointer.cast<Void>());
     }
@@ -2018,33 +2278,7 @@ final class FfiNativeBindings implements NativeBindings {
       }
       configurationPointer = _allocate(sizeOf<_DaTextViewConfigurationNative>())
           .cast<_DaTextViewConfigurationNative>();
-      final _DaTextViewConfigurationNative native = configurationPointer.ref;
-      native
-        ..structSize = sizeOf<_DaTextViewConfigurationNative>()
-        ..fontKind = configuration.fontKind
-        ..fontWeight = configuration.fontWeight
-        ..fontSize = configuration.fontSize
-        ..paddingTop = configuration.paddingTop
-        ..paddingRight = configuration.paddingRight
-        ..paddingBottom = configuration.paddingBottom
-        ..paddingLeft = configuration.paddingLeft;
-      _writeViewConfiguration(native.view, configuration.view);
-      _writeTextViewColor(
-        native.foregroundColor,
-        kind: configuration.foregroundColorKind,
-        red: configuration.foregroundRed,
-        green: configuration.foregroundGreen,
-        blue: configuration.foregroundBlue,
-        alpha: configuration.foregroundAlpha,
-      );
-      _writeTextViewColor(
-        native.backgroundColor,
-        kind: configuration.backgroundColorKind,
-        red: configuration.backgroundRed,
-        green: configuration.backgroundGreen,
-        blue: configuration.backgroundBlue,
-        alpha: configuration.backgroundAlpha,
-      );
+      _writeTextViewConfiguration(configurationPointer.ref, configuration);
       return _withUtf8(configuration.fontFamily ?? '', (
         Pointer<Uint8> familyPointer,
         int familyLength,
@@ -2072,6 +2306,198 @@ final class FfiNativeBindings implements NativeBindings {
       _withUtf8(text, (Pointer<Uint8> pointer, int length) {
         return _callResult(_textViewSetText(handle, pointer, length));
       });
+
+  @override
+  NativeValueResult<int> textEditorCreate(
+    NativeTextEditorConfiguration configuration,
+  ) {
+    final _TextEditorCreateConfiguredDart? function =
+        _textEditorCreateConfigured;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    final Pointer<Uint64> handlePointer = _allocate(sizeOf<Uint64>())
+        .cast<Uint64>();
+    final Pointer<_DaTextEditorConfigurationNative> configurationPointer =
+        _allocate(sizeOf<_DaTextEditorConfigurationNative>())
+            .cast<_DaTextEditorConfigurationNative>();
+    try {
+      handlePointer.value = 0;
+      final _DaTextEditorConfigurationNative native = configurationPointer.ref;
+      native
+        ..structSize = sizeOf<_DaTextEditorConfigurationNative>()
+        ..initiallyEditable = configuration.initiallyEditable ? 1 : 0
+        ..reserved = 0;
+      _writeTextViewConfiguration(
+        native.presentation,
+        configuration.presentation,
+      );
+      return _withUtf8(configuration.presentation.fontFamily ?? '', (
+        Pointer<Uint8> familyPointer,
+        int familyLength,
+      ) {
+        return _valueResult<int>(
+          function(
+            configurationPointer,
+            familyPointer,
+            familyLength,
+            handlePointer,
+          ),
+          handlePointer.value,
+        );
+      });
+    } finally {
+      _free(configurationPointer.cast<Void>());
+      _free(handlePointer.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult textEditorSetDocument(
+    int handle,
+    NativeTextEditorDocument document,
+  ) {
+    final _TextEditorSetDocumentDart? function = _textEditorSetDocument;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    return _withUtf8(document.text, (Pointer<Uint8> text, int textLength) {
+      return _withTextEditorStyleRuns(document.styleRuns, (
+        Pointer<_DaTextEditorStyleRunNative> runs,
+        int runCount,
+      ) {
+        return _callResult(
+          function(
+            handle,
+            text,
+            textLength,
+            runs,
+            runCount,
+            document.selectionStart,
+            document.selectionLength,
+          ),
+        );
+      });
+    });
+  }
+
+  @override
+  NativeCallResult textEditorSetStyleRuns(
+    int handle,
+    List<NativeTextEditorStyleRun> styleRuns,
+  ) {
+    final _TextEditorSetStyleRunsDart? function = _textEditorSetStyleRuns;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    return _withTextEditorStyleRuns(
+      styleRuns,
+      (Pointer<_DaTextEditorStyleRunNative> runs, int count) =>
+          _callResult(function(handle, runs, count)),
+    );
+  }
+
+  @override
+  NativeCallResult textEditorSetEditable(int handle, bool editable) {
+    final _HandleBoolStatusDart? function = _textEditorSetEditable;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    return _callResult(function(handle, editable ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult textEditorSetSelection(
+    int handle, {
+    required int start,
+    required int length,
+  }) {
+    final _TextEditorSetSelectionDart? function = _textEditorSetSelection;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    return _callResult(function(handle, start, length));
+  }
+
+  @override
+  NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle) {
+    final _TextEditorGetSnapshotDart? function = _textEditorGetSnapshot;
+    if (function == null) {
+      return const NativeValueResult<NativeTextEditorSnapshot>.failure(
+        8,
+        'legacy native bridge does not support text editors',
+      );
+    }
+    final Pointer<_DaTextEditorSnapshotNative> output = _allocate(
+      sizeOf<_DaTextEditorSnapshotNative>(),
+    ).cast<_DaTextEditorSnapshotNative>();
+    try {
+      final int status = function(handle, output);
+      if (status != 0) {
+        return NativeValueResult<NativeTextEditorSnapshot>.failure(
+          status,
+          _lastErrorMessage(),
+        );
+      }
+      final _DaTextEditorSnapshotNative native = output.ref;
+      if ((native.text.address == 0 && native.textLength != 0) ||
+          native.textLength > dartAppKitTextEditorMaximumTextUtf8Bytes ||
+          (native.isEditable != 0 && native.isEditable != 1) ||
+          (native.hasMarkedText != 0 && native.hasMarkedText != 1)) {
+        return const NativeValueResult<NativeTextEditorSnapshot>.failure(
+          7,
+          'native bridge returned an invalid text editor snapshot',
+        );
+      }
+      final String text;
+      try {
+        text = native.textLength == 0
+            ? ''
+            : utf8.decode(
+                native.text.asTypedList(native.textLength),
+                allowMalformed: false,
+              );
+      } on FormatException {
+        return const NativeValueResult<NativeTextEditorSnapshot>.failure(
+          7,
+          'native bridge returned non-UTF-8 text editor contents',
+        );
+      }
+      if (native.selectionLocation > text.length ||
+          native.selectionLength > text.length - native.selectionLocation) {
+        return const NativeValueResult<NativeTextEditorSnapshot>.failure(
+          7,
+          'native bridge returned an out-of-bounds text editor selection',
+        );
+      }
+      return NativeValueResult<NativeTextEditorSnapshot>.success(
+        NativeTextEditorSnapshot(
+          text: text,
+          selectionStart: native.selectionLocation,
+          selectionLength: native.selectionLength,
+          isEditable: native.isEditable == 1,
+          hasMarkedText: native.hasMarkedText == 1,
+        ),
+      );
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
 
   @override
   NativeCallResult windowSetContentView(int windowHandle, int viewHandle) =>

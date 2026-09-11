@@ -87,6 +87,31 @@ void main(List<String> arguments) {
   if (bindings.textViewCreate(configuredTextView).status != 8) {
     _fail('legacy bridge accepted a configured text view');
   }
+  if (bindings
+              .textEditorCreate(
+                const NativeTextEditorConfiguration(
+                  presentation:
+                      NativeTextViewConfiguration.compatibilityDefault,
+                  initiallyEditable: false,
+                ),
+              )
+              .status !=
+          8 ||
+      bindings
+              .textEditorSetDocument(
+                1,
+                const NativeTextEditorDocument(
+                  text: '',
+                  selectionStart: 0,
+                  selectionLength: 0,
+                  styleRuns: <NativeTextEditorStyleRun>[],
+                ),
+              )
+              .status !=
+          8 ||
+      bindings.textEditorSnapshot(1).status != 8) {
+    _fail('legacy bridge accepted the additive text-editor API');
+  }
   final NativeValueResult<int> customView = bindings.customViewCreate(
     'example.CustomView',
   );
