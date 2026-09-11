@@ -38,7 +38,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Configurable base/display-text views | Immutable Dart configurations, native focus/autoresize/font/padding/color validation and state inspection, current/legacy FFI | Verified |
-| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; independent full-width logical-line background; explicit selection-to-visible viewport follow; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
+| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; key-free initial glyph paint with independent full-width logical-line background; explicit selection-to-visible viewport follow; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
 | Explicit two-pane split helper boundary | `TwoPaneSplitView` current API, deprecated `SplitView` construction alias, nested two-child state tests, and unchanged C ABI | Verified |
 | Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |
 | Configurable bounded diagnostics | Native validation, permissions, phase ordering, previous-unclean retention, and clean finish tests | Verified |
@@ -145,6 +145,13 @@ logical-line background whose checked UTF-16 location and color remain
 independent from syntax foreground, underline, selection, caret, and editable
 state. Native line-fragment tests, Dart public/fake tests, current/legacy FFI,
 and the complete `make test` matrix pass.
+
+The 2026-09-11 initial-paint follow-up prepares the highlighted editor's text
+layout before the first background and glyph draw. A native fresh-window test
+uses no key, selection, or reveal event, records layout-before-background draw
+ordering, and verifies syntax-colored glyph pixels in the initial cached
+display. The assertion fails against the former background-draw layout order;
+focused and complete verification pass with the corrected prepaint order.
 
 - Add VM Service and restart only after deciding the desired debugging model.
 - Treat AOT, signing, hardened runtime, sandboxing, accessibility, IME,

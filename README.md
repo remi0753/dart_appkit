@@ -172,7 +172,10 @@ so applications can keep identical syntax colors in command and editing modes.
 An optional `TextEditorLineHighlight` paints one logical line across the full
 editor width without changing its foreground, underline, selection, or caret;
 document replacement clears it so an old UTF-16 location cannot leak into a
-new buffer. `scrollSelectionToVisible` explicitly reveals the current checked
+new buffer. When that highlight is present, text layout is prepared before the
+first background and glyph draw so a newly shown editor paints both document
+text and the highlighted line without waiting for a key or selection event.
+`scrollSelectionToVisible` explicitly reveals the current checked
 selection without changing the buffer, attributes, highlight, or selection, so
 Dart-owned command navigation can follow the viewport without changing the
 semantics of ordinary programmatic selection.

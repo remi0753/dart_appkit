@@ -446,6 +446,10 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 進捗: **部分実装（terminal専用IME＋汎用multiline editor基盤）**。custom terminal Viewの
 IME bridgeに加え、標準 `NSTextView` を使う汎用の編集surfaceが動作している。
 
+追補タスク:
+
+- [x] full-width line highlight付き`TextEditor`の初回glyph paintをkey入力なしで成立させる。
+
 実装済み:
 
 - `TerminalMetalView` に `NSTextInputClient` を実装し、raw key down/up、marked textの

@@ -337,6 +337,16 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 @implementation DaTextEditorTextView
 
+- (void)drawRect:(NSRect)dirtyRect {
+  NSLayoutManager* layout_manager = self.layoutManager;
+  NSTextContainer* text_container = self.textContainer;
+  if (self.daHasLineHighlight && layout_manager != nil &&
+      text_container != nil) {
+    [layout_manager ensureLayoutForTextContainer:text_container];
+  }
+  [super drawRect:dirtyRect];
+}
+
 - (NSRect)daLineHighlightRect {
   NSString* text = self.string;
   if (!self.daHasLineHighlight || self.daLineHighlightColor == nil ||
@@ -349,8 +359,6 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   if (layout_manager == nil || text_container == nil) {
     return NSZeroRect;
   }
-  [layout_manager ensureLayoutForTextContainer:text_container];
-
   NSRect fragment = NSZeroRect;
   const NSUInteger location = self.daLineHighlightLocation;
   const BOOL uses_extra_fragment =

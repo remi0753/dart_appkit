@@ -3033,3 +3033,43 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   scaffold/header, bridge, Runner, scheduler, lifecycle/diagnostics, capability,
   renderer, PTY, all package analyzer/test, Kernel compilation, and both FFI
   paths without regression.
+
+## 2026-09-11 — Attributed editor initial glyph paint follow-up
+
+- `dart_terminal`の通常Developer JIT起動で、full-width line highlightは初回から描画される一方、
+  attributed本文glyphはkey入力まで空になる実画面regressionを再現した。native snapshotには全文が
+  存在するため、text publicationではなく初回layout/displayの問題である。
+- `DaTextEditorTextView.daLineHighlightRect`は`drawViewBackgroundInRect:`から
+  `ensureLayoutForTextContainer:`を初めて呼ぶ。background draw中のlayout確定では同じdraw passの
+  glyph paintに間に合わず、selection変更後の次のdisplayで本文が現れるという観測と一致する。
+- line highlight設定時にtext layoutをdraw前へ確定する案を、key/selection eventなしの初回bitmapと
+  実Developer JIT Settings captureで検証する。application固有のdelayやsynthetic key eventは採用しない。
+- `DaTextEditorTextView.drawRect:`はline highlightがある場合だけ、`super`のbackground/glyph drawへ
+  入る前にtext containerのlayoutを確定する。highlight rect計算中のreentrant layoutを除き、標準
+  `NSTextView`の描画順とselection/scroll ownershipは維持する。
+- product側のshow後same-selection revealだけでは空表示が続くことを実画面で確認した一方、nativeの
+  prepaint layout修正後はそのworkaroundを削除しても、指定Developer JIT起動のkey入力前capture
+  `/private/tmp/dart-terminal-settings-native-only-before-input.png`にsyntax textとline backgroundが同時に
+  表示された。
+- native contractへ、windowへ接続したfresh editorにdocument/style/highlightを設定してshowし、最初の
+  cached displayだけでblue syntax inkを検出するbitmap regressionを追加した。selection/reveal/key eventは
+  発生させない。
+- bitmapのblue ink検査だけでは旧実装でもcache描画が内部で完了してPASSし、実windowの初回draw順序を
+  区別できなかった。そこでtest中だけ`ensureLayoutForTextContainer:`と
+  `drawViewBackgroundInRect:`をswizzleして、最初のbackground drawへ入る前にlayout callが完了したかを
+  記録するorder assertionを追加した。
+- 最初のorder testは`displayIfNeeded`、次は`needsDisplay + display`だけを使い、native testのrun loopでは
+  background drawを発生させず失敗した。既存bitmap cache callをswizzle復元前へ移すと実際のdrawを1回
+  発生させ、修正版はorder/blue inkともPASSした。
+- sourceを一時的に旧順序へ戻したnegative-controlでは、新testが
+  `g_text_editor_layout_ready_before_background_draw`で期待どおり失敗した。prepaint `drawRect:`修正を
+  復元し、testが報告regressionそのものを区別できることを確認した。
+- 最終test sourceで`CI=true DART_SUPPRESS_ANALYTICS=true make native-test dart-test ffi-smoke`を実行し、
+  warning-error付きnative bridge、`dart_appkit` analysis/API/launcher、current/legacy FFIがすべてPASSした。
+  最初のsandbox実行はsibling repositoryの`build/native/bridge_tests`へ書き込めずlinkで停止したため、
+  同じcommandを許可済みworkspace外書き込みで再実行した。これはtest failureではなく実行環境の制約である。
+- 最終状態で`CI=true DART_SUPPRESS_ANALYTICS=true make test`もPASSした。scaffold/header、native bridge、
+  Runner、scheduler/events、lifecycle/diagnostics、capability、renderer、PTY、全Dart packageのanalysis/test、
+  Kernel compilation、current/legacy FFIまで回帰なしを確認した。
+- 実画面、旧実装negative-control、native initial-paint contract、focused/full matrixが揃い、key入力を必要とする
+  初回glyph欠落に対する追補タスクの完了条件を満たした。G5本体は後続のIME/Undo workがあるため未完了を維持する。

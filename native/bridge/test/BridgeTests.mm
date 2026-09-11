@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import <objc/runtime.h>
 
 #include <atomic>
 #include <cmath>
@@ -377,6 +378,56 @@ DaTextEditor* NativeTextEditorFor(DaHandle handle) {
   EXPECT_EQ(status, DA_STATUS_OK);
   EXPECT_TRUE([object isKindOfClass:DaTextEditor.class]);
   return static_cast<DaTextEditor*>(object);
+}
+
+bool TextEditorVisibleBitmapHasBlueInk(DaTextEditor* editor) {
+  const NSRect visible = editor.daTextView.visibleRect;
+  if (NSIsEmptyRect(visible)) {
+    return false;
+  }
+  NSBitmapImageRep* bitmap =
+      [editor.daTextView bitmapImageRepForCachingDisplayInRect:visible];
+  if (bitmap == nil) {
+    return false;
+  }
+  [editor.daTextView cacheDisplayInRect:visible toBitmapImageRep:bitmap];
+  for (NSInteger y = 0; y < bitmap.pixelsHigh; ++y) {
+    for (NSInteger x = 0; x < bitmap.pixelsWide; ++x) {
+      NSColor* color = [[bitmap colorAtX:x y:y]
+          colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+      if (color != nil && color.blueComponent > 0.55 &&
+          color.blueComponent > color.redComponent + 0.18 &&
+          color.blueComponent > color.greenComponent + 0.12) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+IMP g_text_editor_background_draw_implementation = nullptr;
+IMP g_text_editor_ensure_layout_implementation = nullptr;
+bool g_text_editor_layout_ensured = false;
+bool g_text_editor_background_draw_observed = false;
+bool g_text_editor_layout_ready_before_background_draw = false;
+
+void ObserveTextEditorEnsureLayout(id object, SEL selector,
+                                   NSTextContainer* text_container) {
+  g_text_editor_layout_ensured = true;
+  using EnsureLayout = void (*)(id, SEL, NSTextContainer*);
+  reinterpret_cast<EnsureLayout>(g_text_editor_ensure_layout_implementation)(
+      object, selector, text_container);
+}
+
+void ObserveTextEditorBackgroundDraw(id object, SEL selector, NSRect rect) {
+  if (!g_text_editor_background_draw_observed) {
+    g_text_editor_background_draw_observed = true;
+    g_text_editor_layout_ready_before_background_draw =
+        g_text_editor_layout_ensured;
+  }
+  using BackgroundDraw = void (*)(id, SEL, NSRect);
+  reinterpret_cast<BackgroundDraw>(
+      g_text_editor_background_draw_implementation)(object, selector, rect);
 }
 
 DaHandle CreateSplitView(DaSplitAxis axis) {
@@ -1435,6 +1486,71 @@ void TestAttributedTextEditor() {
       DA_TEXT_VIEW_COLOR_SRGB, 0, 0.8, 0.8, 0.8, 1.0};
   configuration.presentation.background_color = {
       DA_TEXT_VIEW_COLOR_SRGB, 0, 0.1, 0.1, 0.1, 1.0};
+
+  DaHandle initial_paint_editor_handle = 0;
+  EXPECT_EQ(da_text_editor_create_configured(
+                &configuration, nullptr, 0, &initial_paint_editor_handle),
+            DA_STATUS_OK);
+  DaTextEditor* initial_paint_editor =
+      NativeTextEditorFor(initial_paint_editor_handle);
+  const DaHandle initial_paint_window_handle = CreateWindow();
+  EXPECT_EQ(da_window_set_content_view(initial_paint_window_handle,
+                                       initial_paint_editor_handle),
+            DA_STATUS_OK);
+  const std::string initial_paint_text = "theme = dark\nshell = /bin/zsh\n";
+  DaTextEditorStyleRun initial_paint_style{};
+  initial_paint_style.location = 0;
+  initial_paint_style.length = 5;
+  initial_paint_style.foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.3, 0.6, 1.0, 1.0};
+  initial_paint_style.underline_style = DA_TEXT_EDITOR_UNDERLINE_NONE;
+  initial_paint_style.underline_color = {
+      DA_TEXT_VIEW_COLOR_LABEL, 0, 0.0, 0.0, 0.0, 1.0};
+  EXPECT_EQ(da_text_editor_set_document(
+                initial_paint_editor_handle, initial_paint_text.data(),
+                initial_paint_text.size(), &initial_paint_style, 1, 0, 0),
+            DA_STATUS_OK);
+  const DaTextViewColorConfiguration initial_paint_highlight = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.16, 0.19, 0.25, 0.8};
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                initial_paint_editor_handle, 0, &initial_paint_highlight),
+            DA_STATUS_OK);
+  Method background_draw_method = class_getInstanceMethod(
+      initial_paint_editor.daTextView.class,
+      @selector(drawViewBackgroundInRect:));
+  EXPECT_TRUE(background_draw_method != nullptr);
+  g_text_editor_background_draw_implementation =
+      method_getImplementation(background_draw_method);
+  Method ensure_layout_method = class_getInstanceMethod(
+      initial_paint_editor.daTextView.layoutManager.class,
+      @selector(ensureLayoutForTextContainer:));
+  EXPECT_TRUE(ensure_layout_method != nullptr);
+  g_text_editor_ensure_layout_implementation =
+      method_getImplementation(ensure_layout_method);
+  g_text_editor_layout_ensured = false;
+  g_text_editor_background_draw_observed = false;
+  g_text_editor_layout_ready_before_background_draw = false;
+  method_setImplementation(
+      ensure_layout_method,
+      reinterpret_cast<IMP>(ObserveTextEditorEnsureLayout));
+  method_setImplementation(
+      background_draw_method,
+      reinterpret_cast<IMP>(ObserveTextEditorBackgroundDraw));
+  EXPECT_EQ(da_window_show(initial_paint_window_handle), DA_STATUS_OK);
+  const bool initial_paint_has_blue_ink =
+      TextEditorVisibleBitmapHasBlueInk(initial_paint_editor);
+  method_setImplementation(background_draw_method,
+                           g_text_editor_background_draw_implementation);
+  method_setImplementation(ensure_layout_method,
+                           g_text_editor_ensure_layout_implementation);
+  g_text_editor_background_draw_implementation = nullptr;
+  g_text_editor_ensure_layout_implementation = nullptr;
+  EXPECT_TRUE(g_text_editor_background_draw_observed);
+  EXPECT_TRUE(g_text_editor_layout_ready_before_background_draw);
+  EXPECT_TRUE(initial_paint_has_blue_ink);
+  EXPECT_EQ(da_release(initial_paint_window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(initial_paint_editor_handle), DA_STATUS_OK);
+
   DaHandle editor_handle = 0;
   EXPECT_EQ(da_text_editor_create_configured(&configuration, nullptr, 0,
                                              &editor_handle),
