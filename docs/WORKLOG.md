@@ -2934,3 +2934,37 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   `make test` also passed scaffold/header contracts, Runner and scheduler,
   runtime/capability/renderer/PTY suites, every package analyzer/test,
   launcher/Kernel compilation, and both FFI paths without regression.
+
+## 2026-09-11 — Retina glyph raster logical-size correction
+
+- A Dart Terminal screenshot comparing its Metal surface with the AppKit
+  Settings editor showed that both selected system monospace regular 14pt, but
+  the terminal glyph ink was visibly much smaller than the native editor ink.
+- A direct pixel probe of the current renderer confirmed the mismatch for the
+  same system-monospace 14pt `M`: 1x produced a 10x13 record with 8x11 ink,
+  while 2x produced a 17x23 record but still only 8x11 ink. Coverage was also
+  effectively unchanged (9575 versus 9574).
+- `RasterizeGlyph` scales the bitmap bounds and origin, but draws CoreText into
+  an unscaled bitmap context. The resulting device-pixel record grows while
+  the glyph itself remains at 1x. Existing checks only required larger 2x
+  storage and nonzero coverage, so they did not enforce logical ink parity.
+- The correction applies the requested device scale once to the Core Graphics
+  context while retaining the existing point-space draw position. The same
+  probe then measured the 2x `M` ink at 15x21 with coverage 38409; divided by
+  two, that is within half a pixel of the 1x logical 8x11 extent. CJK `日`
+  changed from 10x13 to 20x24 device pixels, and the color emoji cluster from
+  18x18 to 32x34, with the expected approximately fourfold coverage.
+- Dart and native renderer tests now compare nonzero alpha bounds and coverage
+  at 1x/2x for alpha, CJK, and color glyphs with explicit quantization
+  tolerance. Existing top-down orientation, mixed alpha/color conversion,
+  bounds, generation, and ABI checks remain unchanged.
+- Focused warning-as-error native capability tests and package analysis/Dart
+  native-asset tests pass with the correction. Full repository verification
+  also passes: `make test` completed the bridge, Runner, runtime, capability,
+  renderer, PTY, package analysis/test, launcher, Kernel, and current/legacy
+  FFI matrix without regression.
+- The initial formatter check used `--output=none`, which correctly reported
+  that the new Dart test would change but did not write the formatting update;
+  a repeated check therefore reported the same result. Running `dart format`
+  without that dry-run output mode applied the change, and the final
+  `--output=none --set-exit-if-changed` check reported `0 changed`.

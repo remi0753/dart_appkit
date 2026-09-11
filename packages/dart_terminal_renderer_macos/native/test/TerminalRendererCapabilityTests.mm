@@ -69,6 +69,54 @@ bool PixelNear(const std::vector<uint8_t>& pixels, uint32_t width,
   return true;
 }
 
+struct RasterInkBounds {
+  uint32_t width;
+  uint32_t height;
+  uint64_t coverage;
+};
+
+RasterInkBounds MeasureRasterInk(const std::vector<uint8_t>& buffer,
+                                  const DtrRasterGlyphV1& glyph) {
+  const uint32_t bytes_per_pixel =
+      glyph.format == DTR_RASTER_FORMAT_RGBA8_STRAIGHT ? 4u : 1u;
+  const uint32_t alpha_offset = bytes_per_pixel == 4 ? 3u : 0u;
+  uint32_t left = glyph.width;
+  uint32_t top = glyph.height;
+  uint32_t right = 0;
+  uint32_t bottom = 0;
+  uint64_t coverage = 0;
+  bool found = false;
+  for (uint32_t y = 0; y < glyph.height; y++) {
+    for (uint32_t x = 0; x < glyph.width; x++) {
+      const size_t offset = glyph.pixels_offset +
+                            (size_t)y * glyph.row_stride +
+                            (size_t)x * bytes_per_pixel + alpha_offset;
+      if (offset >= buffer.size() || buffer[offset] == 0) {
+        continue;
+      }
+      found = true;
+      coverage += buffer[offset];
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  return {found ? right - left + 1 : 0, found ? bottom - top + 1 : 0,
+          coverage};
+}
+
+bool LogicalRasterInkMatches(const RasterInkBounds& one,
+                             const RasterInkBounds& two,
+                             double tolerance) {
+  return one.width > 0 && one.height > 0 && two.width > one.width &&
+         two.height > one.height && two.coverage > one.coverage * 3 &&
+         std::abs(static_cast<double>(two.width) / 2.0 - one.width) <=
+             tolerance &&
+         std::abs(static_cast<double>(two.height) / 2.0 - one.height) <=
+             tolerance;
+}
+
 }  // namespace
 
 int main(int argc, const char* argv[]) {
@@ -508,9 +556,23 @@ int main(int argc, const char* argv[]) {
         font_summary.handle, 2u << 16, raster_requests);
     const auto* raster_2x_header =
         reinterpret_cast<const DtrRasterHeaderV1*>(raster_2x.data());
+    const auto* raster_2x_records = reinterpret_cast<const DtrRasterGlyphV1*>(
+        raster_2x.data() + raster_2x_header->records_offset);
     Expect(raster_2x_header->scale_16_16 == (2u << 16) &&
                raster_2x_header->pixel_bytes > raster_header->pixel_bytes,
            "2x raster has distinct scale identity and greater pixel storage");
+    const RasterInkBounds latin_1x =
+        MeasureRasterInk(raster_1x, raster_records[0]);
+    const RasterInkBounds latin_2x =
+        MeasureRasterInk(raster_2x, raster_2x_records[0]);
+    const RasterInkBounds emoji_1x =
+        MeasureRasterInk(raster_1x, raster_records[2]);
+    const RasterInkBounds emoji_2x =
+        MeasureRasterInk(raster_2x, raster_2x_records[2]);
+    Expect(LogicalRasterInkMatches(latin_1x, latin_2x, 1.0),
+           "2x alpha raster doubles ink while preserving logical size");
+    Expect(LogicalRasterInkMatches(emoji_1x, emoji_2x, 3.0),
+           "2x color raster doubles ink while preserving logical size");
 
     uint32_t raster_required = 0;
     std::vector<uint8_t> raster_undersized(raster_1x.size() - 1, 0xa5);

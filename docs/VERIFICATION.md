@@ -47,7 +47,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Runtime package and builder | Strict manifest/resource tests, fake-process JIT/AOT assembly, Dart analysis | Verified |
 | Versioned native extension services | Size/version C ABI, main-thread registration, invalid UTF-8, duplicate/conflict, and factory failure tests | Verified |
 | Dependency-owned native capability | Dart 3.13 build-hook asset test plus dynamic image ABI/init/create/release/shutdown/lifetime native test | Verified |
-| Terminal renderer capability | C11/C++20 ABI checks, build-hook asset, dynamic `dtr_*` initialization, Metal view invariants, window attachment, stale handle, teardown, and image lifetime | Verified |
+| Terminal renderer capability | C11/C++20 ABI checks, build-hook asset, dynamic `dtr_*` initialization, 1x/2x alpha/CJK/color logical-ink parity, Metal view invariants, window attachment, stale handle, teardown, and image lifetime | Verified |
 | macOS PTY capability | Child symbol audit, interactive/login TTY, cwd/env, resize, foreground SIGINT, split UTF-8, bounded 10 MiB burst, write backpressure, exit/reap, graceful HUP, forced kill, stale handles, fake backend, and real Dart listener callback | Verified |
 | Capability-enabled JIT/AOT GUI | Same Dart facade and manifest create the dependency view in both real generic hosts; bundles pass deep signature verification | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
@@ -132,6 +132,13 @@ that applying an already-effective AppKit policy is idempotent even when the
 platform setter would return false. `make runner-configuration-test` covers the
 native branch without changing the public ABI or manifest contract. The
 complete `make test` regression matrix also passes after the correction.
+
+The 2026-09-11 terminal-renderer regression corrects Retina rasterization so
+CoreText point-space glyphs are drawn into the device-scaled bitmap rather than
+remaining at 1x inside a larger 2x record. Native and Dart tests measure actual
+nonzero alpha bounds and coverage for Latin, CJK, and color emoji instead of
+accepting larger storage alone. The warning-clean focused renderer suites and
+complete `make test` matrix pass after the correction.
 
 - Add VM Service and restart only after deciding the desired debugging model.
 - Treat AOT, signing, hardened runtime, sandboxing, accessibility, IME,

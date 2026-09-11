@@ -626,6 +626,8 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
   CGContextSetShouldAntialias(context, true);
   CGContextSetAllowsFontSmoothing(context, false);
   CGContextSetShouldSmoothFonts(context, false);
+  // Bounds are device pixels; CoreText positions and font sizes remain points.
+  CGContextScaleCTM(context, scale, scale);
   CGContextSetTextMatrix(context, CGAffineTransformIdentity);
   if (color) {
     CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, 1.0);
