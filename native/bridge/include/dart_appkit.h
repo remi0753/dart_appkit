@@ -673,6 +673,14 @@ DA_EXPORT int32_t da_text_editor_set_style_runs(
     DaHandle editor, const DaTextEditorStyleRun* style_runs,
     size_t style_run_count);
 
+/**
+ * Main thread only. Sets one full-width logical-line background at a checked
+ * UTF-16 location. The color is copied; null clears the current highlight.
+ */
+DA_EXPORT int32_t da_text_editor_set_line_highlight(
+    DaHandle editor, uint64_t location,
+    const DaTextViewColorConfiguration* color);
+
 /** Main thread only. Enables or disables native text editing in place. */
 DA_EXPORT int32_t da_text_editor_set_editable(DaHandle editor,
                                               int32_t editable);

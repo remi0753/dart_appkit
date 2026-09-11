@@ -29,8 +29,15 @@
 @property(nonatomic, assign) NSEdgeInsets daPadding;
 @property(nonatomic, strong) NSColor* daForegroundColor;
 @property(nonatomic, strong) NSColor* daBackgroundColor;
+@property(nonatomic, assign, readonly) BOOL daHasLineHighlight;
+@property(nonatomic, assign, readonly) NSUInteger daLineHighlightLocation;
+@property(nonatomic, strong, readonly) NSColor* daLineHighlightColor;
 
 - (void)daApplyPresentation;
+- (void)daSetLineHighlightAtLocation:(NSUInteger)location
+                               color:(NSColor*)color;
+- (void)daClearLineHighlight;
+- (NSRect)daLineHighlightRect;
 
 @end
 

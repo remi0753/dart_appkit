@@ -38,7 +38,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Menu ownership, attachment, state, validation policy, and actions | Native configured/default/invalid creation, current/legacy FFI, Dart ownership/routing/cross-application tests, real GUI action smoke | Verified |
 | Registered native custom-view boundary | Objective-C++ provider validation, generic-handle attach/release tests, Dart factory and optional FFI fallback | Verified |
 | Configurable base/display-text views | Immutable Dart configurations, native focus/autoresize/font/padding/color validation and state inspection, current/legacy FFI | Verified |
-| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
+| Bounded attributed multiline editor | Same-surface editable switching; atomic UTF-8 text/UTF-16 selection/style publication; text-preserving restyle; independent full-width logical-line background; native scroll/focus/IME/Undo state; Dart fake, native edge cases, and current/legacy FFI | Verified |
 | Explicit two-pane split helper boundary | `TwoPaneSplitView` current API, deprecated `SplitView` construction alias, nested two-child state tests, and unchanged C ABI | Verified |
 | Reusable runtime public ABI | C11/C++20 headers plus main-thread/conflict lifecycle tests | Verified |
 | Configurable bounded diagnostics | Native validation, permissions, phase ordering, previous-unclean retention, and clean finish tests | Verified |
@@ -139,6 +139,12 @@ remaining at 1x inside a larger 2x record. Native and Dart tests measure actual
 nonzero alpha bounds and coverage for Latin, CJK, and color emoji instead of
 accepting larger storage alone. The warning-clean focused renderer suites and
 complete `make test` matrix pass after the correction.
+
+The 2026-09-11 attributed-editor regression adds an optional full-width
+logical-line background whose checked UTF-16 location and color remain
+independent from syntax foreground, underline, selection, caret, and editable
+state. Native line-fragment tests, Dart public/fake tests, current/legacy FFI,
+and the complete `make test` matrix pass.
 
 - Add VM Service and restart only after deciding the desired debugging model.
 - Treat AOT, signing, hardened runtime, sandboxing, accessibility, IME,

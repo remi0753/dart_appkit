@@ -39,6 +39,7 @@ export 'src/api.dart'
         TextEditorConfiguration,
         TextEditorDocument,
         TextEditorLimits,
+        TextEditorLineHighlight,
         TextEditorSelection,
         TextEditorSnapshot,
         TextEditorStyleRun,

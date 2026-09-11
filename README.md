@@ -169,6 +169,10 @@ selection, and ordered non-overlapping foreground/underline runs atomically;
 `setStyleRuns` changes only attributes and does not replace the native text
 storage or selection. `isEditable` therefore switches interaction in place,
 so applications can keep identical syntax colors in command and editing modes.
+An optional `TextEditorLineHighlight` paints one logical line across the full
+editor width without changing its foreground, underline, selection, or caret;
+document replacement clears it so an old UTF-16 location cannot leak into a
+new buffer.
 Snapshots return text, selection, editability, and marked-text presence.
 Text is limited to 16 MiB of UTF-8 and style projections to 65,536 runs. The
 surface retains native scrolling, selection, first-responder routing, IME

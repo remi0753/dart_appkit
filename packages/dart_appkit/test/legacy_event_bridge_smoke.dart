@@ -109,6 +109,20 @@ void main(List<String> arguments) {
               )
               .status !=
           8 ||
+      bindings
+              .textEditorSetLineHighlight(
+                1,
+                const NativeTextEditorLineHighlight(
+                  location: 0,
+                  colorKind: 0,
+                  red: 0,
+                  green: 0,
+                  blue: 0,
+                  alpha: 1,
+                ),
+              )
+              .status !=
+          8 ||
       bindings.textEditorSnapshot(1).status != 8) {
     _fail('legacy bridge accepted the additive text-editor API');
   }

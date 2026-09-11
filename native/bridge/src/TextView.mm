@@ -325,9 +325,78 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 @end
 
+@interface DaTextEditorTextView : NSTextView
+
+@property(nonatomic, assign) BOOL daHasLineHighlight;
+@property(nonatomic, assign) NSUInteger daLineHighlightLocation;
+@property(nonatomic, strong) NSColor* daLineHighlightColor;
+
+- (NSRect)daLineHighlightRect;
+
+@end
+
+@implementation DaTextEditorTextView
+
+- (NSRect)daLineHighlightRect {
+  NSString* text = self.string;
+  if (!self.daHasLineHighlight || self.daLineHighlightColor == nil ||
+      self.daLineHighlightLocation > text.length) {
+    return NSZeroRect;
+  }
+
+  NSLayoutManager* layout_manager = self.layoutManager;
+  NSTextContainer* text_container = self.textContainer;
+  if (layout_manager == nil || text_container == nil) {
+    return NSZeroRect;
+  }
+  [layout_manager ensureLayoutForTextContainer:text_container];
+
+  NSRect fragment = NSZeroRect;
+  const NSUInteger location = self.daLineHighlightLocation;
+  const BOOL uses_extra_fragment =
+      text.length == 0 ||
+      (location == text.length &&
+       [text characterAtIndex:text.length - 1] == '\n');
+  if (uses_extra_fragment) {
+    fragment = layout_manager.extraLineFragmentRect;
+  } else {
+    const NSUInteger character_index =
+        std::min(location, text.length - static_cast<NSUInteger>(1));
+    const NSUInteger glyph_index =
+        [layout_manager glyphIndexForCharacterAtIndex:character_index];
+    if (glyph_index < layout_manager.numberOfGlyphs) {
+      fragment = [layout_manager lineFragmentRectForGlyphAtIndex:glyph_index
+                                                  effectiveRange:nullptr];
+    }
+  }
+  if (NSHeight(fragment) <= 0.0) {
+    return NSZeroRect;
+  }
+
+  const NSPoint text_origin = self.textContainerOrigin;
+  const NSRect visible = self.visibleRect;
+  const CGFloat minimum_x =
+      std::min(NSMinX(self.bounds), NSMinX(visible));
+  const CGFloat maximum_x =
+      std::max(NSMaxX(self.bounds), NSMaxX(visible));
+  return NSMakeRect(minimum_x, NSMinY(fragment) + text_origin.y,
+                    maximum_x - minimum_x, NSHeight(fragment));
+}
+
+- (void)drawViewBackgroundInRect:(NSRect)rect {
+  [super drawViewBackgroundInRect:rect];
+  const NSRect highlight = NSIntersectionRect(rect, [self daLineHighlightRect]);
+  if (!NSIsEmptyRect(highlight)) {
+    [self.daLineHighlightColor setFill];
+    NSRectFill(highlight);
+  }
+}
+
+@end
+
 @implementation DaTextEditor {
   NSScrollView* _daScrollView;
-  NSTextView* _daTextView;
+  DaTextEditorTextView* _daTextView;
 }
 
 @synthesize daScrollView = _daScrollView;
@@ -342,7 +411,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     _daForegroundColor = NSColor.labelColor;
     _daBackgroundColor = NSColor.windowBackgroundColor;
 
-    _daScrollView = [NSTextView scrollableTextView];
+    _daScrollView = [DaTextEditorTextView scrollableTextView];
     _daScrollView.frame = self.bounds;
     _daScrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _daScrollView.borderType = NSNoBorder;
@@ -351,7 +420,8 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     _daScrollView.hasHorizontalScroller = YES;
     _daScrollView.automaticallyAdjustsContentInsets = NO;
 
-    _daTextView = static_cast<NSTextView*>(_daScrollView.documentView);
+    _daTextView =
+        static_cast<DaTextEditorTextView*>(_daScrollView.documentView);
     _daTextView.richText = NO;
     _daTextView.importsGraphics = NO;
     _daTextView.editable = NO;
@@ -390,6 +460,37 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     NSFontAttributeName : self.daFont,
     NSForegroundColorAttributeName : self.daForegroundColor,
   };
+}
+
+- (BOOL)daHasLineHighlight {
+  return _daTextView.daHasLineHighlight;
+}
+
+- (NSUInteger)daLineHighlightLocation {
+  return _daTextView.daLineHighlightLocation;
+}
+
+- (NSColor*)daLineHighlightColor {
+  return _daTextView.daLineHighlightColor;
+}
+
+- (void)daSetLineHighlightAtLocation:(NSUInteger)location
+                               color:(NSColor*)color {
+  _daTextView.daHasLineHighlight = YES;
+  _daTextView.daLineHighlightLocation = location;
+  _daTextView.daLineHighlightColor = color;
+  _daTextView.needsDisplay = YES;
+}
+
+- (void)daClearLineHighlight {
+  _daTextView.daHasLineHighlight = NO;
+  _daTextView.daLineHighlightLocation = 0;
+  _daTextView.daLineHighlightColor = nil;
+  _daTextView.needsDisplay = YES;
+}
+
+- (NSRect)daLineHighlightRect {
+  return [_daTextView daLineHighlightRect];
 }
 
 @end

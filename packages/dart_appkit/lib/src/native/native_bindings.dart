@@ -176,6 +176,24 @@ final class NativeTextEditorStyleRun {
   final double underlineAlpha;
 }
 
+final class NativeTextEditorLineHighlight {
+  const NativeTextEditorLineHighlight({
+    required this.location,
+    required this.colorKind,
+    required this.red,
+    required this.green,
+    required this.blue,
+    required this.alpha,
+  });
+
+  final int location;
+  final int colorKind;
+  final double red;
+  final double green;
+  final double blue;
+  final double alpha;
+}
+
 final class NativeTextEditorDocument {
   const NativeTextEditorDocument({
     required this.text,
@@ -372,6 +390,10 @@ abstract interface class NativeTextEditorBindings {
   NativeCallResult textEditorSetStyleRuns(
     int handle,
     List<NativeTextEditorStyleRun> styleRuns,
+  );
+  NativeCallResult textEditorSetLineHighlight(
+    int handle,
+    NativeTextEditorLineHighlight? highlight,
   );
   NativeCallResult textEditorSetEditable(int handle, bool editable);
   NativeCallResult textEditorSetSelection(

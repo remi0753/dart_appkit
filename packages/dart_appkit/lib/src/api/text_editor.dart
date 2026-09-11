@@ -79,6 +79,32 @@ final class TextEditorStyleRun {
   );
 }
 
+/// One optional full-width logical-line background, addressed in UTF-16.
+final class TextEditorLineHighlight {
+  const TextEditorLineHighlight({required this.location, required this.color});
+
+  final int location;
+  final TextViewColor color;
+
+  NativeTextEditorLineHighlight get _native => NativeTextEditorLineHighlight(
+    location: location,
+    colorKind: color.kind.index,
+    red: color.red,
+    green: color.green,
+    blue: color.blue,
+    alpha: color.alpha,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is TextEditorLineHighlight &&
+      other.location == location &&
+      other.color == color;
+
+  @override
+  int get hashCode => Object.hash(location, color);
+}
+
 /// One atomic text, selection, and attributed-style publication.
 final class TextEditorDocument {
   TextEditorDocument({
@@ -201,6 +227,13 @@ final class TextEditor extends View {
 
   final TextEditorConfiguration configuration;
   final NativeTextEditorBindings _editorBindings;
+  TextEditorLineHighlight? _lineHighlight;
+
+  /// The last successfully published line highlight, if any.
+  TextEditorLineHighlight? get lineHighlight {
+    ensureAlive();
+    return _lineHighlight;
+  }
 
   TextEditorSnapshot get snapshot {
     ensureAlive();
@@ -226,6 +259,7 @@ final class TextEditor extends View {
       _editorBindings.textEditorSetDocument(_handle, document._native),
       'TextEditor.setDocument',
     );
+    _lineHighlight = null;
   }
 
   void setStyleRuns(Iterable<TextEditorStyleRun> runs) {
@@ -243,6 +277,26 @@ final class TextEditor extends View {
       ),
       'TextEditor.setStyleRuns',
     );
+  }
+
+  /// Sets a full-width background for the logical line at [location].
+  ///
+  /// Passing `null` clears the highlight. Replacing the document also clears
+  /// it so a location from the previous buffer cannot remain active.
+  void setLineHighlight(TextEditorLineHighlight? highlight) {
+    ensureAlive();
+    if (highlight != null) {
+      final TextEditorSnapshot current = snapshot;
+      _validateSelection(
+        current.text,
+        TextEditorSelection(start: highlight.location),
+      );
+    }
+    _checkCall(
+      _editorBindings.textEditorSetLineHighlight(_handle, highlight?._native),
+      'TextEditor.setLineHighlight',
+    );
+    _lineHighlight = highlight;
   }
 
   set isEditable(bool value) {

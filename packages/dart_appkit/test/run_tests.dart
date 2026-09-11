@@ -326,6 +326,18 @@ Future<void> _testAttributedTextEditorApi() async {
     'atomic editor document/configuration did not reach native bindings',
   );
 
+  final TextEditorLineHighlight lineHighlight = TextEditorLineHighlight(
+    location: 13,
+    color: TextViewColor.sRgb(red: 0.16, green: 0.19, blue: 0.25, alpha: 0.8),
+  );
+  editor.setLineHighlight(lineHighlight);
+  _expect(
+    editor.lineHighlight == lineHighlight &&
+        bindings.textEditorLineHighlights[handle]!.location == 13 &&
+        bindings.textEditorLineHighlights[handle]!.blue == 0.25,
+    'editor line highlight did not reach native bindings',
+  );
+
   editor
     ..isEditable = true
     ..setSelection(const TextEditorSelection(start: 13, length: 2));
@@ -346,12 +358,23 @@ Future<void> _testAttributedTextEditorApi() async {
   editor.setStyleRuns(replacement);
   _expect(
     editor.snapshot.text == text &&
-        bindings.textEditorStyleRuns[handle]!.single.foregroundRed == 1,
-    'style-only update replaced editor text',
+        bindings.textEditorStyleRuns[handle]!.single.foregroundRed == 1 &&
+        bindings.textEditorLineHighlights[handle]!.location == 13,
+    'style-only update replaced editor text or line highlight',
   );
 
   await _expectThrows<RangeError>(
     () => editor.setSelection(const TextEditorSelection(start: 14)),
+  );
+  await _expectThrows<RangeError>(
+    () => editor.setLineHighlight(
+      const TextEditorLineHighlight(location: 14, color: TextViewColor.label()),
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => editor.setLineHighlight(
+      const TextEditorLineHighlight(location: 16, color: TextViewColor.label()),
+    ),
   );
   await _expectThrows<RangeError>(
     () => editor.setStyleRuns(<TextEditorStyleRun>[
@@ -385,6 +408,27 @@ Future<void> _testAttributedTextEditorApi() async {
     TextEditorLimits.maximumTextUtf8Bytes == 16 * 1024 * 1024 &&
         TextEditorLimits.maximumStyleRuns == 64 * 1024,
     'public editor bounds changed',
+  );
+
+  editor.setDocument(
+    TextEditorDocument(
+      text: text,
+      selection: const TextEditorSelection(start: 0),
+      styleRuns: replacement,
+    ),
+  );
+  _expect(
+    editor.lineHighlight == null &&
+        bindings.textEditorLineHighlights[handle] == null,
+    'document replacement retained a stale line highlight',
+  );
+  editor
+    ..setLineHighlight(lineHighlight)
+    ..setLineHighlight(null);
+  _expect(
+    editor.lineHighlight == null &&
+        bindings.textEditorLineHighlights[handle] == null,
+    'explicit line highlight clear did not reach native bindings',
   );
 
   editor.dispose();

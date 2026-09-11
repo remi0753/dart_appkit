@@ -2968,3 +2968,39 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   a repeated check therefore reported the same result. Running `dart format`
   without that dry-run output mode applied the change, and the final
   `--output=none --set-exit-if-changed` check reported `0 changed`.
+
+## 2026-09-11 — Full-width attributed editor line highlight
+
+- Dart Terminal needs a visible current row in both read-only command mode and
+  editable mode without changing its syntax foreground, diagnostic underline,
+  native selection, or caret. A generic nullable `TextEditorLineHighlight`
+  therefore addresses one logical line by a checked UTF-16 scalar-boundary
+  location and application-selected `TextViewColor`.
+- `NSBackgroundColorAttributeName` only colors glyph ranges and cannot provide
+  an editor-width current-row surface. The native `NSTextView` subclass instead
+  paints the matching layout fragment in `drawViewBackgroundInRect:` after the
+  ordinary editor background and before glyph drawing. It combines the line
+  height with the document/visible width, so foreground and underline runs are
+  not mutated and style-only updates cannot erase the row.
+- The additive C function copies its optional color, validates the location and
+  color before mutation, and clears on null. Atomic document replacement also
+  clears the native and Dart-cached highlight, preventing a location from the
+  previous buffer from becoming stale. The optional FFI lookup retains status
+  8 behavior for old bridge images; ABI and event protocol versions do not
+  change.
+- The first formatter invocation was sandboxed from writing the sibling
+  checkout and telemetry state; rerunning the same formatter with the approved
+  sibling write completed. The first native compilation then found that helper
+  methods accessed the subclass-only properties through the public
+  `NSTextView`-typed getter. Direct access through the strongly typed retained
+  ivar fixed the warning-as-error failure. The next focused run passed native
+  tests but the Dart analyzer found the new type missing from the package's
+  explicit `show` export; adding it made the public API reachable.
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test dart-test
+  ffi-smoke` passes warning-clean native creation/drawing-state/range/color/
+  thread/handle checks, public and fake API tests, package analysis, current
+  Mach-O FFI main-thread guards, and legacy optional-symbol fallback. Complete
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` also passes scaffold/header,
+  bridge, Runner, scheduler, lifecycle/diagnostics, native capability,
+  renderer, PTY, every Dart package analyzer/test, Kernel compilation, and
+  current/legacy FFI checks without regression.

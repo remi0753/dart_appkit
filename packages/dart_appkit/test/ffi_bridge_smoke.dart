@@ -133,6 +133,18 @@ void main(List<String> arguments) {
   );
   final NativeValueResult<NativeTextEditorSnapshot> editorSnapshot = bindings
       .textEditorSnapshot(1);
+  final NativeCallResult editorLineHighlight = bindings
+      .textEditorSetLineHighlight(
+        1,
+        const NativeTextEditorLineHighlight(
+          location: 0,
+          colorKind: 0,
+          red: 0,
+          green: 0,
+          blue: 0,
+          alpha: 1,
+        ),
+      );
   if (configuredTextEditor.isSuccess ||
       configuredTextEditor.status != 5 ||
       configuredTextEditor.message.isEmpty ||
@@ -141,7 +153,10 @@ void main(List<String> arguments) {
       editorDocument.message.isEmpty ||
       editorSnapshot.isSuccess ||
       editorSnapshot.status != 5 ||
-      editorSnapshot.message.isEmpty) {
+      editorSnapshot.message.isEmpty ||
+      editorLineHighlight.isSuccess ||
+      editorLineHighlight.status != 5 ||
+      editorLineHighlight.message.isEmpty) {
     _fail('text-editor FFI did not preserve its main-thread guard');
   }
   final NativeValueResult<int> splitView = bindings.splitViewCreate(0);

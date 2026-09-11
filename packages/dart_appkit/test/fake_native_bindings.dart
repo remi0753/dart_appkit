@@ -67,6 +67,8 @@ final class FakeNativeBindings
       <int, NativeTextEditorConfiguration>{};
   final Map<int, List<NativeTextEditorStyleRun>> textEditorStyleRuns =
       <int, List<NativeTextEditorStyleRun>>{};
+  final Map<int, NativeTextEditorLineHighlight?> textEditorLineHighlights =
+      <int, NativeTextEditorLineHighlight?>{};
   final Map<int, int> textEditorSelectionStarts = <int, int>{};
   final Map<int, int> textEditorSelectionLengths = <int, int>{};
   final Map<int, bool> textEditorEditable = <int, bool>{};
@@ -734,6 +736,7 @@ final class FakeNativeBindings
       textEditorConfigurations[handle] = configuration;
       texts[handle] = '';
       textEditorStyleRuns[handle] = const <NativeTextEditorStyleRun>[];
+      textEditorLineHighlights[handle] = null;
       textEditorSelectionStarts[handle] = 0;
       textEditorSelectionLengths[handle] = 0;
       textEditorEditable[handle] = configuration.initiallyEditable;
@@ -755,6 +758,7 @@ final class FakeNativeBindings
       textEditorStyleRuns[handle] = List<NativeTextEditorStyleRun>.unmodifiable(
         document.styleRuns,
       );
+      textEditorLineHighlights[handle] = null;
     }
     return result;
   }
@@ -770,6 +774,16 @@ final class FakeNativeBindings
         styleRuns,
       );
     }
+    return result;
+  }
+
+  @override
+  NativeCallResult textEditorSetLineHighlight(
+    int handle,
+    NativeTextEditorLineHighlight? highlight,
+  ) {
+    final NativeCallResult result = _status('textEditorSetLineHighlight');
+    if (result.isSuccess) textEditorLineHighlights[handle] = highlight;
     return result;
   }
 
@@ -830,6 +844,7 @@ final class FakeNativeBindings
       textViewConfigurations.remove(handle);
       textEditorConfigurations.remove(handle);
       textEditorStyleRuns.remove(handle);
+      textEditorLineHighlights.remove(handle);
       textEditorSelectionStarts.remove(handle);
       textEditorSelectionLengths.remove(handle);
       textEditorEditable.remove(handle);

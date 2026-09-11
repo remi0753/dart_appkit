@@ -2651,6 +2651,7 @@ int32_t da_text_editor_set_document(
     dart_appkit::ApplyTextEditorStyleRunsToStorage(
         text_editor, replacement, style_runs, style_run_count);
     [text_editor.daTextView.textStorage setAttributedString:replacement];
+    [text_editor daClearLineHighlight];
     text_editor.daTextView.typingAttributes = @{
       NSFontAttributeName : text_editor.daFont,
       NSForegroundColorAttributeName : text_editor.daForegroundColor,
@@ -2698,6 +2699,47 @@ int32_t da_text_editor_set_style_runs(
         exception.reason.UTF8String != nullptr
             ? exception.reason.UTF8String
             : "native text editor style update failed");
+  }
+}
+
+int32_t da_text_editor_set_line_highlight(
+    DaHandle editor, uint64_t location,
+    const DaTextViewColorConfiguration* color) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  if (color == nullptr) {
+    [text_editor daClearLineHighlight];
+    return DA_STATUS_OK;
+  }
+  status = dart_appkit::ValidateTextEditorSelection(
+      text_editor.daTextView.string, location, 0);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (!dart_appkit::ValidTextViewColor(*color)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "text editor line highlight color is invalid");
+  }
+  @try {
+    [text_editor daSetLineHighlightAtLocation:location
+                                        color:dart_appkit::TextViewColor(
+                                                  *color)];
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "native text editor line highlight update failed");
   }
 }
 

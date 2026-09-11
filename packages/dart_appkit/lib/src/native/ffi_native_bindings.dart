@@ -438,6 +438,16 @@ typedef _TextEditorSetStyleRunsDart = int Function(
   Pointer<_DaTextEditorStyleRunNative>,
   int,
 );
+typedef _TextEditorSetLineHighlightNative = Int32 Function(
+  Uint64,
+  Uint64,
+  Pointer<_DaTextViewColorConfigurationNative>,
+);
+typedef _TextEditorSetLineHighlightDart = int Function(
+  int,
+  int,
+  Pointer<_DaTextViewColorConfigurationNative>,
+);
 typedef _TextEditorSetSelectionNative = Int32 Function(Uint64, Uint64, Uint64);
 typedef _TextEditorSetSelectionDart = int Function(int, int, int);
 typedef _TextEditorGetSnapshotNative = Int32 Function(
@@ -542,6 +552,19 @@ _TextEditorSetStyleRunsDart? _lookupTextEditorSetStyleRuns(
       _TextEditorSetStyleRunsNative,
       _TextEditorSetStyleRunsDart
     >('da_text_editor_set_style_runs');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorSetLineHighlightDart? _lookupTextEditorSetLineHighlight(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorSetLineHighlightNative,
+      _TextEditorSetLineHighlightDart
+    >('da_text_editor_set_line_highlight');
   } on ArgumentError {
     return null;
   }
@@ -1164,6 +1187,7 @@ final class FfiNativeBindings
       _textEditorCreateConfigured = _lookupTextEditorCreateConfigured(library),
       _textEditorSetDocument = _lookupTextEditorSetDocument(library),
       _textEditorSetStyleRuns = _lookupTextEditorSetStyleRuns(library),
+      _textEditorSetLineHighlight = _lookupTextEditorSetLineHighlight(library),
       _textEditorSetEditable = _lookupHandleInt(
         library,
         'da_text_editor_set_editable',
@@ -1264,6 +1288,7 @@ final class FfiNativeBindings
   final _TextEditorCreateConfiguredDart? _textEditorCreateConfigured;
   final _TextEditorSetDocumentDart? _textEditorSetDocument;
   final _TextEditorSetStyleRunsDart? _textEditorSetStyleRuns;
+  final _TextEditorSetLineHighlightDart? _textEditorSetLineHighlight;
   final _HandleBoolStatusDart? _textEditorSetEditable;
   final _TextEditorSetSelectionDart? _textEditorSetSelection;
   final _TextEditorGetSnapshotDart? _textEditorGetSnapshot;
@@ -2404,6 +2429,40 @@ final class FfiNativeBindings
       (Pointer<_DaTextEditorStyleRunNative> runs, int count) =>
           _callResult(function(handle, runs, count)),
     );
+  }
+
+  @override
+  NativeCallResult textEditorSetLineHighlight(
+    int handle,
+    NativeTextEditorLineHighlight? highlight,
+  ) {
+    final _TextEditorSetLineHighlightDart? function =
+        _textEditorSetLineHighlight;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editor line highlights',
+      );
+    }
+    if (highlight == null) {
+      return _callResult(function(handle, 0, nullptr));
+    }
+    final Pointer<_DaTextViewColorConfigurationNative> color = _allocate(
+      sizeOf<_DaTextViewColorConfigurationNative>(),
+    ).cast<_DaTextViewColorConfigurationNative>();
+    try {
+      _writeTextViewColor(
+        color.ref,
+        kind: highlight.colorKind,
+        red: highlight.red,
+        green: highlight.green,
+        blue: highlight.blue,
+        alpha: highlight.alpha,
+      );
+      return _callResult(function(handle, highlight.location, color));
+    } finally {
+      _free(color.cast<Void>());
+    }
   }
 
   @override

@@ -1504,6 +1504,23 @@ void TestAttributedTextEditor() {
   EXPECT_TRUE(underline_color != nil);
   EXPECT_TRUE(std::abs(underline_color.redComponent - 1.0) < 0.0001);
 
+  DaTextViewColorConfiguration line_highlight_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.16, 0.19, 0.25, 0.8};
+  EXPECT_TRUE(!editor.daHasLineHighlight);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 13, &line_highlight_color),
+            DA_STATUS_OK);
+  EXPECT_TRUE(editor.daHasLineHighlight);
+  EXPECT_EQ(editor.daLineHighlightLocation, static_cast<NSUInteger>(13));
+  NSColor* applied_line_color = [editor.daLineHighlightColor
+      colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(applied_line_color != nil);
+  EXPECT_TRUE(std::abs(applied_line_color.blueComponent - 0.25) < 0.0001);
+  EXPECT_TRUE([editor.daTextView.textStorage
+      attribute:NSBackgroundColorAttributeName
+        atIndex:13
+ effectiveRange:nullptr] == nil);
+
   DaTextEditorSnapshot snapshot{};
   EXPECT_EQ(da_text_editor_get_snapshot(editor_handle, &snapshot),
             DA_STATUS_OK);
@@ -1527,6 +1544,8 @@ void TestAttributedTextEditor() {
                   attribute:NSUnderlineStyleAttributeName
                     atIndex:8
              effectiveRange:nullptr] == nil);
+  EXPECT_TRUE(editor.daHasLineHighlight);
+  EXPECT_EQ(editor.daLineHighlightLocation, static_cast<NSUInteger>(13));
 
   NSAttributedString* normal_projection =
       [editor.daTextView.textStorage copy];
@@ -1548,6 +1567,20 @@ void TestAttributedTextEditor() {
             DA_STATUS_OK);
   EXPECT_TRUE(OwnerFor(window_handle).window.firstResponder ==
               editor.daTextView);
+  const NSRect line_highlight_rect = editor.daLineHighlightRect;
+  EXPECT_TRUE(NSHeight(line_highlight_rect) > 0.0);
+  EXPECT_TRUE(NSWidth(line_highlight_rect) >= NSWidth(editor.daTextView.bounds));
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 0, &line_highlight_color),
+            DA_STATUS_OK);
+  const NSRect first_line_highlight_rect = editor.daLineHighlightRect;
+  EXPECT_TRUE(NSMinY(first_line_highlight_rect) <
+              NSMinY(line_highlight_rect));
+  EXPECT_TRUE(std::abs(NSWidth(first_line_highlight_rect) -
+                       NSWidth(line_highlight_rect)) < 0.0001);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 13, &line_highlight_color),
+            DA_STATUS_OK);
 
   NSAttributedString* before_invalid_document =
       [editor.daTextView.textStorage copy];
@@ -1561,9 +1594,20 @@ void TestAttributedTextEditor() {
       isEqualToAttributedString:before_invalid_document]);
   EXPECT_TRUE(NSEqualRanges(editor.daTextView.selectedRange,
                            before_invalid_selection));
+  EXPECT_TRUE(editor.daHasLineHighlight);
 
   EXPECT_EQ(da_text_editor_set_selection(editor_handle, 14, 0),
             DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 14, &line_highlight_color),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(editor.daLineHighlightLocation, static_cast<NSUInteger>(13));
+  DaTextViewColorConfiguration invalid_line_color = line_highlight_color;
+  invalid_line_color.red = 2.0;
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 0, &invalid_line_color),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(editor.daLineHighlightLocation, static_cast<NSUInteger>(13));
   DaTextEditorStyleRun invalid_run = runs[1];
   invalid_run.location = 14;
   invalid_run.length = 1;
@@ -1601,6 +1645,17 @@ void TestAttributedTextEditor() {
   EXPECT_EQ(da_text_editor_get_snapshot(editor_handle, nullptr),
             DA_STATUS_INVALID_ARGUMENT);
 
+  EXPECT_EQ(da_text_editor_set_line_highlight(editor_handle, 0, nullptr),
+            DA_STATUS_OK);
+  EXPECT_TRUE(!editor.daHasLineHighlight);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 13, &line_highlight_color),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_document(editor_handle, text.data(), text.size(),
+                                        runs, 2, 0, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(!editor.daHasLineHighlight);
+
   DaTextEditorConfiguration invalid_configuration = configuration;
   invalid_configuration.initially_editable = 2;
   DaHandle invalid_output = 99;
@@ -1620,16 +1675,26 @@ void TestAttributedTextEditor() {
   const DaHandle generic_view = CreateView();
   EXPECT_EQ(da_text_editor_set_editable(generic_view, 1),
             DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                generic_view, 0, &line_highlight_color),
+            DA_STATUS_WRONG_HANDLE_TYPE);
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> worker_highlight_status{DA_STATUS_OK};
   std::thread worker([&]() {
     worker_status.store(da_text_editor_set_editable(editor_handle, 0));
+    worker_highlight_status.store(da_text_editor_set_line_highlight(
+        editor_handle, 0, &line_highlight_color));
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_highlight_status.load(), DA_STATUS_WRONG_THREAD);
 
   EXPECT_EQ(da_release(generic_view), DA_STATUS_OK);
   EXPECT_EQ(da_release(editor_handle), DA_STATUS_OK);
   EXPECT_EQ(da_text_editor_set_editable(editor_handle, 0),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_text_editor_set_line_highlight(
+                editor_handle, 0, &line_highlight_color),
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
