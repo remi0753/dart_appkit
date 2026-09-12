@@ -96,8 +96,8 @@ version 9 adds View-local Quick Look requests with finite x/y coordinates, and
 version 10 adds bounded plain text returned by a Service to its registered
 View. Version 11 adds a bounded performed plain-text or local-file-URL drop
 with finite target-local coordinates. Version 12 adds an application folder
-Service request with a closed new-tabs/new-windows disposition and bounded,
-canonical local directory URLs.
+Service request with a closed primary/secondary action and bounded, canonical
+local directory URLs. The consuming application owns each action's meaning.
 Each additive record is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
@@ -337,9 +337,10 @@ The manifest-driven `dart_macos_runtime:build` path generalizes that workflow.
 One versioned JSON document owns product identity, minimum macOS version,
 entrypoint, declared resources, optional closed folder Services, and diagnostics
 policy. Unknown keys and path traversal are rejected. The Services schema maps
-only `newTabAtFolder` and `newWindowAtFolder` to the fixed AppKit provider
-messages, emits ordered `NSServices` file-type declarations, and does not expose
-arbitrary plist or selector injection. The builder generates a private Dart
+only `primary` and `secondary` to fixed AppKit provider messages, emits ordered
+`NSServices` file-type declarations, and does not expose arbitrary plist or
+selector injection. Applications inject the product interpretation and menu
+labels. The builder generates a private Dart
 wrapper whose `main` is retained for native AOT invocation, so applications
 keep an ordinary `main(List<String>)` in both modes.
 

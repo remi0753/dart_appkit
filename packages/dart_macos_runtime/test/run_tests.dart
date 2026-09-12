@@ -74,12 +74,12 @@ const String _validManifest = '''
 String _withFolderServices(String manifest) =>
     manifest.replaceFirst('"dart":', '''"services": [
     {
-      "kind": "newTabAtFolder",
-      "menuItem": "New <Terminal> Tab & Here"
+      "action": "primary",
+      "menuItem": "Open <Primary> Workspace & Here"
     },
     {
-      "kind": "newWindowAtFolder",
-      "menuItem": "New Terminal Window Here"
+      "action": "secondary",
+      "menuItem": "Open Secondary Workspace Here"
     }
   ],
   "dart":''');
@@ -752,11 +752,12 @@ Future<void> main() async {
         MacosApplicationManifest.parse(_withFolderServices(_validManifest));
     _expect(serviceManifest.services.length == 2, 'service count');
     _expect(
-      serviceManifest.services[0].kind ==
-              MacosApplicationServiceKind.newTabAtFolder &&
-          serviceManifest.services[0].menuItem == 'New <Terminal> Tab & Here' &&
-          serviceManifest.services[1].kind ==
-              MacosApplicationServiceKind.newWindowAtFolder,
+      serviceManifest.services[0].action ==
+              MacosApplicationServiceAction.primary &&
+          serviceManifest.services[0].menuItem ==
+              'Open <Primary> Workspace & Here' &&
+          serviceManifest.services[1].action ==
+              MacosApplicationServiceAction.secondary,
       'closed folder service declarations',
     );
     _expectThrows<UnsupportedError>(() {
@@ -765,21 +766,21 @@ Future<void> main() async {
     for (final String services in <String>[
       '{}',
       '[true]',
-      '[{"kind":"openFolder","menuItem":"Open Here"}]',
-      '[{"kind":"newTabAtFolder"}]',
-      '[{"kind":"newTabAtFolder","menuItem":"Open Here","extra":true}]',
-      '[{"kind":"newTabAtFolder","menuItem":1}]',
-      '[{"kind":"newTabAtFolder","menuItem":""}]',
-      '[{"kind":"newTabAtFolder","menuItem":" Open Here"}]',
-      '[{"kind":"newTabAtFolder","menuItem":"Open/Here"}]',
-      '[{"kind":"newTabAtFolder","menuItem":"Open\\nHere"}]',
+      '[{"action":"unknown","menuItem":"Open Here"}]',
+      '[{"action":"primary"}]',
+      '[{"action":"primary","menuItem":"Open Here","extra":true}]',
+      '[{"action":"primary","menuItem":1}]',
+      '[{"action":"primary","menuItem":""}]',
+      '[{"action":"primary","menuItem":" Open Here"}]',
+      '[{"action":"primary","menuItem":"Open/Here"}]',
+      '[{"action":"primary","menuItem":"Open\\nHere"}]',
       '''[
-        {"kind":"newTabAtFolder","menuItem":"Open Tab Here"},
-        {"kind":"newTabAtFolder","menuItem":"Another Tab Here"}
+        {"action":"primary","menuItem":"Open Primary Here"},
+        {"action":"primary","menuItem":"Another Primary Here"}
       ]''',
       '''[
-        {"kind":"newTabAtFolder","menuItem":"Open Here"},
-        {"kind":"newWindowAtFolder","menuItem":"Open Here"}
+        {"action":"primary","menuItem":"Open Here"},
+        {"action":"secondary","menuItem":"Open Here"}
       ]''',
     ]) {
       _expectThrows<MacosApplicationManifestException>(() {
@@ -797,7 +798,7 @@ Future<void> main() async {
       MacosApplicationManifest.parse(
         _validManifest.replaceFirst(
           '"dart":',
-          '"services": [{"kind":"newTabAtFolder",'
+          '"services": [{"action":"primary",'
               '"menuItem":${jsonEncode(oversized)}}], "dart":',
         ),
       );
@@ -807,7 +808,7 @@ Future<void> main() async {
         MacosApplicationManifest.parse(
           _validManifest.replaceFirst(
             '"dart":',
-            '"services": [{"kind":"newTabAtFolder",'
+            '"services": [{"action":"primary",'
                 '"menuItem":${jsonEncode(boundaryLabel)}}], "dart":',
           ),
         );
@@ -1451,10 +1452,10 @@ Future<void> main() async {
       <key>NSMenuItem</key>
       <dict>
         <key>default</key>
-        <string>New &lt;Terminal&gt; Tab &amp; Here</string>
+        <string>Open &lt;Primary&gt; Workspace &amp; Here</string>
       </dict>
       <key>NSMessage</key>
-      <string>openTab</string>
+      <string>performPrimaryFolderService</string>
       <key>NSRequiredContext</key>
       <dict/>
       <key>NSSendFileTypes</key>
@@ -1466,10 +1467,10 @@ Future<void> main() async {
       <key>NSMenuItem</key>
       <dict>
         <key>default</key>
-        <string>New Terminal Window Here</string>
+        <string>Open Secondary Workspace Here</string>
       </dict>
       <key>NSMessage</key>
-      <string>openWindow</string>
+      <string>performSecondaryFolderService</string>
       <key>NSRequiredContext</key>
       <dict/>
       <key>NSSendFileTypes</key>
@@ -1536,9 +1537,9 @@ Future<void> main() async {
     final List<Object?> services = buildManifest['services']! as List<Object?>;
     _expect(
       services.length == 2 &&
-          (services[0]! as Map<String, Object?>)['kind'] == 'newTabAtFolder' &&
+          (services[0]! as Map<String, Object?>)['action'] == 'primary' &&
           (services[1]! as Map<String, Object?>)['menuItem'] ==
-              'New Terminal Window Here',
+              'Open Secondary Workspace Here',
       'validated folder Services are recorded',
     );
     final Map<String, Object?> scripting =
@@ -1666,8 +1667,10 @@ Future<void> main() async {
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
     _expect(
-      infoPlist.indexOf('<string>openTab</string>') <
-              infoPlist.indexOf('<string>openWindow</string>') &&
+      infoPlist.indexOf('<string>performPrimaryFolderService</string>') <
+              infoPlist.indexOf(
+                '<string>performSecondaryFolderService</string>',
+              ) &&
           infoPlist.contains('<string>public.item</string>') &&
           infoPlist.contains('<key>NSAppleScriptEnabled</key>'),
       'AOT Info.plist preserves Services and scripting metadata',

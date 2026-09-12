@@ -3236,8 +3236,10 @@ Future<void> _testFolderServicesProviderApi() async {
         nativeConfiguration.maximumFileUrlCount == 8 &&
         nativeConfiguration.maximumFileUrlUtf8Bytes == 1024 &&
         nativeConfiguration.maximumTotalFileUrlUtf8Bytes == 4096 &&
-        dartAppKitFolderServiceOpenTabMessage == 'openTab' &&
-        dartAppKitFolderServiceOpenWindowMessage == 'openWindow',
+        dartAppKitFolderServicePrimaryMessage ==
+            'performPrimaryFolderService' &&
+        dartAppKitFolderServiceSecondaryMessage ==
+            'performSecondaryFolderService',
     'immutable folder Services policy reaches native with stable messages',
   );
   final int updateCount = bindings.operations
@@ -3263,18 +3265,20 @@ Future<void> _testFolderServicesProviderApi() async {
     'file:///tmp/two%20dir/',
   ]);
   raw.add(<Object?>[12, 45, 0, 0, 1200000, 0, 0, directories]);
-  final ApplicationFolderServiceRequestedEvent tabRequest =
+  final ApplicationFolderServiceRequestedEvent primaryRequest =
       applicationRequests.single;
   _expect(
-    identical(tabRequest, typedRequests.single) &&
-        tabRequest.protocolVersion == 12 &&
-        tabRequest.disposition == FolderServiceDisposition.newTabs &&
-        tabRequest.directoryUrls.map((Uri uri) => uri.toString()).join('|') ==
+    identical(primaryRequest, typedRequests.single) &&
+        primaryRequest.protocolVersion == 12 &&
+        primaryRequest.action == FolderServiceAction.primary &&
+        primaryRequest.directoryUrls
+                .map((Uri uri) => uri.toString())
+                .join('|') ==
             'file:///tmp/one/|file:///tmp/two%20dir/',
-    'typed new-tab folder Service request is routed once in exact order',
+    'typed primary folder Service request is routed once in exact order',
   );
   await _expectThrows<UnsupportedError>(
-    () => tabRequest.directoryUrls.add(Uri.directory('/tmp/mutation')),
+    () => primaryRequest.directoryUrls.add(Uri.directory('/tmp/mutation')),
   );
 
   raw.add(<Object?>[
@@ -3290,9 +3294,8 @@ Future<void> _testFolderServicesProviderApi() async {
   _expect(
     applicationRequests.length == 2 &&
         typedRequests.length == 2 &&
-        applicationRequests.last.disposition ==
-            FolderServiceDisposition.newWindows,
-    'typed new-window folder Service request is distinct',
+        applicationRequests.last.action == FolderServiceAction.secondary,
+    'typed secondary folder Service request is distinct',
   );
 
   raw.add(<Object?>[11, 45, 0, 0, 1202000, 0, 0, directories]);

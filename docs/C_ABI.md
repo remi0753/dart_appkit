@@ -553,9 +553,11 @@ item. Dart checks every framing, byte, URL, and generation invariant again.
 
 `da_application_set_folder_services_provider` installs or replaces a
 size-prefixed application provider, or removes it when configuration is null.
-The fixed Service message bases are `openTab` and `openWindow`; the following
-runtime declaration layer uses those names and this bridge does not mutate the
-bundle. Each synchronous callback reads only file-URL pasteboard items under
+The fixed Service message bases are `performPrimaryFolderService` and
+`performSecondaryFolderService`; the following runtime declaration layer uses
+those names and this bridge does not mutate the bundle. The bridge preserves
+only a generic primary/secondary action identity; the application owns its
+meaning. Each synchronous callback reads only file-URL pasteboard items under
 caller bounds no larger than 256 items, 1 MiB per URL, and 64 MiB aggregate.
 Absolute local URLs without credentials, ports, queries, or fragments are
 standardized, classified with filesystem directory metadata, and mapped to the

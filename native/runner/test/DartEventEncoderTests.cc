@@ -234,7 +234,7 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectInt(values[3], 0);
     ExpectInt(values[4], 1234567890);
     ExpectInt(values[5], 0);
-    ExpectInt(values[6], DA_FOLDER_SERVICE_NEW_WINDOWS);
+    ExpectInt(values[6], DA_FOLDER_SERVICE_ACTION_SECONDARY);
     ExpectUtf8Bytes(
         values[7],
         std::string("\x01\0\0\0\x0b\0\0\0file:///tmp", 19));
@@ -375,7 +375,7 @@ int main() {
 
   event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
   event.window = 0;
-  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_WINDOWS;
+  event.folder_service_action = DA_FOLDER_SERVICE_ACTION_SECONDARY;
   event.characters =
       std::string("\x01\0\0\0\x0b\0\0\0file:///tmp", 19);
   g_expected_case = 16;
@@ -449,9 +449,9 @@ int main() {
   event.x = 30.5;
   event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
   event.window = 0;
-  event.folder_service_disposition = 2;
+  event.folder_service_action = 2;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
-  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  event.folder_service_action = DA_FOLDER_SERVICE_ACTION_PRIMARY;
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
   event.type = DA_EVENT_KEY_DOWN;

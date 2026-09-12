@@ -256,12 +256,12 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 @property(nonatomic, assign) NSUInteger maximumFileUrlUtf8Bytes;
 @property(nonatomic, assign) NSUInteger maximumTotalFileUrlUtf8Bytes;
 
-- (void)openTab:(NSPasteboard*)pasteboard
-       userData:(NSString*)userData
-          error:(NSString* __autoreleasing*)error;
-- (void)openWindow:(NSPasteboard*)pasteboard
-          userData:(NSString*)userData
-             error:(NSString* __autoreleasing*)error;
+- (void)performPrimaryFolderService:(NSPasteboard*)pasteboard
+                           userData:(NSString*)userData
+                              error:(NSString* __autoreleasing*)error;
+- (void)performSecondaryFolderService:(NSPasteboard*)pasteboard
+                             userData:(NSString*)userData
+                                error:(NSString* __autoreleasing*)error;
 
 @end
 
@@ -934,11 +934,11 @@ bool CopyFolderServiceDirectoryUrlPacket(
 
 bool PostFolderServiceRequest(NSPasteboard* pasteboard,
                               DaFolderServicesProvider* provider,
-                              DaFolderServiceDisposition disposition) {
+                              DaFolderServiceAction action) {
   if (provider == nil || provider != g_folder_services_provider ||
       NSApp.servicesProvider != provider ||
-      (disposition != DA_FOLDER_SERVICE_NEW_TABS &&
-       disposition != DA_FOLDER_SERVICE_NEW_WINDOWS)) {
+      (action != DA_FOLDER_SERVICE_ACTION_PRIMARY &&
+       action != DA_FOLDER_SERVICE_ACTION_SECONDARY)) {
     return false;
   }
   std::string packet;
@@ -948,7 +948,7 @@ bool PostFolderServiceRequest(NSPasteboard* pasteboard,
   dart_appkit::NativeEvent event;
   event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
   event.monotonic_nanos = dart_appkit::MonotonicNanos();
-  event.folder_service_disposition = disposition;
+  event.folder_service_action = action;
   event.characters = std::move(packet);
   return dart_appkit::PostEvent(event);
 }
@@ -1112,28 +1112,28 @@ void RemoveQuickLookOwnerForView(NSView* view) {
 
 @implementation DaFolderServicesProvider
 
-- (void)openTab:(NSPasteboard*)pasteboard
-       userData:(NSString*)userData
-          error:(NSString* __autoreleasing*)error {
+- (void)performPrimaryFolderService:(NSPasteboard*)pasteboard
+                           userData:(NSString*)userData
+                              error:(NSString* __autoreleasing*)error {
   (void)userData;
   if (error != nullptr) {
     *error = nil;
   }
   if (!PostFolderServiceRequest(pasteboard, self,
-                                DA_FOLDER_SERVICE_NEW_TABS)) {
+                                DA_FOLDER_SERVICE_ACTION_PRIMARY)) {
     SetFolderServiceError(error);
   }
 }
 
-- (void)openWindow:(NSPasteboard*)pasteboard
-          userData:(NSString*)userData
-             error:(NSString* __autoreleasing*)error {
+- (void)performSecondaryFolderService:(NSPasteboard*)pasteboard
+                             userData:(NSString*)userData
+                                error:(NSString* __autoreleasing*)error {
   (void)userData;
   if (error != nullptr) {
     *error = nil;
   }
   if (!PostFolderServiceRequest(pasteboard, self,
-                                DA_FOLDER_SERVICE_NEW_WINDOWS)) {
+                                DA_FOLDER_SERVICE_ACTION_SECONDARY)) {
     SetFolderServiceError(error);
   }
 }

@@ -270,7 +270,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] renderer capability packageと検証所有権をconsumerへ移す。
 - [x] AppleScript capability packageと検証所有権をconsumerへ移す。
 - [x] App Intents capability packageと検証所有権をconsumerへ移す。
-- [ ] folder Servicesのtab/window語彙を汎用actionへ置換し、consumerから意味を注入する。
+- [x] folder Servicesのtab/window語彙を汎用actionへ置換し、consumerから意味を注入する。
 - [ ] Secure Input固有表示をboundedな汎用badgeへ置換し、consumerから文言を注入する。
 - [ ] generic test fixture、現行文書、Makefileを是正し、再混入を拒否するsource auditを追加する。
 - [ ] exact full gateとconsumerのDeveloper JIT／Release AOT受け入れ後に親項目を完了する。
@@ -752,7 +752,7 @@ application delegate eventを提供する。
 - application policyを渡すadditive ABI entryを実装し、旧entryへは互換defaultと完全一致する
   場合だけfallbackする。custom scheme／条件は旧bridgeでunsupportedとして拒否する。
 - `NSApplication.servicesProvider`へboundedなfolder Services providerを接続した。
-  `openTab`／`openWindow` callbackはlocal file URLだけをfilesystem metadataでdirectory自身または
+  primary／secondary callbackはlocal file URLだけをfilesystem metadataでdirectory自身または
   fileの親へ正規化し、順序を保って重複排除したv12 application eventを非同期配送する。
 
 未実装:

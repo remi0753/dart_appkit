@@ -83,7 +83,7 @@ final class ApplicationAppearanceChangedEvent extends ApplicationEvent {
   final AppKitAppearance appearance;
 }
 
-enum FolderServiceDisposition { newTabs, newWindows }
+enum FolderServiceAction { primary, secondary }
 
 /// One bounded Finder Service request containing canonical local directories.
 final class ApplicationFolderServiceRequestedEvent extends ApplicationEvent {
@@ -92,11 +92,11 @@ final class ApplicationFolderServiceRequestedEvent extends ApplicationEvent {
     super.protocolVersion = 12,
     super.monotonicNanoseconds,
     super.operationId,
-    required this.disposition,
+    required this.action,
     required Iterable<Uri> directoryUrls,
   }) : directoryUrls = List<Uri>.unmodifiable(directoryUrls);
 
-  final FolderServiceDisposition disposition;
+  final FolderServiceAction action;
   final List<Uri> directoryUrls;
 }
 
@@ -1043,15 +1043,15 @@ final class _EventCodec {
           payloadOffset + 2,
           'application folder Service requested',
         );
-        final FolderServiceDisposition disposition = switch (_integer(
+        final FolderServiceAction action = switch (_integer(
           message,
           payloadOffset,
-          'folderServiceDisposition',
+          'folderServiceAction',
         )) {
-          0 => FolderServiceDisposition.newTabs,
-          1 => FolderServiceDisposition.newWindows,
+          0 => FolderServiceAction.primary,
+          1 => FolderServiceAction.secondary,
           final int value => throw FormatException(
-            'folderServiceDisposition has invalid value $value',
+            'folderServiceAction has invalid value $value',
           ),
         };
         return ApplicationFolderServiceRequestedEvent(
@@ -1059,7 +1059,7 @@ final class _EventCodec {
           protocolVersion: version,
           monotonicNanoseconds: monotonicNanoseconds,
           operationId: operationId,
-          disposition: disposition,
+          action: action,
           directoryUrls: _boundedFileUrls(
             message,
             payloadOffset + 1,

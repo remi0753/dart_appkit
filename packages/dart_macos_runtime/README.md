@@ -41,12 +41,12 @@ Manifest version 1 contains these required fields plus the optional `runner`,
   },
   "services": [
     {
-      "kind": "newTabAtFolder",
-      "menuItem": "New Example Tab Here"
+      "action": "primary",
+      "menuItem": "Use Example Here"
     },
     {
-      "kind": "newWindowAtFolder",
-      "menuItem": "New Example Window Here"
+      "action": "secondary",
+      "menuItem": "Use Example in Alternate Mode"
     }
   ],
   "scriptingDefinition": {"path": "resources/Example.sdef"},
@@ -90,15 +90,16 @@ object selects positive integer per-turn budgets. Its defaults are 64 messages
 and 4000 microseconds, while immutable library hard maxima reject values above
 1024 messages or 16000 microseconds.
 
-The optional `services` array is closed to `newTabAtFolder` and
-`newWindowAtFolder`. Each kind may appear at most once and must have a unique,
-trimmed, display-safe `menuItem` no larger than 256 UTF-8 bytes. The builder
-maps those kinds to the fixed `openTab` and `openWindow` AppKit provider
-messages and advertises `public.item` through `NSSendFileTypes`; callers cannot
-inject selectors or arbitrary property-list keys. It emits `NSServices` only
-when the array is non-empty, validates the completed property list before
-signing, and records the same ordered declarations in
-`runtime-build-manifest.json`.
+The optional `services` array is closed to `primary` and `secondary` actions.
+Each action may appear at most once and must have a unique, trimmed,
+display-safe `menuItem` no larger than 256 UTF-8 bytes. The builder maps those
+actions to the fixed `performPrimaryFolderService` and
+`performSecondaryFolderService` AppKit provider messages and advertises
+`public.item` through `NSSendFileTypes`; callers cannot inject selectors or
+arbitrary property-list keys. The consuming application owns the meaning of
+each action. The builder emits `NSServices` only when the array is non-empty,
+validates the completed property list before signing, and records the same
+ordered declarations in `runtime-build-manifest.json`.
 
 The optional `scriptingDefinition` object contains exactly one normalized,
 project-relative `.sdef` path of at most 1024 UTF-8 bytes. The source must be

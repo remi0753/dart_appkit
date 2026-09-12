@@ -65,8 +65,10 @@ const int dartAppKitFolderServiceMaximumFileUrlUtf8Bytes =
     dartAppKitDropMaximumFileUrlUtf8Bytes;
 const int dartAppKitFolderServiceMaximumTotalFileUrlUtf8Bytes =
     dartAppKitDropMaximumTotalFileUrlUtf8Bytes;
-const String dartAppKitFolderServiceOpenTabMessage = 'openTab';
-const String dartAppKitFolderServiceOpenWindowMessage = 'openWindow';
+const String dartAppKitFolderServicePrimaryMessage =
+    'performPrimaryFolderService';
+const String dartAppKitFolderServiceSecondaryMessage =
+    'performSecondaryFolderService';
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
 const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
 const int dartAppKitTextEditorMaximumStyleRuns = 64 * 1024;

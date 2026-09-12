@@ -198,8 +198,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       break;
     }
     case DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED:
-      if (event.folder_service_disposition != DA_FOLDER_SERVICE_NEW_TABS &&
-          event.folder_service_disposition != DA_FOLDER_SERVICE_NEW_WINDOWS) {
+      if (event.folder_service_action != DA_FOLDER_SERVICE_ACTION_PRIMARY &&
+          event.folder_service_action != DA_FOLDER_SERVICE_ACTION_SECONDARY) {
         return false;
       }
       if (event.characters.size() >
@@ -207,7 +207,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
         return false;
       }
       length += 2;
-      SetInt64(&values[payload_offset], event.folder_service_disposition);
+      SetInt64(&values[payload_offset], event.folder_service_action);
       SetUtf8Bytes(&values[payload_offset + 1], event.characters);
       break;
     case DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED:

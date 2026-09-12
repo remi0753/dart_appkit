@@ -6,7 +6,7 @@ export 'src/application_manifest.dart'
         MacosApplicationManifest,
         MacosApplicationManifestException,
         MacosAppIntentsManifest,
-        MacosApplicationServiceKind,
+        MacosApplicationServiceAction,
         MacosApplicationServiceManifest,
         MacosDiagnosticsManifest,
         MacosNativeAssetManifest,

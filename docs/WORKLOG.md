@@ -3563,3 +3563,27 @@ gates.
 All four product package trees are now consumer-owned. The correction parent
 remains open; the next subtask is replacing product-specific folder-Service
 tab/window semantics with generic application-injected actions.
+
+## 2026-09-12 — Generic folder Service actions
+
+- Replaced the bridge event, public Dart type, runtime manifest schema, and
+  generated AppKit selectors that encoded tab/window product behavior with two
+  closed generic actions: `primary` and `secondary`. Their wire integers remain
+  0 and 1, so event protocol version 12 does not change.
+- The runtime accepts only an `action` plus a bounded display-safe `menuItem`,
+  generates the fixed `performPrimaryFolderService` and
+  `performSecondaryFolderService` selectors, and still rejects arbitrary plist
+  keys and selector injection. The consumer now owns both menu labels and the
+  semantic mapping of each action.
+- The focused contract, native bridge, event encoder, runtime Dart, public Dart,
+  launcher, and current/legacy FFI gate passed in the normal environment after
+  a sandbox-only linker denial. The consumer's exact full gate first identified
+  stale generated acceptance evidence; regenerating that evidence and rerunning
+  the exact gate passed. Public runtime, architecture, ABI, and verification
+  documentation now describe the generic contract.
+
+### Roadmap checkpoint
+
+The folder Service action correction is complete. The parent remains open, and
+the next ordered subtask is replacing the product-specific Secure Input display
+with a bounded generic application-configured badge.

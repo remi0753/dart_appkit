@@ -46,7 +46,7 @@ struct NativeEvent {
   int64_t scroll_phase = DA_SCROLL_PHASE_NONE;
   int64_t momentum_phase = DA_SCROLL_PHASE_NONE;
   int64_t drop_content_kind = DA_DROP_CONTENT_PLAIN_TEXT;
-  int64_t folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  int64_t folder_service_action = DA_FOLDER_SERVICE_ACTION_PRIMARY;
   int64_t user_notification_event_kind = DA_USER_NOTIFICATION_EVENT_SETTINGS;
   int64_t user_notification_token = 0;
   int64_t user_notification_authorization =

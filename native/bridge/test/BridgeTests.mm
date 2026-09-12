@@ -259,12 +259,12 @@ int32_t PerformTestCustomViewOperation(void* context, void* view,
 
 @interface NSObject (DaFolderServicesProviderTesting)
 
-- (void)openTab:(NSPasteboard*)pasteboard
-       userData:(NSString*)userData
-          error:(NSString* __autoreleasing*)error;
-- (void)openWindow:(NSPasteboard*)pasteboard
-          userData:(NSString*)userData
-             error:(NSString* __autoreleasing*)error;
+- (void)performPrimaryFolderService:(NSPasteboard*)pasteboard
+                           userData:(NSString*)userData
+                              error:(NSString* __autoreleasing*)error;
+- (void)performSecondaryFolderService:(NSPasteboard*)pasteboard
+                             userData:(NSString*)userData
+                                error:(NSString* __autoreleasing*)error;
 
 @end
 
@@ -1217,7 +1217,7 @@ void TestEventProtocolNegotiation() {
 
   event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
   event.window = 0;
-  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  event.folder_service_action = DA_FOLDER_SERVICE_ACTION_PRIMARY;
   event.characters = "directory packet";
   const size_t before_version_twelve_event = capture.events.size();
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -2520,10 +2520,10 @@ void TestDropDestinations() {
 void TestApplicationFolderServicesProvider() {
   Capture capture;
   ResetWithCurrentCapture(&capture);
-  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_OPEN_TAB_MESSAGE),
-            std::string("openTab"));
-  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_OPEN_WINDOW_MESSAGE),
-            std::string("openWindow"));
+  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_PRIMARY_MESSAGE),
+            std::string("performPrimaryFolderService"));
+  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_SECONDARY_MESSAGE),
+            std::string("performSecondaryFolderService"));
 
   DaFolderServicesProviderConfiguration configuration = {
       DA_FOLDER_SERVICES_PROVIDER_CONFIGURATION_VERSION_1_SIZE,
@@ -2537,9 +2537,12 @@ void TestApplicationFolderServicesProvider() {
             DA_STATUS_OK);
   id provider = NSApp.servicesProvider;
   EXPECT_TRUE(provider != nil);
-  EXPECT_TRUE([provider respondsToSelector:@selector(openTab:userData:error:)]);
+  EXPECT_TRUE([provider respondsToSelector:
+                            @selector(performPrimaryFolderService:userData:
+                                                                       error:)]);
   EXPECT_TRUE(
-      [provider respondsToSelector:@selector(openWindow:userData:error:)]);
+      [provider respondsToSelector:
+                    @selector(performSecondaryFolderService:userData:error:)]);
 
   NSFileManager* file_manager = NSFileManager.defaultManager;
   NSURL* root = [NSURL
@@ -2571,16 +2574,16 @@ void TestApplicationFolderServicesProvider() {
     nested_file.absoluteString,
   ]);
   NSString* service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard
-           userData:@"ignored"
-              error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:@"ignored"
+                                   error:&service_error];
   EXPECT_TRUE(service_error == nil);
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
   EXPECT_EQ(capture.events[0].type,
             DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED);
   EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
-  EXPECT_EQ(capture.events[0].folder_service_disposition,
-            DA_FOLDER_SERVICE_NEW_TABS);
+  EXPECT_EQ(capture.events[0].folder_service_action,
+            DA_FOLDER_SERVICE_ACTION_PRIMARY);
   EXPECT_EQ(capture.protocol_versions[0],
             static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
   const std::vector<std::string> tab_urls =
@@ -2596,38 +2599,46 @@ void TestApplicationFolderServicesProvider() {
   }
 
   service_error = nil;
-  [provider openWindow:(NSPasteboard*)pasteboard
-              userData:nil
-                 error:&service_error];
+  [provider performSecondaryFolderService:(NSPasteboard*)pasteboard
+                                  userData:nil
+                                     error:&service_error];
   EXPECT_TRUE(service_error == nil);
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
-  EXPECT_EQ(capture.events[1].folder_service_disposition,
-            DA_FOLDER_SERVICE_NEW_WINDOWS);
+  EXPECT_EQ(capture.events[1].folder_service_action,
+            DA_FOLDER_SERVICE_ACTION_SECONDARY);
   EXPECT_EQ(capture.events[1].characters, capture.events[0].characters);
 
   const size_t accepted_event_count = capture.events.size();
   pasteboard.fileItems = @[];
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
   pasteboard.fileItems = FileUrlItems(@[ @"file://server/tmp/remote" ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
   pasteboard.fileItems = FileUrlItems(@[ @"file:///tmp/query?bad=1" ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
   NSURL* missing = [root URLByAppendingPathComponent:@"missing"];
   pasteboard.fileItems = FileUrlItems(@[ missing.absoluteString ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2636,7 +2647,9 @@ void TestApplicationFolderServicesProvider() {
                             forType:NSPasteboardTypeString]);
   pasteboard.fileItems = @[ mixed_item ];
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2648,7 +2661,9 @@ void TestApplicationFolderServicesProvider() {
   pasteboard.fileItems = FileUrlItems(
       @[ root.absoluteString, nested.absoluteString ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2661,7 +2676,9 @@ void TestApplicationFolderServicesProvider() {
             DA_STATUS_OK);
   pasteboard.fileItems = FileUrlItems(@[ first_file.absoluteString ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2672,7 +2689,9 @@ void TestApplicationFolderServicesProvider() {
             DA_STATUS_OK);
   pasteboard.fileItems = FileUrlItems(@[ @"file:///", @"file:///tmp" ]);
   service_error = nil;
-  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  [provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                userData:nil
+                                   error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2719,9 +2738,9 @@ void TestApplicationFolderServicesProvider() {
   EXPECT_TRUE(NSApp.servicesProvider == nil);
   pasteboard.fileItems = FileUrlItems(@[ root.absoluteString ]);
   service_error = nil;
-  [stale_provider openTab:(NSPasteboard*)pasteboard
-                 userData:nil
-                    error:&service_error];
+  [stale_provider performPrimaryFolderService:(NSPasteboard*)pasteboard
+                                      userData:nil
+                                         error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 
@@ -2730,9 +2749,9 @@ void TestApplicationFolderServicesProvider() {
   provider = NSApp.servicesProvider;
   dart_appkit::DisableEventPoster();
   service_error = nil;
-  [provider openWindow:(NSPasteboard*)pasteboard
-              userData:nil
-                 error:&service_error];
+  [provider performSecondaryFolderService:(NSPasteboard*)pasteboard
+                                  userData:nil
+                                     error:&service_error];
   EXPECT_TRUE(service_error != nil);
   EXPECT_EQ(capture.events.size(), accepted_event_count);
 

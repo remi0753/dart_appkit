@@ -94,17 +94,17 @@ final class MacosDartHelperManifest {
   final String entrypoint;
 }
 
-enum MacosApplicationServiceKind { newTabAtFolder, newWindowAtFolder }
+enum MacosApplicationServiceAction { primary, secondary }
 
 final class MacosApplicationServiceManifest {
   const MacosApplicationServiceManifest({
-    required this.kind,
+    required this.action,
     required this.menuItem,
   });
 
   static const int maximumMenuItemUtf8Bytes = 256;
 
-  final MacosApplicationServiceKind kind;
+  final MacosApplicationServiceAction action;
   final String menuItem;
 }
 
@@ -416,9 +416,10 @@ final class MacosApplicationManifest {
         'manifest.resources reserves Metadata.appintents for the runtime',
       );
     }
-    if (services.map((value) => value.kind).toSet().length != services.length) {
+    if (services.map((value) => value.action).toSet().length !=
+        services.length) {
       throw const MacosApplicationManifestException(
-        'manifest.services contains a duplicate kind',
+        'manifest.services contains a duplicate action',
       );
     }
     if (services.map((value) => value.menuItem).toSet().length !=
@@ -589,12 +590,12 @@ MacosScriptingDefinitionManifest _scriptingDefinition(Object? value) {
 MacosApplicationServiceManifest _applicationService(Object? value, int index) {
   final String path = 'services[$index]';
   final Map<String, Object?> object = _object(value, path);
-  _exactKeys(object, const <String>{'kind', 'menuItem'}, path);
-  final MacosApplicationServiceKind kind = switch (object['kind']) {
-    'newTabAtFolder' => MacosApplicationServiceKind.newTabAtFolder,
-    'newWindowAtFolder' => MacosApplicationServiceKind.newWindowAtFolder,
+  _exactKeys(object, const <String>{'action', 'menuItem'}, path);
+  final MacosApplicationServiceAction action = switch (object['action']) {
+    'primary' => MacosApplicationServiceAction.primary,
+    'secondary' => MacosApplicationServiceAction.secondary,
     _ => throw MacosApplicationManifestException(
-      '$path.kind must be newTabAtFolder or newWindowAtFolder',
+      '$path.action must be primary or secondary',
     ),
   };
   final String menuItem = _string(object['menuItem'], '$path.menuItem');
@@ -603,7 +604,7 @@ MacosApplicationServiceManifest _applicationService(Object? value, int index) {
       '$path.menuItem must be bounded display-safe text without a slash',
     );
   }
-  return MacosApplicationServiceManifest(kind: kind, menuItem: menuItem);
+  return MacosApplicationServiceManifest(action: action, menuItem: menuItem);
 }
 
 bool _safeServiceMenuItem(String value) {

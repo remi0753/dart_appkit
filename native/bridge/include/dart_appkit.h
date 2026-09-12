@@ -194,8 +194,8 @@ typedef struct DaViewConfiguration {
   DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES
 #define DA_FOLDER_SERVICE_FILE_URL_PACKET_MAX_BYTES \
   DA_DROP_FILE_URL_PACKET_MAX_BYTES
-#define DA_FOLDER_SERVICE_OPEN_TAB_MESSAGE "openTab"
-#define DA_FOLDER_SERVICE_OPEN_WINDOW_MESSAGE "openWindow"
+#define DA_FOLDER_SERVICE_PRIMARY_MESSAGE "performPrimaryFolderService"
+#define DA_FOLDER_SERVICE_SECONDARY_MESSAGE "performSecondaryFolderService"
 
 typedef enum DaTextViewFontKind {
   DA_TEXT_VIEW_FONT_SYSTEM = 0,
@@ -277,10 +277,10 @@ typedef struct DaFolderServicesProviderConfiguration {
 #define DA_FOLDER_SERVICES_PROVIDER_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaFolderServicesProviderConfiguration))
 
-typedef enum DaFolderServiceDisposition {
-  DA_FOLDER_SERVICE_NEW_TABS = 0,
-  DA_FOLDER_SERVICE_NEW_WINDOWS = 1
-} DaFolderServiceDisposition;
+typedef enum DaFolderServiceAction {
+  DA_FOLDER_SERVICE_ACTION_PRIMARY = 0,
+  DA_FOLDER_SERVICE_ACTION_SECONDARY = 1
+} DaFolderServiceAction;
 
 typedef enum DaTextViewColorKind {
   DA_TEXT_VIEW_COLOR_LABEL = 0,

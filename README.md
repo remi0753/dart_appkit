@@ -37,9 +37,9 @@ change event. Version 8 adds an owned global-hot-key pressed event, and version
 9 adds a generation-checked View-local Quick Look request with finite local
 coordinates. Version 10 adds bounded plain text returned by a Service to its
 generation-checked View. Version 11 adds a performed text/file-URL drop for a
-generation-checked View. Version 12 adds typed new-tab/new-window requests
-containing canonical local directory URLs from the application Services
-provider. Current Dart/native pairs negotiate version 13, which adds
+generation-checked View. Version 12 adds typed primary/secondary action
+requests containing canonical local directory URLs from the application
+Services provider. Current Dart/native pairs negotiate version 13, which adds
 content-free notification settings, authorization, delivery, cancellation,
 and default-response events with opaque positive tokens. The Dart API strictly
 decodes all thirteen versions and suppresses newer records for older negotiated
@@ -73,8 +73,9 @@ The repository also contains the separate `dart_macos_runtime` package. It
 turns a strict JSON application manifest plus a Dart `main(List<String>)` into
 the same generic AppKit-main application in Developer JIT or Release AOT form.
 Its optional closed folder-Service declarations generate deterministic
-`NSServices` metadata for the bridge's fixed new-tab/new-window provider
-messages and are copied into the runtime build manifest for audit.
+`NSServices` metadata for the bridge's fixed primary/secondary action provider
+messages and are copied into the runtime build manifest for audit. The
+application assigns product meaning to those generic actions.
 An optional closed scripting-definition declaration likewise validates and
 stages one bounded `.sdef`, emits only the standard Cocoa Scripting plist keys,
 and records the exact resource declaration without adding scripting classes to

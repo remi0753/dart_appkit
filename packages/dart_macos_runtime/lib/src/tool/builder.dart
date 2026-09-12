@@ -1055,7 +1055,7 @@ final class RuntimeApplicationBuilder {
                 for (final MacosApplicationServiceManifest service
                     in manifest.services)
                   <String, Object>{
-                    'kind': service.kind.name,
+                    'action': service.action.name,
                     'menuItem': service.menuItem,
                   },
               ],
@@ -1485,9 +1485,10 @@ String _servicesInfoPlist(List<MacosApplicationServiceManifest> services) {
     ..writeln('  <key>NSServices</key>')
     ..writeln('  <array>');
   for (final MacosApplicationServiceManifest service in services) {
-    final String message = switch (service.kind) {
-      MacosApplicationServiceKind.newTabAtFolder => 'openTab',
-      MacosApplicationServiceKind.newWindowAtFolder => 'openWindow',
+    final String message = switch (service.action) {
+      MacosApplicationServiceAction.primary => 'performPrimaryFolderService',
+      MacosApplicationServiceAction.secondary =>
+        'performSecondaryFolderService',
     };
     buffer
       ..writeln('    <dict>')
