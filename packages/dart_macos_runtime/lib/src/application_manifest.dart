@@ -141,6 +141,7 @@ final class MacosAppIntentsManifest {
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
+    required this.displayName,
     required this.executableName,
     required this.bundleIdentifier,
     required this.version,
@@ -197,13 +198,18 @@ final class MacosApplicationManifest {
       root['application'],
       'manifest.application',
     );
-    _exactKeys(application, const <String>{
-      'name',
-      'executableName',
-      'bundleIdentifier',
-      'version',
-      'minimumSystemVersion',
-    }, 'manifest.application');
+    _requiredAndOptionalKeys(
+      application,
+      const <String>{
+        'name',
+        'executableName',
+        'bundleIdentifier',
+        'version',
+        'minimumSystemVersion',
+      },
+      const <String>{'displayName'},
+      'manifest.application',
+    );
     final Map<String, Object?> dart = _object(root['dart'], 'manifest.dart');
     _exactKeys(dart, const <String>{'entrypoint'}, 'manifest.dart');
     final Map<String, Object?> runner = switch (root['runner']) {
@@ -235,6 +241,10 @@ final class MacosApplicationManifest {
     }, 'manifest.diagnostics');
 
     final String name = _string(application['name'], 'application.name');
+    final String displayName = switch (application['displayName']) {
+      null => name,
+      final Object value => _string(value, 'application.displayName'),
+    };
     final String executableName = _string(
       application['executableName'],
       'application.executableName',
@@ -461,6 +471,7 @@ final class MacosApplicationManifest {
     }
     return MacosApplicationManifest(
       name: name,
+      displayName: displayName,
       executableName: executableName,
       bundleIdentifier: bundleIdentifier,
       version: version,
@@ -503,6 +514,7 @@ final class MacosApplicationManifest {
   }
 
   final String name;
+  final String displayName;
   final String executableName;
   final String bundleIdentifier;
   final String version;

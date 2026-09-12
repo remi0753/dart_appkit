@@ -34,6 +34,7 @@ Manifest version 1 contains these required fields plus the optional `runner`,
   "schemaVersion": 1,
   "application": {
     "name": "Example",
+    "displayName": "Example Application",
     "executableName": "example",
     "bundleIdentifier": "dev.example.application",
     "version": "1.0.0",
@@ -79,6 +80,10 @@ Manifest version 1 contains these required fields plus the optional `runner`,
   }
 }
 ```
+
+`application.displayName` is optional and defaults to `application.name`. It
+supplies the user-visible `CFBundleDisplayName`; applications may localize it
+with ordinary bundle `InfoPlist.strings` resources.
 
 The immutable `runner` policy is read before the AppKit run loop starts.
 `activationPolicy` accepts `regular`, `accessory`, or `prohibited`; the other

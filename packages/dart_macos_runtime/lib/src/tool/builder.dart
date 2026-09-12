@@ -1437,6 +1437,8 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
   <string>en</string>
   <key>CFBundleExecutable</key>
   <string>${_xml(manifest.executableName)}</string>
+  <key>CFBundleDisplayName</key>
+  <string>${_xml(manifest.displayName)}</string>
   <key>CFBundleIdentifier</key>
   <string>${_xml(manifest.bundleIdentifier)}</string>
   <key>CFBundleInfoDictionaryVersion</key>

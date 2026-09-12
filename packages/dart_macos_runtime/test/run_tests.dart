@@ -621,6 +621,19 @@ Future<void> main() async {
       _validManifest,
     );
     _expect(manifest.executableName == 'hello_window', 'executable name');
+    _expect(manifest.displayName == 'HelloWindow', 'display name default');
+    final MacosApplicationManifest displayedManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"name": "HelloWindow",',
+            '"name": "HelloWindow", "displayName": "Hello Window",',
+          ),
+        );
+    _expect(
+      displayedManifest.name == 'HelloWindow' &&
+          displayedManifest.displayName == 'Hello Window',
+      'display name override',
+    );
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.services.isEmpty, 'services default empty');
@@ -1363,8 +1376,13 @@ Future<void> main() async {
     _write(
       '${fixture.project.path}/macos_application.json',
       _withAppIntents(
-        _withScriptingDefinition(_withFolderServices(_validManifest)),
-      ).replaceFirst('"dart":', '''"runner": {
+            _withScriptingDefinition(_withFolderServices(_validManifest)),
+          )
+          .replaceFirst(
+            '"name": "HelloWindow",',
+            '"name": "HelloWindow", "displayName": "Hello Window",',
+          )
+          .replaceFirst('"dart":', '''"runner": {
     "activationPolicy": "prohibited",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
@@ -1428,7 +1446,10 @@ Future<void> main() async {
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
     _expect(
-      infoPlist.contains('<string>prohibited</string>'),
+      infoPlist.contains(
+            '<key>CFBundleDisplayName</key>\n  <string>Hello Window</string>',
+          ) &&
+          infoPlist.contains('<string>prohibited</string>'),
       'runner activation policy is bundled',
     );
     _expect(
