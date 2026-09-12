@@ -26,7 +26,8 @@ The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
 Manifest version 1 contains these required fields plus the optional `runner`,
-`services`, `scriptingDefinition`, `dartHelpers`, and `nativeAssets` values:
+`services`, `scriptingDefinition`, `appIntents`, `dartHelpers`, and
+`nativeAssets` values:
 
 ```json
 {
@@ -49,6 +50,12 @@ Manifest version 1 contains these required fields plus the optional `runner`,
     }
   ],
   "scriptingDefinition": {"path": "resources/Example.sdef"},
+  "appIntents": {
+    "package": "example_app_intents",
+    "source": "native/ExampleAppIntents.swift",
+    "moduleName": "ExampleAppIntents",
+    "library": "libexample_app_intents.dylib"
+  },
   "runner": {
     "activationPolicy": "regular",
     "activateOnLaunch": true,
@@ -103,6 +110,22 @@ count in `runtime-build-manifest.json`. Missing, absolute/remote/traversing,
 invalid, oversized, and colliding declarations fail before signing. The
 runtime defines packaging only; dictionary classes and command authority stay
 in an optional application-owned capability.
+
+The optional `appIntents` object declares exactly one dependency-owned Swift
+source module. Its `package` must resolve exactly once through the application's
+package configuration, `source` is a normalized package-relative `.swift` file
+of at most 1 MiB, `moduleName` is a Swift identifier, and `library` is a unique
+`lib*.dylib` bundle filename. App Intents require a minimum macOS version of 13
+or later. The builder uses the selected Xcode toolchain to emit compiler
+constant values, link the module with an `@rpath` install name, and run
+`appintentsmetadataprocessor`. It accepts only the expected
+`Metadata.appintents/version.json` and `extract.actionsdata` outputs, verifies
+that their tools version matches Xcode, links the image into the generic host,
+and stages the image and metadata in `Frameworks` and `Resources`. The source,
+target, image size, Xcode build, and exact metadata files are recorded in
+`runtime-build-manifest.json`. Omitting `appIntents` preserves the existing
+bundle layout. Intent declarations and command authority remain the owning
+dependency's responsibility.
 
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized

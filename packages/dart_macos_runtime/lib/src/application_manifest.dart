@@ -119,6 +119,25 @@ final class MacosScriptingDefinitionManifest {
   String get bundleName => path.split('/').last;
 }
 
+/// One dependency-owned Swift App Intents module compiled into the app.
+final class MacosAppIntentsManifest {
+  const MacosAppIntentsManifest({
+    required this.package,
+    required this.source,
+    required this.moduleName,
+    required this.library,
+  });
+
+  static const int maximumSourcePathUtf8Bytes = 1024;
+  static const int maximumSourceFileBytes = 1024 * 1024;
+  static const int maximumMetadataFileBytes = 4 * 1024 * 1024;
+
+  final String package;
+  final String source;
+  final String moduleName;
+  final String library;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -129,6 +148,7 @@ final class MacosApplicationManifest {
     required this.entrypoint,
     this.services = const <MacosApplicationServiceManifest>[],
     this.scriptingDefinition,
+    this.appIntents,
     required this.dartHelpers,
     required this.resources,
     required this.nativeAssets,
@@ -163,6 +183,7 @@ final class MacosApplicationManifest {
         'runner',
         'services',
         'scriptingDefinition',
+        'appIntents',
       },
       'manifest',
     );
@@ -252,6 +273,10 @@ final class MacosApplicationManifest {
           null => null,
           final Object value => _scriptingDefinition(value),
         };
+    final MacosAppIntentsManifest? appIntents = switch (root['appIntents']) {
+      null => null,
+      final Object value => _appIntents(value),
+    };
     final MacosRunnerActivationPolicy activationPolicy =
         switch (runner['activationPolicy']) {
           null => MacosRunnerActivationPolicy.regular,
@@ -376,6 +401,21 @@ final class MacosApplicationManifest {
         'manifest.scriptingDefinition conflicts with a bundled resource',
       );
     }
+    if (appIntents != null &&
+        !_minimumMacosVersionAtLeast13(minimumSystemVersion)) {
+      throw const MacosApplicationManifestException(
+        'manifest.appIntents requires application.minimumSystemVersion 13.0 or later',
+      );
+    }
+    if (resources.any(
+      (String path) =>
+          path == 'Metadata.appintents' ||
+          path.startsWith('Metadata.appintents/'),
+    )) {
+      throw const MacosApplicationManifestException(
+        'manifest.resources reserves Metadata.appintents for the runtime',
+      );
+    }
     if (services.map((value) => value.kind).toSet().length != services.length) {
       throw const MacosApplicationManifestException(
         'manifest.services contains a duplicate kind',
@@ -410,6 +450,7 @@ final class MacosApplicationManifest {
       ...nativeCapabilities.map(
         (MacosNativeCapabilityManifest value) => value.library,
       ),
+      if (appIntents != null) appIntents.library,
     ];
     if (nativeIds.toSet().length != nativeIds.length ||
         nativeLibraries.toSet().length != nativeLibraries.length) {
@@ -426,6 +467,7 @@ final class MacosApplicationManifest {
       entrypoint: entrypoint,
       services: List<MacosApplicationServiceManifest>.unmodifiable(services),
       scriptingDefinition: scriptingDefinition,
+      appIntents: appIntents,
       dartHelpers: List<MacosDartHelperManifest>.unmodifiable(dartHelpers),
       resources: List<String>.unmodifiable(resources),
       nativeAssets: List<MacosNativeAssetManifest>.unmodifiable(nativeAssets),
@@ -467,6 +509,7 @@ final class MacosApplicationManifest {
   final String entrypoint;
   final List<MacosApplicationServiceManifest> services;
   final MacosScriptingDefinitionManifest? scriptingDefinition;
+  final MacosAppIntentsManifest? appIntents;
   final List<MacosDartHelperManifest> dartHelpers;
   final List<String> resources;
   final List<MacosNativeAssetManifest> nativeAssets;
@@ -484,6 +527,45 @@ final class MacosApplicationManifest {
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
+}
+
+MacosAppIntentsManifest _appIntents(Object? value) {
+  const String path = 'manifest.appIntents';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{
+    'package',
+    'source',
+    'moduleName',
+    'library',
+  }, path);
+  final String package = _string(object['package'], '$path.package');
+  final String source = _relativePath(
+    _string(object['source'], '$path.source'),
+    '$path.source',
+  );
+  final String moduleName = _string(object['moduleName'], '$path.moduleName');
+  final String library = _string(object['library'], '$path.library');
+  if (!_packageName.hasMatch(package) ||
+      !source.endsWith('.swift') ||
+      utf8.encode(source).length >
+          MacosAppIntentsManifest.maximumSourcePathUtf8Bytes ||
+      !_swiftModuleName.hasMatch(moduleName) ||
+      !_libraryName.hasMatch(library)) {
+    throw const MacosApplicationManifestException(
+      'manifest.appIntents contains an invalid package, Swift source, module, or library',
+    );
+  }
+  return MacosAppIntentsManifest(
+    package: package,
+    source: source,
+    moduleName: moduleName,
+    library: library,
+  );
+}
+
+bool _minimumMacosVersionAtLeast13(String value) {
+  final int major = int.parse(value.split('.').first);
+  return major >= 13;
 }
 
 MacosScriptingDefinitionManifest _scriptingDefinition(Object? value) {
@@ -686,6 +768,7 @@ final RegExp _capabilityId = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$');
 final RegExp _packageName = RegExp(r'^[a-z][a-z0-9_]{1,63}$');
 final RegExp _libraryName = RegExp(r'^lib[A-Za-z0-9._-]+\.dylib$');
 final RegExp _symbol = RegExp(r'^[A-Za-z_][A-Za-z0-9_]{1,127}$');
+final RegExp _swiftModuleName = RegExp(r'^[A-Za-z_][A-Za-z0-9_]{1,127}$');
 
 Map<String, Object?> _object(Object? value, String path) {
   if (value is! Map<String, Object?>) {

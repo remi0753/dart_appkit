@@ -13,6 +13,10 @@ const int builderOsErrorExitCode = 71;
 const int builderIoErrorExitCode = 74;
 const String pinnedDartSdkVersion = '3.13.2';
 const String pinnedDartSdkRevision = '60a57cd42d64dc03e9f07aa60a2e250755c1ef28';
+const List<String> appIntentsConstGatherProtocols = <String>[
+  'AppIntent',
+  'AppShortcutsProvider',
+];
 
 const String builderUsage = '''
 Usage: dart run dart_macos_runtime:build --manifest <file> [options]
@@ -349,6 +353,21 @@ final class RuntimeApplicationBuilder {
       _join(engineOutput.path, libraryName),
       'Dart Engine library',
     );
+    final List<String> declaredFrameworkNames = <String>[
+      ...manifest.nativeAssets.map(
+        (MacosNativeAssetManifest value) => value.library,
+      ),
+      ...manifest.nativeCapabilities.map(
+        (MacosNativeCapabilityManifest value) => value.library,
+      ),
+      if (manifest.appIntents != null) manifest.appIntents!.library,
+    ];
+    if (declaredFrameworkNames.contains(_basename(engineLibrary.path))) {
+      throw const RuntimeBuilderException(
+        'a declared native library conflicts with the Dart Engine image',
+        exitCode: builderUsageExitCode,
+      );
+    }
     final File compiler = await _existingFile(
       _join(engineOutput.path, 'bootstrap_gen_kernel.exe'),
       'Dart Engine Kernel compiler',
@@ -380,6 +399,14 @@ final class RuntimeApplicationBuilder {
           : _resolvePath(options.buildDirectory!),
     );
     await buildRoot.create(recursive: true);
+    final _CompiledAppIntents? compiledAppIntents = manifest.appIntents == null
+        ? null
+        : await _compileAppIntents(
+            manifest: manifest,
+            declaration: manifest.appIntents!,
+            packageConfig: packageConfig,
+            buildRoot: buildRoot,
+          );
     final Directory nativeBuild = Directory(_join(buildRoot.path, 'host'));
     final String makeTarget = options.mode == RuntimeBuildMode.developerJit
         ? 'runtime-jit-runner'
@@ -394,6 +421,8 @@ final class RuntimeApplicationBuilder {
         'DART_ENGINE_LIBRARY=${engineLibrary.path}'
       else
         'DART_ENGINE_AOT_LIBRARY=${engineLibrary.path}',
+      if (compiledAppIntents != null)
+        'RUNTIME_APP_INTENTS_LIBRARY=${compiledAppIntents.image.path}',
       makeTarget,
     ], projectRoot.path);
     final File host = await _existingFile(
@@ -563,6 +592,7 @@ final class RuntimeApplicationBuilder {
       sdkRevision: sdkRevision,
       dartHelpers: dartHelpers,
       nativeImages: nativeImages,
+      appIntents: compiledAppIntents,
     );
     output('${bundle.root.path}\n');
     if (!options.runApplication) {
@@ -588,6 +618,255 @@ final class RuntimeApplicationBuilder {
     return launched.exitCode;
   }
 
+  Future<_CompiledAppIntents> _compileAppIntents({
+    required MacosApplicationManifest manifest,
+    required MacosAppIntentsManifest declaration,
+    required File packageConfig,
+    required Directory buildRoot,
+  }) async {
+    final Directory packageRoot = await _packageRoot(
+      packageConfig,
+      declaration.package,
+    );
+    final File source = await _existingFile(
+      _join(packageRoot.path, declaration.source),
+      'App Intents Swift source',
+    );
+    if (!_isWithinDirectory(packageRoot, source)) {
+      throw RuntimeBuilderException(
+        'App Intents Swift source resolves outside package '
+        '${declaration.package}',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    final int sourceBytes = await source.length();
+    if (sourceBytes <= 0 ||
+        sourceBytes > MacosAppIntentsManifest.maximumSourceFileBytes) {
+      throw RuntimeBuilderException(
+        'App Intents Swift source must be non-empty and no larger than '
+        '${MacosAppIntentsManifest.maximumSourceFileBytes} bytes',
+        exitCode: builderUsageExitCode,
+      );
+    }
+
+    final Directory outputDirectory = Directory(
+      _join(buildRoot.path, 'app-intents'),
+    );
+    if (await outputDirectory.exists()) {
+      await outputDirectory.delete(recursive: true);
+    }
+    await outputDirectory.create(recursive: true);
+    final File protocols = File(
+      _join(outputDirectory.path, 'const-gather-protocols.json'),
+    );
+    await protocols.writeAsString(
+      '${jsonEncode(appIntentsConstGatherProtocols)}\n',
+      flush: true,
+    );
+    final Directory moduleCache = Directory(
+      _join(outputDirectory.path, 'module-cache'),
+    );
+    await moduleCache.create();
+    final File object = File(_join(outputDirectory.path, 'module.o'));
+    final File constValues = File(
+      _join(outputDirectory.path, 'module.swiftconstvalues'),
+    );
+    final File image = File(_join(outputDirectory.path, declaration.library));
+    final String targetTriple =
+        '${architecture == 'arm64' ? 'arm64' : 'x86_64'}-apple-macos'
+        '${manifest.minimumSystemVersion}';
+    final File swiftCompiler = await _xcrunFind('swiftc');
+    final File metadataProcessor = await _xcrunFind(
+      'appintentsmetadataprocessor',
+    );
+    final String sdkRoot = await _runCapturedChecked(
+      'macOS SDK discovery',
+      '/usr/bin/xcrun',
+      const <String>['--sdk', 'macosx', '--show-sdk-path'],
+      projectWorkingDirectory: packageRoot.path,
+    );
+    final File xcodebuild = await _xcrunFind('xcodebuild');
+    final String xcodeVersion = await _runCapturedChecked(
+      'Xcode version discovery',
+      xcodebuild.path,
+      const <String>['-version'],
+      projectWorkingDirectory: packageRoot.path,
+    );
+    final RegExpMatch? buildVersionMatch = RegExp(
+      r'(?:^|\n)Build version ([A-Za-z0-9]+)(?:\n|$)',
+    ).firstMatch(xcodeVersion);
+    if (buildVersionMatch == null) {
+      throw const RuntimeBuilderException(
+        'Xcode did not report a valid build version',
+        exitCode: builderUnavailableExitCode,
+      );
+    }
+    final String xcodeBuildVersion = buildVersionMatch.group(1)!;
+    final Directory toolchain = swiftCompiler.parent.parent.parent;
+    await _runChecked(
+      'App Intents Swift compilation',
+      swiftCompiler.path,
+      <String>[
+        '-c',
+        '-parse-as-library',
+        '-swift-version',
+        '6',
+        '-emit-const-values',
+        '-emit-const-values-path',
+        constValues.path,
+        '-Xfrontend',
+        '-const-gather-protocols-file',
+        '-Xfrontend',
+        protocols.path,
+        '-module-name',
+        declaration.moduleName,
+        '-target',
+        targetTriple,
+        '-sdk',
+        sdkRoot,
+        '-module-cache-path',
+        moduleCache.path,
+        '-o',
+        object.path,
+        source.path,
+      ],
+      packageRoot.path,
+    );
+    await _boundedFile(
+      object.path,
+      'compiled App Intents object',
+      64 * 1024 * 1024,
+    );
+    await _boundedFile(
+      constValues.path,
+      'App Intents compiler constant values',
+      MacosAppIntentsManifest.maximumMetadataFileBytes,
+    );
+    await _runChecked(
+      'App Intents Swift image link',
+      swiftCompiler.path,
+      <String>[
+        '-emit-library',
+        '-target',
+        targetTriple,
+        '-sdk',
+        sdkRoot,
+        '-Xlinker',
+        '-install_name',
+        '-Xlinker',
+        '@rpath/${declaration.library}',
+        '-o',
+        image.path,
+        object.path,
+      ],
+      packageRoot.path,
+    );
+    final File checkedImage = await _boundedFile(
+      image.path,
+      'App Intents Swift image',
+      64 * 1024 * 1024,
+    );
+
+    final File sourceList = File(_join(outputDirectory.path, 'sources.list'));
+    final File constValuesList = File(
+      _join(outputDirectory.path, 'const-values.list'),
+    );
+    await sourceList.writeAsString('${source.path}\n', flush: true);
+    await constValuesList.writeAsString('${constValues.path}\n', flush: true);
+    final Directory metadataOutput = Directory(
+      _join(outputDirectory.path, 'metadata-output'),
+    );
+    await metadataOutput.create();
+    await _runChecked(
+      'App Intents metadata extraction',
+      metadataProcessor.path,
+      <String>[
+        '--output',
+        metadataOutput.path,
+        '--toolchain-dir',
+        toolchain.path,
+        '--module-name',
+        declaration.moduleName,
+        '--sdk-root',
+        sdkRoot,
+        '--xcode-version',
+        xcodeBuildVersion,
+        '--platform-family',
+        'macOS',
+        '--deployment-target',
+        manifest.minimumSystemVersion,
+        '--target-triple',
+        targetTriple,
+        '--source-file-list',
+        sourceList.path,
+        '--swift-const-vals-list',
+        constValuesList.path,
+        '--no-app-shortcuts-localization',
+        '--force',
+      ],
+      packageRoot.path,
+    );
+    final Directory metadataBundle = await _existingDirectory(
+      _join(metadataOutput.path, 'Metadata.appintents'),
+      'App Intents metadata bundle',
+    );
+    final List<FileSystemEntity> metadataEntries = await metadataBundle
+        .list(followLinks: false)
+        .toList();
+    final Set<String> metadataNames = metadataEntries
+        .map((FileSystemEntity entry) => _basename(entry.path))
+        .toSet();
+    if (metadataEntries.length != 2 ||
+        !metadataNames.contains('version.json') ||
+        !metadataNames.contains('extract.actionsdata')) {
+      throw RuntimeBuilderException(
+        'App Intents metadata bundle must contain exactly version.json and '
+        'extract.actionsdata',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    final File versionMetadata = await _boundedFile(
+      _join(metadataBundle.path, 'version.json'),
+      'App Intents version metadata',
+      MacosAppIntentsManifest.maximumMetadataFileBytes,
+    );
+    final File actionsMetadata = await _boundedFile(
+      _join(metadataBundle.path, 'extract.actionsdata'),
+      'App Intents action metadata',
+      MacosAppIntentsManifest.maximumMetadataFileBytes,
+    );
+    final Object? decodedVersion;
+    try {
+      decodedVersion = jsonDecode(await versionMetadata.readAsString());
+    } on FormatException catch (error) {
+      throw RuntimeBuilderException(
+        'App Intents version metadata is invalid JSON: ${error.message}',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    if (decodedVersion is! Map<String, Object?> ||
+        decodedVersion['toolsVersion'] != xcodeBuildVersion ||
+        decodedVersion['version'] is! String ||
+        (decodedVersion['version']! as String).isEmpty) {
+      throw const RuntimeBuilderException(
+        'App Intents version metadata does not match the selected Xcode tools',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    return _CompiledAppIntents(
+      declaration: declaration,
+      image: checkedImage,
+      versionMetadata: versionMetadata,
+      actionsMetadata: actionsMetadata,
+      sourceBytes: sourceBytes,
+      libraryBytes: await checkedImage.length(),
+      versionMetadataBytes: await versionMetadata.length(),
+      actionsMetadataBytes: await actionsMetadata.length(),
+      targetTriple: targetTriple,
+      xcodeBuildVersion: xcodeBuildVersion,
+    );
+  }
+
   Future<_Bundle> _assembleBundle({
     required MacosApplicationManifest manifest,
     required RuntimeBuildMode mode,
@@ -601,6 +880,7 @@ final class RuntimeApplicationBuilder {
     required String sdkRevision,
     required Map<String, File> dartHelpers,
     required Map<String, File> nativeImages,
+    required _CompiledAppIntents? appIntents,
   }) async {
     final Directory root = Directory(
       _join(buildRoot.path, '${manifest.name}.app'),
@@ -645,6 +925,21 @@ final class RuntimeApplicationBuilder {
         );
       }
       await image.copy(_join(frameworks.path, capability.library));
+    }
+    if (appIntents != null) {
+      await appIntents.image.copy(
+        _join(frameworks.path, appIntents.declaration.library),
+      );
+      final Directory metadataDestination = Directory(
+        _join(resources.path, 'Metadata.appintents'),
+      );
+      await metadataDestination.create();
+      await appIntents.versionMetadata.copy(
+        _join(metadataDestination.path, 'version.json'),
+      );
+      await appIntents.actionsMetadata.copy(
+        _join(metadataDestination.path, 'extract.actionsdata'),
+      );
     }
     final File bundledPayload = await payload.copy(
       _join(
@@ -764,6 +1059,28 @@ final class RuntimeApplicationBuilder {
                 'bundleName': scriptingDefinition.bundleName,
                 'bytes': scriptingDefinitionBytes!,
               },
+            if (appIntents != null)
+              'appIntents': <String, Object>{
+                'package': appIntents.declaration.package,
+                'source': appIntents.declaration.source,
+                'moduleName': appIntents.declaration.moduleName,
+                'library': appIntents.declaration.library,
+                'sourceBytes': appIntents.sourceBytes,
+                'libraryBytes': appIntents.libraryBytes,
+                'targetTriple': appIntents.targetTriple,
+                'xcodeBuildVersion': appIntents.xcodeBuildVersion,
+                'metadataBundle': 'Metadata.appintents',
+                'metadataFiles': <Map<String, Object>>[
+                  <String, Object>{
+                    'name': 'extract.actionsdata',
+                    'bytes': appIntents.actionsMetadataBytes,
+                  },
+                  <String, Object>{
+                    'name': 'version.json',
+                    'bytes': appIntents.versionMetadataBytes,
+                  },
+                ],
+              },
             'dartHelpers': <Map<String, Object>>[
               for (final MacosDartHelperManifest helper in manifest.dartHelpers)
                 <String, Object>{
@@ -878,6 +1195,124 @@ final class RuntimeApplicationBuilder {
     return Directory(await directory.resolveSymbolicLinks());
   }
 
+  Future<File> _boundedFile(
+    String path,
+    String description,
+    int maximumBytes,
+  ) async {
+    final File file = await _existingFile(path, description);
+    final int bytes = await file.length();
+    if (bytes <= 0 || bytes > maximumBytes) {
+      throw RuntimeBuilderException(
+        '$description must be non-empty and no larger than $maximumBytes bytes',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    return file;
+  }
+
+  Future<String> _runCapturedChecked(
+    String label,
+    String executable,
+    List<String> arguments, {
+    required String projectWorkingDirectory,
+  }) async {
+    final BuilderCommandResult result = await processExecutor.run(
+      executable,
+      arguments,
+      workingDirectory: projectWorkingDirectory,
+    );
+    if (result.exitCode != 0) {
+      if (result.stderrText.isNotEmpty) errorOutput(result.stderrText);
+      throw RuntimeBuilderException(
+        '$label failed with exit code ${result.exitCode}',
+        exitCode: result.exitCode,
+      );
+    }
+    final String value = result.stdoutText.trim();
+    if (value.isEmpty) {
+      throw RuntimeBuilderException(
+        '$label returned no output',
+        exitCode: builderUnavailableExitCode,
+      );
+    }
+    return value;
+  }
+
+  Future<File> _xcrunFind(String tool) async {
+    final String path = await _runCapturedChecked(
+      'Xcode tool discovery ($tool)',
+      '/usr/bin/xcrun',
+      <String>['--find', tool],
+      projectWorkingDirectory: currentDirectory,
+    );
+    return _existingFile(path, 'Xcode tool $tool');
+  }
+
+  Future<Directory> _packageRoot(File packageConfig, String package) async {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(await packageConfig.readAsString());
+    } on FormatException catch (error) {
+      throw RuntimeBuilderException(
+        'package configuration is invalid JSON: ${error.message}',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    if (decoded is! Map<String, Object?> || decoded['packages'] is! List) {
+      throw const RuntimeBuilderException(
+        'package configuration has no package list',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    final List<Object?> matches = (decoded['packages']! as List<Object?>)
+        .where(
+          (Object? value) =>
+              value is Map<String, Object?> && value['name'] == package,
+        )
+        .toList();
+    if (matches.length != 1) {
+      throw RuntimeBuilderException(
+        'package configuration must contain exactly one $package package',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    final Map<String, Object?> entry = matches.single as Map<String, Object?>;
+    final Object? rootValue = entry['rootUri'];
+    if (rootValue is! String || rootValue.isEmpty) {
+      throw RuntimeBuilderException(
+        'package $package has no valid rootUri',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    final Uri rootUri;
+    try {
+      rootUri = packageConfig.parent.uri.resolve(rootValue);
+    } on FormatException {
+      throw RuntimeBuilderException(
+        'package $package has an invalid rootUri',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    if (rootUri.scheme != 'file') {
+      throw RuntimeBuilderException(
+        'package $package rootUri must resolve to a local directory',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    return _existingDirectory(
+      Directory.fromUri(rootUri).path,
+      'App Intents package $package',
+    );
+  }
+
+  static bool _isWithinDirectory(Directory root, File file) {
+    final String prefix = root.path.endsWith(Platform.pathSeparator)
+        ? root.path
+        : '${root.path}${Platform.pathSeparator}';
+    return file.path.startsWith(prefix);
+  }
+
   Future<File> _findPackageConfig(Directory start) async {
     Directory cursor = start;
     while (true) {
@@ -938,6 +1373,32 @@ final class RuntimeApplicationBuilder {
     'DART_SDK_LICENSE.txt',
     'runtime-build-manifest.json',
   };
+}
+
+final class _CompiledAppIntents {
+  const _CompiledAppIntents({
+    required this.declaration,
+    required this.image,
+    required this.versionMetadata,
+    required this.actionsMetadata,
+    required this.sourceBytes,
+    required this.libraryBytes,
+    required this.versionMetadataBytes,
+    required this.actionsMetadataBytes,
+    required this.targetTriple,
+    required this.xcodeBuildVersion,
+  });
+
+  final MacosAppIntentsManifest declaration;
+  final File image;
+  final File versionMetadata;
+  final File actionsMetadata;
+  final int sourceBytes;
+  final int libraryBytes;
+  final int versionMetadataBytes;
+  final int actionsMetadataBytes;
+  final String targetTriple;
+  final String xcodeBuildVersion;
 }
 
 final class _Bundle {

@@ -17,6 +17,7 @@ DART_ENGINE_RELEASE_ARCH := UNSUPPORTED
 endif
 DART_ENGINE_LIBRARY ?= $(DART_ENGINE_ROOT)/xcodebuild/Release$(DART_ENGINE_RELEASE_ARCH)/libdart_engine_jit_shared.dylib
 DART_ENGINE_AOT_LIBRARY ?= $(DART_ENGINE_ROOT)/xcodebuild/Product$(DART_ENGINE_RELEASE_ARCH)/libdart_engine_aot_shared.dylib
+RUNTIME_APP_INTENTS_LIBRARY ?=
 
 CLANG := $(shell xcrun --find clang)
 CLANGXX := $(shell xcrun --find clang++)
@@ -571,7 +572,8 @@ dpty-native-test: dpty-contract-check dpty-child-audit $(DPTY_LIBRARY) \
 	@$(DPTY_TEST_BINARY) $(DPTY_LIBRARY)
 
 $(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
-		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY)
+		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY) \
+		$(RUNTIME_APP_INTENTS_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
 	$(CLANGXX) $(OBJCXX_FLAGS) \
 		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
@@ -584,7 +586,7 @@ $(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
 		-I$(DART_ENGINE_ROOT)/runtime \
 		-I$(DART_ENGINE_ROOT)/runtime/engine \
 		$(BRIDGE_SOURCES) $(RUNTIME_JIT_SOURCES) \
-		$(DART_ENGINE_LIBRARY) $(APPKIT_LIBS) \
+		$(DART_ENGINE_LIBRARY) $(RUNTIME_APP_INTENTS_LIBRARY) $(APPKIT_LIBS) \
 		-Wl,-rpath,@executable_path/../Frameworks \
 		-Wl,-export_dynamic -o $@
 
@@ -592,7 +594,7 @@ runtime-jit-runner: engine-check $(RUNTIME_JIT_BINARY)
 
 $(RUNTIME_AOT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
 		$(RUNNER_HEADERS) $(RUNTIME_HEADERS) $(RUNTIME_AOT_SOURCES) \
-		$(DART_ENGINE_AOT_LIBRARY)
+		$(DART_ENGINE_AOT_LIBRARY) $(RUNTIME_APP_INTENTS_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
 	$(CLANGXX) $(OBJCXX_FLAGS) \
 		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
@@ -605,7 +607,7 @@ $(RUNTIME_AOT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
 		-I$(DART_ENGINE_ROOT)/runtime \
 		-I$(DART_ENGINE_ROOT)/runtime/engine \
 		$(BRIDGE_SOURCES) $(RUNTIME_AOT_SOURCES) \
-		$(DART_ENGINE_AOT_LIBRARY) $(APPKIT_LIBS) \
+		$(DART_ENGINE_AOT_LIBRARY) $(RUNTIME_APP_INTENTS_LIBRARY) $(APPKIT_LIBS) \
 		-Wl,-rpath,@executable_path/../Frameworks \
 		-Wl,-export_dynamic -o $@
 

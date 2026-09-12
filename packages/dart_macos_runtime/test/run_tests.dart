@@ -90,6 +90,40 @@ String _withScriptingDefinition(String manifest) => manifest.replaceFirst(
   "dart":''',
 );
 
+String _withAppIntents(String manifest) =>
+    manifest.replaceFirst('"dart":', '''"appIntents": {
+    "package": "fixture_app_intents",
+    "source": "native/FixtureAppIntents.swift",
+    "moduleName": "FixtureAppIntents",
+    "library": "libfixture_app_intents.dylib"
+  },
+  "dart":''');
+
+const String _validAppIntentsSource = '''import AppIntents
+
+@available(macOS 14.0, *)
+struct FixtureIntent: AppIntent {
+  static let title: LocalizedStringResource = "Open Fixture"
+  static let openAppWhenRun = true
+
+  func perform() async throws -> some IntentResult {
+    return .result()
+  }
+}
+
+@available(macOS 14.0, *)
+struct FixtureShortcuts: AppShortcutsProvider {
+  static var appShortcuts: [AppShortcut] {
+    AppShortcut(
+      intent: FixtureIntent(),
+      phrases: ["Open fixture in \\(.applicationName)"],
+      shortTitle: "Open Fixture",
+      systemImageName: "terminal"
+    )
+  }
+}
+''';
+
 const String _validSdef = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
 <dictionary title="Test Terminology">
@@ -144,6 +178,11 @@ final class _RecordedCommand {
 final class _FakeExecutor implements BuilderProcessExecutor {
   final List<_RecordedCommand> commands = <_RecordedCommand>[];
   bool failScriptingDefinitionValidation = false;
+  bool failAppIntentsMetadataExtraction = false;
+  bool omitAppIntentsMetadata = false;
+  bool invalidateAppIntentsVersion = false;
+  late String developerDirectory;
+  late String macosSdkDirectory;
 
   @override
   Future<BuilderCommandResult> run(
@@ -153,6 +192,33 @@ final class _FakeExecutor implements BuilderProcessExecutor {
     bool inheritStdio = false,
   }) async {
     commands.add(_RecordedCommand(executable, arguments, inheritStdio));
+    if (executable == '/usr/bin/xcrun') {
+      if (arguments.length == 2 && arguments.first == '--find') {
+        final String tool = arguments.last;
+        final String path = switch (tool) {
+          'swiftc' =>
+            '$developerDirectory/Toolchains/'
+                'XcodeDefault.xctoolchain/usr/bin/swiftc',
+          'appintentsmetadataprocessor' =>
+            '$developerDirectory/usr/bin/appintentsmetadataprocessor',
+          'xcodebuild' => '$developerDirectory/usr/bin/xcodebuild',
+          _ => throw StateError('unexpected Xcode tool: $tool'),
+        };
+        return BuilderCommandResult(exitCode: 0, stdoutText: '$path\n');
+      }
+      if (arguments.join(' ') == '--sdk macosx --show-sdk-path') {
+        return BuilderCommandResult(
+          exitCode: 0,
+          stdoutText: '$macosSdkDirectory\n',
+        );
+      }
+    }
+    if (executable.endsWith('/usr/bin/xcodebuild')) {
+      return const BuilderCommandResult(
+        exitCode: 0,
+        stdoutText: 'Xcode 26.6\nBuild version 17F113\n',
+      );
+    }
     if (executable == '/usr/bin/xmllint' && failScriptingDefinitionValidation) {
       return const BuilderCommandResult(
         exitCode: 2,
@@ -162,7 +228,38 @@ final class _FakeExecutor implements BuilderProcessExecutor {
     if (inheritStdio) {
       return const BuilderCommandResult(exitCode: 23);
     }
-    if (executable == 'make') {
+    if (executable.endsWith('/usr/bin/swiftc')) {
+      final String output = arguments[arguments.indexOf('-o') + 1];
+      _write(
+        output,
+        arguments.contains('-c') ? 'fake Swift object' : 'fake Swift image',
+      );
+      final int constValuesIndex = arguments.indexOf('-emit-const-values-path');
+      if (constValuesIndex >= 0) {
+        _write(arguments[constValuesIndex + 1], '{"values":[]}\n');
+      }
+    } else if (executable.endsWith('/appintentsmetadataprocessor')) {
+      if (failAppIntentsMetadataExtraction) {
+        return const BuilderCommandResult(
+          exitCode: 1,
+          stderrText: 'invalid App Intents metadata\n',
+        );
+      }
+      if (!omitAppIntentsMetadata) {
+        final String output = arguments[arguments.indexOf('--output') + 1];
+        _write(
+          '$output/Metadata.appintents/version.json',
+          jsonEncode(<String, Object>{
+            'version': '3.0',
+            'toolsVersion': invalidateAppIntentsVersion ? 'wrong' : '17F113',
+          }),
+        );
+        _write(
+          '$output/Metadata.appintents/extract.actionsdata',
+          '{"actions":{"FixtureIntent":{}},"autoShortcuts":[]}\n',
+        );
+      }
+    } else if (executable == 'make') {
       final String build = arguments
           .firstWhere((String value) => value.startsWith('BUILD_DIR='))
           .substring('BUILD_DIR='.length);
@@ -218,7 +315,15 @@ final class _FakeExecutor implements BuilderProcessExecutor {
 }
 
 final class _Fixture {
-  _Fixture(this.root, this.repository, this.project, this.sdk, this.engine);
+  _Fixture(
+    this.root,
+    this.repository,
+    this.project,
+    this.sdk,
+    this.engine,
+    this.developer,
+    this.macosSdk,
+  );
 
   static Future<_Fixture> create() async {
     final Directory root = await Directory.systemTemp.createTemp(
@@ -228,15 +333,29 @@ final class _Fixture {
     final Directory project = Directory('${root.path}/application');
     final Directory sdk = Directory('${root.path}/sdk');
     final Directory engine = Directory('${root.path}/engine');
+    final Directory developer = Directory('${root.path}/Developer');
+    final Directory macosSdk = Directory('${root.path}/MacOSX.sdk');
     _write('${repository.path}/Makefile', 'all:\n\t@true\n');
     _write('${project.path}/macos_application.json', _validManifest);
     _write('${project.path}/bin/main.dart', 'void main() {}\n');
     _write('${project.path}/bin/helper.dart', 'void main() {}\n');
     _write('${project.path}/assets/message.txt', 'hello\n');
     _write('${project.path}/resources/Test.sdef', _validSdef);
+    final Directory appIntentsPackage = Directory(
+      '${repository.path}/packages/fixture_app_intents',
+    );
+    _write(
+      '${appIntentsPackage.path}/native/FixtureAppIntents.swift',
+      _validAppIntentsSource,
+    );
     _write(
       '${project.path}/.dart_tool/package_config.json',
-      '{"configVersion":2,"packages":[]}\n',
+      '${jsonEncode(<String, Object>{
+        'configVersion': 2,
+        'packages': <Map<String, Object>>[
+          <String, Object>{'name': 'fixture_app_intents', 'rootUri': appIntentsPackage.uri.toString(), 'packageUri': 'lib/', 'languageVersion': '3.13'},
+        ],
+      })}\n',
     );
     _write('${sdk.path}/bin/dart', 'fake dart');
     _write('${sdk.path}/version', '$pinnedDartSdkVersion\n');
@@ -257,7 +376,25 @@ final class _Fixture {
       'fake AOT engine',
     );
     _write('${engine.path}/xcodebuild/ProductARM64/gen_snapshot', 'fake gen');
-    return _Fixture(root, repository, project, sdk, engine);
+    _write(
+      '${developer.path}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc',
+      'fake swiftc',
+    );
+    _write(
+      '${developer.path}/usr/bin/appintentsmetadataprocessor',
+      'fake metadata processor',
+    );
+    _write('${developer.path}/usr/bin/xcodebuild', 'fake xcodebuild');
+    await macosSdk.create();
+    return _Fixture(
+      root,
+      repository,
+      project,
+      sdk,
+      engine,
+      developer,
+      macosSdk,
+    );
   }
 
   final Directory root;
@@ -265,19 +402,25 @@ final class _Fixture {
   final Directory project;
   final Directory sdk;
   final Directory engine;
+  final Directory developer;
+  final Directory macosSdk;
 
-  RuntimeApplicationBuilder builder(_FakeExecutor executor) =>
-      RuntimeApplicationBuilder(
-        repositoryRoot: repository.path,
-        currentDirectory: project.path,
-        resolvedDartExecutable: '${sdk.path}/bin/dart',
-        operatingSystem: 'macos',
-        architecture: 'arm64',
-        environment: <String, String>{'DART_ENGINE_ROOT': engine.path},
-        processExecutor: executor,
-        output: (_) {},
-        errorOutput: (_) {},
-      );
+  RuntimeApplicationBuilder builder(_FakeExecutor executor) {
+    executor
+      ..developerDirectory = developer.path
+      ..macosSdkDirectory = macosSdk.path;
+    return RuntimeApplicationBuilder(
+      repositoryRoot: repository.path,
+      currentDirectory: project.path,
+      resolvedDartExecutable: '${sdk.path}/bin/dart',
+      operatingSystem: 'macos',
+      architecture: 'arm64',
+      environment: <String, String>{'DART_ENGINE_ROOT': engine.path},
+      processExecutor: executor,
+      output: (_) {},
+      errorOutput: (_) {},
+    );
+  }
 }
 
 void _write(String path, String contents) {
@@ -286,7 +429,179 @@ void _write(String path, String contents) {
   file.writeAsStringSync(contents);
 }
 
+Future<ProcessResult> _runTool(
+  String executable,
+  List<String> arguments, {
+  required String workingDirectory,
+}) async {
+  final ProcessResult result = await Process.run(
+    executable,
+    arguments,
+    workingDirectory: workingDirectory,
+  );
+  if (result.exitCode != 0) {
+    throw StateError(
+      '$executable ${arguments.join(' ')} failed (${result.exitCode}): '
+      '${result.stderr}',
+    );
+  }
+  return result;
+}
+
 Future<void> main() async {
+  await _test('installed Xcode emits App Intents metadata', () async {
+    if (!Platform.isMacOS) return;
+    final Directory root = await Directory.systemTemp.createTemp(
+      'dart_macos_runtime_app_intents.',
+    );
+    try {
+      final String source = '${root.path}/FixtureAppIntents.swift';
+      final String protocols = '${root.path}/protocols.json';
+      final String object = '${root.path}/FixtureAppIntents.o';
+      final String constValues =
+          '${root.path}/FixtureAppIntents.swiftconstvalues';
+      final String library = '${root.path}/libfixture_app_intents.dylib';
+      final String sourceList = '${root.path}/sources.list';
+      final String constValuesList = '${root.path}/const-values.list';
+      _write(source, _validAppIntentsSource);
+      _write(protocols, '${jsonEncode(appIntentsConstGatherProtocols)}\n');
+      _write(sourceList, '$source\n');
+      _write(constValuesList, '$constValues\n');
+      final String swiftc =
+          ((await _runTool('/usr/bin/xcrun', const <String>[
+                    '--find',
+                    'swiftc',
+                  ], workingDirectory: root.path)).stdout
+                  as String)
+              .trim();
+      final String metadataProcessor =
+          ((await _runTool('/usr/bin/xcrun', const <String>[
+                    '--find',
+                    'appintentsmetadataprocessor',
+                  ], workingDirectory: root.path)).stdout
+                  as String)
+              .trim();
+      final String xcodebuild =
+          ((await _runTool('/usr/bin/xcrun', const <String>[
+                    '--find',
+                    'xcodebuild',
+                  ], workingDirectory: root.path)).stdout
+                  as String)
+              .trim();
+      final String sdk =
+          ((await _runTool('/usr/bin/xcrun', const <String>[
+                    '--sdk',
+                    'macosx',
+                    '--show-sdk-path',
+                  ], workingDirectory: root.path)).stdout
+                  as String)
+              .trim();
+      final String architecture =
+          ((await _runTool('/usr/bin/uname', const <String>[
+                    '-m',
+                  ], workingDirectory: root.path)).stdout
+                  as String)
+              .trim();
+      final String target = '$architecture-apple-macos14.0';
+      await _runTool(swiftc, <String>[
+        '-c',
+        '-parse-as-library',
+        '-swift-version',
+        '6',
+        '-emit-const-values',
+        '-emit-const-values-path',
+        constValues,
+        '-Xfrontend',
+        '-const-gather-protocols-file',
+        '-Xfrontend',
+        protocols,
+        '-module-name',
+        'FixtureAppIntents',
+        '-target',
+        target,
+        '-sdk',
+        sdk,
+        '-module-cache-path',
+        '${root.path}/module-cache',
+        '-o',
+        object,
+        source,
+      ], workingDirectory: root.path);
+      await _runTool(swiftc, <String>[
+        '-emit-library',
+        '-target',
+        target,
+        '-sdk',
+        sdk,
+        '-Xlinker',
+        '-install_name',
+        '-Xlinker',
+        '@rpath/libfixture_app_intents.dylib',
+        '-o',
+        library,
+        object,
+      ], workingDirectory: root.path);
+      final String versionOutput =
+          (await _runTool(xcodebuild, const <String>[
+                '-version',
+              ], workingDirectory: root.path)).stdout
+              as String;
+      final String buildVersion = RegExp(
+        r'(?:^|\n)Build version ([A-Za-z0-9]+)(?:\n|$)',
+      ).firstMatch(versionOutput)!.group(1)!;
+      final Directory toolchain = File(swiftc).parent.parent.parent;
+      await _runTool(metadataProcessor, <String>[
+        '--output',
+        '${root.path}/metadata',
+        '--toolchain-dir',
+        toolchain.path,
+        '--module-name',
+        'FixtureAppIntents',
+        '--sdk-root',
+        sdk,
+        '--xcode-version',
+        buildVersion,
+        '--platform-family',
+        'macOS',
+        '--deployment-target',
+        '14.0',
+        '--target-triple',
+        target,
+        '--source-file-list',
+        sourceList,
+        '--swift-const-vals-list',
+        constValuesList,
+        '--no-app-shortcuts-localization',
+        '--force',
+      ], workingDirectory: root.path);
+      final String metadataRoot = '${root.path}/metadata/Metadata.appintents';
+      final String actions = File('$metadataRoot/extract.actionsdata')
+          .readAsStringSync();
+      final Map<String, Object?> version = jsonDecode(
+        File('$metadataRoot/version.json').readAsStringSync(),
+      ) as Map<String, Object?>;
+      final String linkedImages =
+          (await _runTool('/usr/bin/otool', <String>[
+                '-L',
+                library,
+              ], workingDirectory: root.path)).stdout
+              as String;
+      _expect(
+        File(object).lengthSync() > 0 &&
+            File(constValues).lengthSync() > 0 &&
+            File(library).lengthSync() > 0 &&
+            actions.contains('FixtureAppIntents.FixtureIntent') &&
+            actions.contains('autoShortcuts') &&
+            version['toolsVersion'] == buildVersion &&
+            linkedImages.contains('@rpath/libfixture_app_intents.dylib') &&
+            linkedImages.contains('/AppIntents.framework/'),
+        'Swift image, constant values, discoverable metadata, and links exist',
+      );
+    } finally {
+      await root.delete(recursive: true);
+    }
+  });
+
   await _test('strict manifest parsing', () {
     final Directory sdefRoot = Directory.systemTemp.createTempSync(
       'dart_macos_runtime_sdef.',
@@ -310,6 +625,7 @@ Future<void> main() async {
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.services.isEmpty, 'services default empty');
     _expect(manifest.scriptingDefinition == null, 'scripting default empty');
+    _expect(manifest.appIntents == null, 'App Intents default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
     _expect(
       manifest.runner.activationPolicy == MacosRunnerActivationPolicy.regular,
@@ -344,6 +660,66 @@ Future<void> main() async {
           scriptingManifest.scriptingDefinition?.bundleName == 'Test.sdef',
       'closed scripting definition declaration',
     );
+    final MacosApplicationManifest appIntentsManifest =
+        MacosApplicationManifest.parse(_withAppIntents(_validManifest));
+    _expect(
+      appIntentsManifest.appIntents?.package == 'fixture_app_intents' &&
+          appIntentsManifest.appIntents?.source ==
+              'native/FixtureAppIntents.swift' &&
+          appIntentsManifest.appIntents?.moduleName == 'FixtureAppIntents' &&
+          appIntentsManifest.appIntents?.library ==
+              'libfixture_app_intents.dylib',
+      'closed App Intents module declaration',
+    );
+    for (final String declaration in <String>[
+      'true',
+      '{}',
+      '{"package":"fixture_app_intents","source":"native/Fixture.swift",'
+          '"moduleName":"FixtureAppIntents",'
+          '"library":"libfixture_app_intents.dylib","extra":true}',
+      '{"package":"Fixture-AppIntents","source":"native/Fixture.swift",'
+          '"moduleName":"FixtureAppIntents",'
+          '"library":"libfixture_app_intents.dylib"}',
+      '{"package":"fixture_app_intents","source":"native/Fixture.m",'
+          '"moduleName":"FixtureAppIntents",'
+          '"library":"libfixture_app_intents.dylib"}',
+      '{"package":"fixture_app_intents","source":"../Fixture.swift",'
+          '"moduleName":"FixtureAppIntents",'
+          '"library":"libfixture_app_intents.dylib"}',
+      '{"package":"fixture_app_intents","source":"native/Fixture.swift",'
+          '"moduleName":"Fixture-AppIntents",'
+          '"library":"libfixture_app_intents.dylib"}',
+      '{"package":"fixture_app_intents","source":"native/Fixture.swift",'
+          '"moduleName":"FixtureAppIntents",'
+          '"library":"FixtureAppIntents.framework"}',
+    ]) {
+      _expectThrows<MacosApplicationManifestException>(() {
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"appIntents": $declaration, "dart":',
+          ),
+        );
+      });
+    }
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _withAppIntents(
+          _validManifest.replaceFirst(
+            '"minimumSystemVersion": "14.0"',
+            '"minimumSystemVersion": "12.6"',
+          ),
+        ),
+      );
+    });
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst(
+          '"assets/message.txt"',
+          '"assets/message.txt", "Metadata.appintents/version.json"',
+        ),
+      );
+    });
     for (final String declaration in <String>[
       'true',
       '{}',
@@ -723,13 +1099,15 @@ Future<void> main() async {
     _expect(
       !buildManifest.containsKey('services') &&
           !buildManifest.containsKey('scriptingDefinition') &&
+          !buildManifest.containsKey('appIntents') &&
+          !Directory('$contents/Resources/Metadata.appintents').existsSync() &&
           !File('$contents/Info.plist')
               .readAsStringSync()
               .contains('<key>NSAppleScriptEnabled</key>') &&
           !File('$contents/Info.plist')
               .readAsStringSync()
               .contains('<key>OSAScriptingDefinition</key>'),
-      'legacy manifests do not gain Service or scripting metadata',
+      'legacy manifests do not gain Service, scripting, or App Intents metadata',
     );
     _expect(
       executor.commands.any(
@@ -815,12 +1193,177 @@ Future<void> main() async {
     await fixture.root.delete(recursive: true);
   });
 
+  await _test('App Intents staging failures are closed', () async {
+    final _Fixture missing = await _Fixture.create();
+    _write(
+      '${missing.project.path}/macos_application.json',
+      _withAppIntents(_validManifest),
+    );
+    await File(
+      '${missing.repository.path}/packages/fixture_app_intents/'
+      'native/FixtureAppIntents.swift',
+    ).delete();
+    final RuntimeBuilderException missingSource =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => missing
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${missing.project.path}/macos_application.json',
+                  '--build-dir=${missing.root.path}/build-missing-intents',
+                ]),
+              ),
+        );
+    _expect(
+      missingSource.exitCode == builderIoErrorExitCode,
+      'missing App Intents source is an I/O failure',
+    );
+    await missing.root.delete(recursive: true);
+
+    final _Fixture oversized = await _Fixture.create();
+    _write(
+      '${oversized.project.path}/macos_application.json',
+      _withAppIntents(_validManifest),
+    );
+    _write(
+      '${oversized.repository.path}/packages/fixture_app_intents/'
+      'native/FixtureAppIntents.swift',
+      'x' * (MacosAppIntentsManifest.maximumSourceFileBytes + 1),
+    );
+    final RuntimeBuilderException oversizedSource =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => oversized
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${oversized.project.path}/macos_application.json',
+                  '--build-dir=${oversized.root.path}/build-oversized-intents',
+                ]),
+              ),
+        );
+    _expect(
+      oversizedSource.exitCode == builderUsageExitCode,
+      'oversized App Intents source is rejected before compilation',
+    );
+    await oversized.root.delete(recursive: true);
+
+    final _Fixture engineCollision = await _Fixture.create();
+    _write(
+      '${engineCollision.project.path}/macos_application.json',
+      _withAppIntents(_validManifest).replaceFirst(
+        'libfixture_app_intents.dylib',
+        'libdart_engine_jit_shared.dylib',
+      ),
+    );
+    final RuntimeBuilderException collision =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => engineCollision
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest='
+                      '${engineCollision.project.path}/macos_application.json',
+                  '--build-dir='
+                      '${engineCollision.root.path}/build-engine-collision',
+                ]),
+              ),
+        );
+    _expect(
+      collision.exitCode == builderUsageExitCode,
+      'App Intents image cannot replace the selected Dart Engine image',
+    );
+    await engineCollision.root.delete(recursive: true);
+
+    final _Fixture failedMetadata = await _Fixture.create();
+    _write(
+      '${failedMetadata.project.path}/macos_application.json',
+      _withAppIntents(_validManifest),
+    );
+    final _FakeExecutor failedMetadataExecutor = _FakeExecutor()
+      ..failAppIntentsMetadataExtraction = true;
+    final RuntimeBuilderException metadataFailure =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => failedMetadata
+              .builder(failedMetadataExecutor)
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest='
+                      '${failedMetadata.project.path}/macos_application.json',
+                  '--build-dir='
+                      '${failedMetadata.root.path}/build-failed-metadata',
+                ]),
+              ),
+        );
+    _expect(
+      metadataFailure.exitCode == 1 &&
+          !Directory(
+            '${failedMetadata.root.path}/build-failed-metadata/'
+            'HelloWindow.app',
+          ).existsSync(),
+      'metadata processor failure leaves no application bundle',
+    );
+    await failedMetadata.root.delete(recursive: true);
+
+    final _Fixture missingMetadata = await _Fixture.create();
+    _write(
+      '${missingMetadata.project.path}/macos_application.json',
+      _withAppIntents(_validManifest),
+    );
+    final _FakeExecutor missingMetadataExecutor = _FakeExecutor()
+      ..omitAppIntentsMetadata = true;
+    final RuntimeBuilderException missingMetadataFailure =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => missingMetadata
+              .builder(missingMetadataExecutor)
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest='
+                      '${missingMetadata.project.path}/macos_application.json',
+                  '--build-dir='
+                      '${missingMetadata.root.path}/build-missing-metadata',
+                ]),
+              ),
+        );
+    _expect(
+      missingMetadataFailure.exitCode == builderIoErrorExitCode,
+      'missing compiler metadata fails closed before host linking',
+    );
+    await missingMetadata.root.delete(recursive: true);
+
+    final _Fixture mismatchedVersion = await _Fixture.create();
+    _write(
+      '${mismatchedVersion.project.path}/macos_application.json',
+      _withAppIntents(_validManifest),
+    );
+    final _FakeExecutor mismatchedVersionExecutor = _FakeExecutor()
+      ..invalidateAppIntentsVersion = true;
+    final RuntimeBuilderException
+    versionFailure = await _expectThrowsAsync<RuntimeBuilderException>(
+      () => mismatchedVersion
+          .builder(mismatchedVersionExecutor)
+          .run(
+            RuntimeBuilderOptions.parse(<String>[
+              '--manifest='
+                  '${mismatchedVersion.project.path}/macos_application.json',
+              '--build-dir='
+                  '${mismatchedVersion.root.path}/build-invalid-version',
+            ]),
+          ),
+    );
+    _expect(
+      versionFailure.exitCode == builderSoftwareExitCode,
+      'metadata tools-version mismatch fails closed',
+    );
+    await mismatchedVersion.root.delete(recursive: true);
+  });
+
   await _test('Developer JIT manifest-driven assembly', () async {
     final _Fixture fixture = await _Fixture.create();
     _write(
       '${fixture.project.path}/macos_application.json',
-      _withScriptingDefinition(_withFolderServices(_validManifest))
-          .replaceFirst('"dart":', '''"runner": {
+      _withAppIntents(
+        _withScriptingDefinition(_withFolderServices(_validManifest)),
+      ).replaceFirst('"dart":', '''"runner": {
     "activationPolicy": "prohibited",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
@@ -863,6 +1406,23 @@ Future<void> main() async {
       File('${bundle.path}/Contents/Resources/Test.sdef').readAsStringSync() ==
           _validSdef,
       'validated scripting definition is staged at the resource root',
+    );
+    _expect(
+      File('${bundle.path}/Contents/Frameworks/libfixture_app_intents.dylib')
+              .readAsStringSync() ==
+          'fake Swift image',
+      'App Intents Swift image is staged in Frameworks',
+    );
+    _expect(
+      File(
+            '${bundle.path}/Contents/Resources/Metadata.appintents/'
+            'extract.actionsdata',
+          ).existsSync() &&
+          File(
+            '${bundle.path}/Contents/Resources/Metadata.appintents/'
+            'version.json',
+          ).existsSync(),
+      'exact App Intents metadata bundle is staged in Resources',
     );
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
@@ -989,6 +1549,51 @@ Future<void> main() async {
           scripting['bytes'] == utf8.encode(_validSdef).length,
       'scripting definition source, resource name, and size are recorded',
     );
+    final Map<String, Object?> appIntents =
+        buildManifest['appIntents']! as Map<String, Object?>;
+    final List<Object?> metadataFiles =
+        appIntents['metadataFiles']! as List<Object?>;
+    _expect(
+      appIntents['package'] == 'fixture_app_intents' &&
+          appIntents['source'] == 'native/FixtureAppIntents.swift' &&
+          appIntents['moduleName'] == 'FixtureAppIntents' &&
+          appIntents['library'] == 'libfixture_app_intents.dylib' &&
+          appIntents['targetTriple'] == 'arm64-apple-macos14.0' &&
+          appIntents['xcodeBuildVersion'] == '17F113' &&
+          appIntents['metadataBundle'] == 'Metadata.appintents' &&
+          appIntents['sourceBytes'] ==
+              utf8.encode(_validAppIntentsSource).length &&
+          appIntents['libraryBytes'] == 'fake Swift image'.length &&
+          metadataFiles.length == 2 &&
+          (metadataFiles.first! as Map<String, Object?>)['name'] ==
+              'extract.actionsdata' &&
+          (metadataFiles.last! as Map<String, Object?>)['name'] ==
+              'version.json',
+      'App Intents source, image, target, tools, and metadata are recorded',
+    );
+    _expect(
+      executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable.endsWith('/usr/bin/swiftc') &&
+                command.arguments.contains('-emit-const-values') &&
+                command.arguments.contains('-const-gather-protocols-file') &&
+                command.arguments.contains('FixtureAppIntents'),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable.endsWith('/appintentsmetadataprocessor') &&
+                command.arguments.contains('--no-app-shortcuts-localization'),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable == 'make' &&
+                command.arguments.any(
+                  (String argument) =>
+                      argument.startsWith('RUNTIME_APP_INTENTS_LIBRARY='),
+                ),
+          ),
+      'compiler extraction, metadata processor, and native host link are exact',
+    );
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');
     _expect(launched.arguments.contains('--smoke'), 'arguments forwarded');
@@ -999,7 +1604,9 @@ Future<void> main() async {
     final _Fixture fixture = await _Fixture.create();
     _write(
       '${fixture.project.path}/macos_application.json',
-      _withScriptingDefinition(_withFolderServices(_validManifest)),
+      _withAppIntents(
+        _withScriptingDefinition(_withFolderServices(_validManifest)),
+      ),
     );
     final _FakeExecutor executor = _FakeExecutor();
     final int result = await fixture
@@ -1033,6 +1640,19 @@ Future<void> main() async {
               as Map<String, Object?>)['bundleName'] ==
           'Test.sdef',
       'AOT build records the scripting definition',
+    );
+    _expect(
+      (buildManifest['appIntents']! as Map<String, Object?>)['targetTriple'] ==
+              'arm64-apple-macos14.0' &&
+          File(
+            '${bundle.path}/Contents/Frameworks/'
+            'libfixture_app_intents.dylib',
+          ).existsSync() &&
+          File(
+            '${bundle.path}/Contents/Resources/Metadata.appintents/'
+            'extract.actionsdata',
+          ).existsSync(),
+      'AOT build links and records the same App Intents module',
     );
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
