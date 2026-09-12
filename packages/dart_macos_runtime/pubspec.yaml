@@ -8,6 +8,7 @@ environment:
 
 executables:
   build:
+  distribute:
   universal:
 
 dependencies:

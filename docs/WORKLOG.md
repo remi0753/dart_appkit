@@ -3744,3 +3744,35 @@ deferred work.
   product vocabulary entered the generic source. The bounded observation item
   is complete; the pre-existing G0 item remains the next independent roadmap
   work.
+# 2026-09-13 — Generic hardened distribution publisher
+
+- Added a product-neutral distribution command that consumes an already
+  audited Universal Release AOT application, a caller-supplied Developer ID
+  identity and Team ID, reviewed entitlements, and a `notarytool` Keychain
+  profile. It owns no application name, protocol, view, or product default.
+- The immutable source is rescanned for symlinks, case aliases, exact schema-2
+  code/resource ownership, two-slice Mach-O entries, system-relative dynamic
+  dependencies, and a strict ad-hoc signature. Validate-only mode performs
+  these checks without accessing credentials or changing output.
+- Full publication copies into same-parent staging, removes the copied outer
+  signature, explicitly signs manifest-owned code and then the outer bundle
+  with hardened runtime and secure timestamps, and verifies Developer ID
+  authority, exact Team ID, runtime metadata, timestamp, strict validity, and
+  exact outer entitlements. High-risk debugging/JIT/library-validation bypass
+  entitlements are rejected for Release AOT distribution.
+- The command uses only a Keychain profile for upload authority. It creates a
+  transient ZIP, separately submits and waits, validates the accepted job's
+  bounded log with zero issues, staples and validates the app, runs Gatekeeper,
+  and creates the final ZIP after stapling. Only then does it atomically replace
+  an existing output directory containing the app, archive, and path-free hash
+  evidence; all tested failures preserve the last-good output.
+- Five fixture groups cover option and secret boundaries, authority-free
+  preflight, successful ordering/evidence/replacement, unsafe source/resource/
+  path rejection, and signing/runtime/timestamp/authority/entitlement/notary/
+  log/staple/Gatekeeper/archive fault preservation.
+- A real nine-code-image schema-version-2 Universal application passed
+  validate-only without consulting identity or notary authority. The exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` gate passed the generic
+  repository audit, native bridge/runtime suites, package analysis, builder,
+  Universal assembler, distribution publisher, public Dart API, examples, and
+  FFI smoke tests. Added-line and new-source scans found no consumer name.

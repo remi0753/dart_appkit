@@ -62,6 +62,45 @@ ad-hoc signs nested code before the outer application, verifies the complete
 signature strictly, and publishes through a same-directory atomic rename. A
 failure before publication leaves any existing output unchanged.
 
+An audited Universal Release AOT application can be promoted through a generic
+Developer ID and notarization pipeline:
+
+```sh
+dart run dart_macos_runtime:distribute \
+  --input-app build/universal/Example.app \
+  --output-directory build/distribution \
+  --signing-identity "Developer ID Application: Example Company (ABCDE12345)" \
+  --team-id ABCDE12345 \
+  --entitlements distribution/Example.entitlements \
+  --keychain-profile example-notary-profile
+```
+
+The publisher accepts only a strictly signed, schema-version-2 Universal
+Release AOT source with exact manifest-owned code and neutral-resource
+evidence. `--validate-only` checks those inputs and the reviewed entitlements
+without consulting signing identities, uploading, stapling, assessing, or
+publishing. Full publication requires a caller-supplied Developer ID
+Application identity, exact Team ID, and `notarytool` Keychain profile; raw
+password and API-key options are not accepted.
+
+Every declared code entry is signed explicitly in sorted order with the
+hardened runtime and secure timestamp before the outer application is signed
+with the supplied entitlements. Release AOT distribution rejects enabled
+debugging, JIT, unsigned-executable-memory, executable-page-protection bypass,
+and library-validation bypass entitlements. The publisher verifies Developer
+ID authority, Team ID, runtime flag, timestamp, exact entitlements, and strict
+deep validity before creating a transient submission ZIP. It separately
+submits and waits, reviews the bounded accepted notary log with zero issues,
+staples and validates the application ticket, runs Gatekeeper assessment, and
+only then creates the final ZIP.
+
+The atomic output directory contains the stapled `.app`, its final ZIP, and a
+path-free distribution manifest with source, entitlement, archive, and signed
+code hashes plus bounded notarization evidence. Input and last-good output are
+never modified; any validation, signing, upload, timeout, rejection, log,
+stapling, assessment, archive, or publication failure removes staging and
+preserves the previous output.
+
 Both modes use the same manifest and `main(List<String>)` application entry.
 The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
