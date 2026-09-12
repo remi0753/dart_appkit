@@ -3526,3 +3526,21 @@ ordered subtask is moving the renderer capability and its verification gates.
 Renderer ownership transfer is complete. The parent remains open, and the next
 ordered subtask is moving the AppleScript capability and its verification
 gates.
+
+## 2026-09-12 — AppleScript package ownership transfer
+
+- All 17 tracked AppleScript capability files moved to the consumer. Its local
+  package now resolves the adjacent generic runtime and native-extension header
+  while retaining its product-specific dictionary and ABI identity.
+- The consumer root owns SDEF validation, C/C++ header checks, warning-clean
+  plugin/native tests, Dart analysis/facade tests, direct build-hook asset
+  smoke, and their aggregate dependencies. Its complete focused gate passed.
+- This repository's tracked and ignored package tree, variables, recipes, help
+  entries, and aggregate dependencies were removed. `make validate`, dry-run
+  stale-reference audit, path absence, and `git diff --check` passed.
+
+### Roadmap checkpoint
+
+AppleScript ownership transfer is complete. The parent remains open, and the
+next ordered subtask is moving the App Intents capability and verification
+gates.

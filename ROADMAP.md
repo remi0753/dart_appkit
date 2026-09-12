@@ -268,7 +268,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   [`docs/WORKLOG.md`](docs/WORKLOG.md) とconsumer側task memoに移設順と完了条件を記録する。
 - [x] PTY native asset packageと検証所有権をconsumerへ移す。
 - [x] renderer capability packageと検証所有権をconsumerへ移す。
-- [ ] AppleScript capability packageと検証所有権をconsumerへ移す。
+- [x] AppleScript capability packageと検証所有権をconsumerへ移す。
 - [ ] App Intents capability packageと検証所有権をconsumerへ移す。
 - [ ] folder Servicesのtab/window語彙を汎用actionへ置換し、consumerから意味を注入する。
 - [ ] Secure Input固有表示をboundedな汎用badgeへ置換し、consumerから文言を注入する。

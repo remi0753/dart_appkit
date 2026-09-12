@@ -121,12 +121,6 @@ EXAMPLE_VIEW_PLUGIN_LIBRARY := \
 	$(NATIVE_BUILD_DIR)/libdart_appkit_example_view.dylib
 NATIVE_CAPABILITY_LOADER_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/native_capability_loader_tests
-TERMINAL_APPLESCRIPT_PLUGIN_LIBRARY := \
-	$(NATIVE_BUILD_DIR)/libdart_terminal_applescript_macos.dylib
-TERMINAL_APPLESCRIPT_TEST_OBJECT := \
-	$(NATIVE_BUILD_DIR)/terminal_applescript_plugin_test.o
-TERMINAL_APPLESCRIPT_TEST_BINARY := \
-	$(NATIVE_BUILD_DIR)/terminal_applescript_capability_tests
 TERMINAL_APP_INTENTS_LIBRARY := \
 	$(NATIVE_BUILD_DIR)/libdart_terminal_app_intents_macos.dylib
 TERMINAL_APP_INTENTS_TEST_BINARY := \
@@ -169,7 +163,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-applescript-contract-check terminal-applescript-native-test terminal-applescript-dart-test terminal-app-intents-contract-check terminal-app-intents-native-test terminal-app-intents-dart-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-app-intents-contract-check terminal-app-intents-native-test terminal-app-intents-dart-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -189,8 +183,6 @@ help:
 	@echo "  make runtime-aot-runner  Build the generic Release AOT host"
 	@echo "  make runtime-dart-test   Analyze and test dart_macos_runtime"
 	@echo "  make native-capability-loader-test  Test dynamic view capability"
-	@echo "  make terminal-applescript-native-test  Test Cocoa Scripting capability"
-	@echo "  make terminal-applescript-dart-test  Test scripting facade/build hook"
 	@echo "  make terminal-app-intents-native-test  Test Swift App Intents queue"
 	@echo "  make terminal-app-intents-dart-test  Test App Intents facade/metadata"
 	@echo "  make example-view-dart-test  Test the dependency build hook asset"
@@ -414,59 +406,6 @@ native-capability-loader-test: $(EXAMPLE_VIEW_PLUGIN_LIBRARY) \
 		$(NATIVE_CAPABILITY_LOADER_TEST_BINARY)
 	@$(NATIVE_CAPABILITY_LOADER_TEST_BINARY) $(EXAMPLE_VIEW_PLUGIN_LIBRARY)
 
-terminal-applescript-contract-check:
-	@$(CLANG) $(COMMON_FLAGS) -std=c11 \
-		-I$(PROJECT_ROOT)/native/bridge/include \
-		-I$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native \
-		-fsyntax-only \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/test/header_compile.c
-	@$(CLANGXX) $(COMMON_FLAGS) -std=c++20 \
-		-I$(PROJECT_ROOT)/native/bridge/include \
-		-I$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native \
-		-fsyntax-only \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/test/header_compile.cc
-	@/usr/bin/xmllint --noout --valid \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/DartTerminal.sdef
-
-$(TERMINAL_APPLESCRIPT_PLUGIN_LIBRARY): \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.h \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.m \
-		$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \
-		$(PROJECT_ROOT)/native/bridge/include/dart_appkit_native_extension.h
-	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -fblocks -dynamiclib \
-		-I$(PROJECT_ROOT)/native/bridge/include \
-		-I$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.m \
-		-framework AppKit -framework Foundation \
-		-Wl,-install_name,@rpath/libdart_terminal_applescript_macos.dylib -o $@
-
-$(TERMINAL_APPLESCRIPT_TEST_OBJECT): \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.h \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.m
-	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANG) $(COMMON_FLAGS) -fobjc-arc -fblocks -DDTAS_TESTING \
-		-I$(PROJECT_ROOT)/native/bridge/include \
-		-I$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native \
-		-c $(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/TerminalAppleScriptPlugin.m \
-		-o $@
-
-$(TERMINAL_APPLESCRIPT_TEST_BINARY): \
-		$(TERMINAL_APPLESCRIPT_TEST_OBJECT) \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/test/TerminalAppleScriptCapabilityTests.mm
-	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANGXX) $(OBJCXX_FLAGS) -DDTAS_TESTING \
-		-I$(PROJECT_ROOT)/native/bridge/include \
-		-I$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native \
-		$(PROJECT_ROOT)/packages/dart_terminal_applescript_macos/native/test/TerminalAppleScriptCapabilityTests.mm \
-		$(TERMINAL_APPLESCRIPT_TEST_OBJECT) \
-		-framework AppKit -framework Foundation -o $@
-
-terminal-applescript-native-test: terminal-applescript-contract-check \
-		$(TERMINAL_APPLESCRIPT_PLUGIN_LIBRARY) \
-		$(TERMINAL_APPLESCRIPT_TEST_BINARY)
-	@$(TERMINAL_APPLESCRIPT_TEST_BINARY)
-
 terminal-app-intents-contract-check:
 	@$(CLANG) $(COMMON_FLAGS) -std=c11 \
 		-I$(PROJECT_ROOT)/packages/dart_terminal_app_intents_macos/native \
@@ -566,14 +505,6 @@ example-view-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart pub get
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart analyze
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && \
-		dart run test/native_asset_test.dart
-
-terminal-applescript-dart-test:
-	@cd $(PROJECT_ROOT)/packages/dart_terminal_applescript_macos && dart pub get
-	@cd $(PROJECT_ROOT)/packages/dart_terminal_applescript_macos && dart analyze
-	@cd $(PROJECT_ROOT)/packages/dart_terminal_applescript_macos && \
-		dart run test/run_tests.dart
-	@cd $(PROJECT_ROOT)/packages/dart_terminal_applescript_macos && \
 		dart run test/native_asset_test.dart
 
 terminal-app-intents-dart-test: $(TERMINAL_APP_INTENTS_LIBRARY)
@@ -689,7 +620,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-applescript-native-test terminal-app-intents-native-test runtime-dart-test example-view-dart-test terminal-applescript-dart-test terminal-app-intents-dart-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test terminal-app-intents-native-test runtime-dart-test example-view-dart-test terminal-app-intents-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \
