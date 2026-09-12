@@ -52,3 +52,11 @@ the snapshot or shutting down empties visible collections and resumes every
 pending command exactly once with an error. Cocoa Scripting/TCC decides whether
 an external sender has Automation authority; this package never requests,
 grants, or resets that permission.
+
+The `testing.dart` library exposes an in-process self-automation enqueue seam
+for shipped-bundle acceptance. It accepts only the same bounded, versioned JSON
+packet as Cocoa commands and enters the same native pending queue, but retains
+no `NSScriptCommand`, sends no Apple Event, and does not read or modify TCC.
+Products must keep this seam behind an explicit test-only CLI and environment
+gate; external Script Editor and `osascript` permission behavior remains a
+manual acceptance responsibility.

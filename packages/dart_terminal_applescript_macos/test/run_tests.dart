@@ -5,8 +5,34 @@ import 'package:dart_terminal_applescript_macos/testing.dart';
 
 void main() {
   _testFacadeInitializationBoundary();
+  _testSelfAutomationAdmissionBoundary();
   _testSessionValidationAndLifecycle();
   _testTypedNativeFailures();
+}
+
+void _testSelfAutomationAdmissionBoundary() {
+  _expectThrows<ArgumentError>(
+    () => TerminalAppleScriptMacosSelfAutomation.enqueueCommand(Uint8List(0)),
+    'empty self-automation packet',
+  );
+  _expectThrows<ArgumentError>(
+    () => TerminalAppleScriptMacosSelfAutomation.enqueueCommand(
+      Uint8List(TerminalAppleScriptMacosLimits.maximumCommandBytes + 1),
+    ),
+    'oversized self-automation packet',
+  );
+  final TerminalAppleScriptMacosException wrongThread =
+      _expectThrows<TerminalAppleScriptMacosException>(
+        () => TerminalAppleScriptMacosSelfAutomation.enqueueCommand(
+          Uint8List.fromList(<int>[1]),
+        ),
+        'standalone self-automation thread boundary',
+      );
+  _expect(
+    wrongThread.operation == 'enqueueSelfAutomationCommand' &&
+        wrongThread.status == 8,
+    'self-automation did not retain the native main-thread rejection',
+  );
 }
 
 void _testFacadeInitializationBoundary() {

@@ -89,10 +89,9 @@ __attribute__((visibility("default"))) int32_t dtas_session_shutdown(void);
 __attribute__((visibility("default"))) int32_t dtas_debug_summary(
     DtasSummaryV1* summary);
 
-#if defined(DTAS_TESTING)
-__attribute__((visibility("default"))) int32_t dtas_debug_enqueue_command(
+__attribute__((visibility("default"))) int32_t
+dtas_enqueue_self_automation_command(
     const uint8_t* bytes, size_t length);
-#endif
 
 #if defined(__cplusplus)
 }

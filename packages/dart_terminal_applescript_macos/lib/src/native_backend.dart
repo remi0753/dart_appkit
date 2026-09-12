@@ -135,6 +135,32 @@ final class FfiTerminalAppleScriptMacosBindings
   }
 }
 
+/// In-process acceptance seam that enters the same validated native queue as
+/// Cocoa Scripting without sending an Apple Event or touching TCC state.
+final class TerminalAppleScriptMacosSelfAutomation {
+  const TerminalAppleScriptMacosSelfAutomation._();
+
+  static void enqueueCommand(Uint8List bytes) {
+    if (bytes.isEmpty ||
+        bytes.length > TerminalAppleScriptMacosLimits.maximumCommandBytes) {
+      throw ArgumentError.value(bytes.length, 'bytes');
+    }
+    final Pointer<Uint8> pointer = calloc<Uint8>(bytes.length);
+    try {
+      pointer.asTypedList(bytes.length).setAll(0, bytes);
+      final int status = _enqueueSelfAutomationCommand(pointer, bytes.length);
+      if (status != nativeStatusOk) {
+        throw TerminalAppleScriptMacosException(
+          operation: 'enqueueSelfAutomationCommand',
+          status: status,
+        );
+      }
+    } finally {
+      calloc.free(pointer);
+    }
+  }
+}
+
 final class _DtasSummaryV1 extends Struct {
   @Uint32()
   external int structSize;
@@ -217,3 +243,9 @@ external int _sessionShutdown();
   assetId: _assetId,
 )
 external int _debugSummary(Pointer<_DtasSummaryV1> summary);
+
+@Native<Int32 Function(Pointer<Uint8>, Size)>(
+  symbol: 'dtas_enqueue_self_automation_command',
+  assetId: _assetId,
+)
+external int _enqueueSelfAutomationCommand(Pointer<Uint8> bytes, int length);

@@ -9,4 +9,7 @@ export 'src/api.dart'
         TerminalAppleScriptMacosSession,
         TerminalAppleScriptMacosSummary;
 export 'src/native_backend.dart'
-    show TerminalAppleScriptMacosBindings, TerminalAppleScriptMacosTakeResult;
+    show
+        TerminalAppleScriptMacosBindings,
+        TerminalAppleScriptMacosSelfAutomation,
+        TerminalAppleScriptMacosTakeResult;

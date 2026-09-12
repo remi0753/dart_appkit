@@ -975,8 +975,8 @@ int32_t dtas_debug_summary(DtasSummaryV1* summary) {
   return DTAS_STATUS_OK;
 }
 
-#if defined(DTAS_TESTING)
-int32_t dtas_debug_enqueue_command(const uint8_t* bytes, size_t length) {
+int32_t dtas_enqueue_self_automation_command(const uint8_t* bytes,
+                                             size_t length) {
   if (!DtasIsMainThread()) return DTAS_STATUS_WRONG_THREAD;
   if (bytes == NULL || length == 0u || length > DTAS_MAX_COMMAND_BYTES) {
     return DTAS_STATUS_INVALID_ARGUMENT;
@@ -988,4 +988,3 @@ int32_t dtas_debug_enqueue_command(const uint8_t* bytes, size_t length) {
   }
   return status;
 }
-#endif

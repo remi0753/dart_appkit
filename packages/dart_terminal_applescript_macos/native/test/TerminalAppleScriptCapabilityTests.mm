@@ -30,7 +30,7 @@ int32_t Publish(NSString* value) {
 
 int32_t Enqueue(NSString* value) {
   NSData* data = Data(value);
-  return dtas_debug_enqueue_command(
+  return dtas_enqueue_self_automation_command(
       static_cast<const uint8_t*>(data.bytes), data.length);
 }
 
