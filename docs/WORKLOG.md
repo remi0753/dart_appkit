@@ -3504,3 +3504,25 @@ gates to the consuming repository.
 
 The PTY ownership subtask is complete. The parent remains open, and the next
 ordered subtask is moving the renderer capability and its verification gates.
+
+## 2026-09-12 — Renderer package ownership transfer
+
+- All 26 tracked renderer package files moved to the consuming repository.
+  Its root and package-local dependency paths now select the local capability
+  and this repository's generic Dart/native headers respectively.
+- The consumer Makefile now owns ABI header checks, Metal shader and plugin
+  builds, AppKit-backed native capability tests, Dart analysis, native-asset
+  hook tests, and the aggregate dependency.
+- The first sandboxed focused run could not write Metal's user module cache and
+  was rerun normally. Native tests passed; the Dart hook then exposed its former
+  repository-relative generic-header include. The product-owned hook was
+  corrected for its new location, after which the complete focused gate passed.
+- This repository no longer contains the tracked or ignored renderer tree or
+  any renderer Makefile variable/recipe/help/aggregate dependency. `make
+  validate`, test-plan stale-reference audit, path absence, and diff check pass.
+
+### Roadmap checkpoint
+
+Renderer ownership transfer is complete. The parent remains open, and the next
+ordered subtask is moving the AppleScript capability and its verification
+gates.
