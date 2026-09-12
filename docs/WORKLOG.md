@@ -3442,3 +3442,45 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Exact `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、C11/C++20 header、native
   bridge／Runner／runtime、renderer ABI 11とAppKit geometry、AppleScript、App Intents、PTY、全Dart
   package analysis/test、Kernel、current/legacy FFIまで通過した。`git diff --check`もcleanである。
+
+## 2026-09-12 — Generic repository ownership correction inventory
+
+### Purpose and boundary
+
+The consuming application reported that four product-specific package trees
+and their build/test ownership live in this generic repository. A semantic
+audit also found fixed new-tab/new-window Finder Service actions and fixed
+Secure Keyboard Entry badge copy in otherwise generic APIs. The correction
+keeps reusable AppKit/runtime mechanisms here while moving packages and all
+product meaning, visible text, and policy to the consumer.
+
+### Complete inventory and ordered plan
+
+- The 78 misplaced tracked files are the complete
+  `packages/dart_pty_macos`, `packages/dart_terminal_renderer_macos`,
+  `packages/dart_terminal_applescript_macos`, and
+  `packages/dart_terminal_app_intents_macos` trees.
+- Root `Makefile` targets build and test those four packages. Active
+  `README.md`, `ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/C_ABI.md`, and
+  `docs/VERIFICATION.md` also claim their ownership.
+- The folder-Service semantic surface crosses the C header/bridge/event
+  encoder, Dart application/event/FFI APIs, runtime manifest/builder, and their
+  tests. It will retain bounded directory transport and the existing integer
+  wire layout, but expose generic primary/secondary actions whose product
+  meaning is injected by the consumer.
+- The Secure Event Input owner remains generic. The state-specific native view
+  overlay will become a bounded generic badge with consumer-provided visible
+  and accessibility text.
+- Generic tests using product strings/native-asset IDs will use neutral
+  fixtures. Chronological worklog evidence will not be rewritten; current
+  ownership documents and a source audit will describe and enforce the new
+  boundary.
+- The authoritative exact file list, subtask order, risks, and completion
+  conditions are recorded in the consuming application's
+  `docs/phase10/dart-appkit-generic-boundary.md`.
+
+### Roadmap checkpoint
+
+The inventory is complete. The ownership-correction parent remains open, and
+the next ordered subtask is moving the PTY native asset package and its test
+gates to the consuming repository.

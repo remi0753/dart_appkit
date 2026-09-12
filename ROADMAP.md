@@ -259,6 +259,22 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   zero/nonzero content origin、padding/grid外hit拒否、AppKit selector／range geometry／notification／
   first-responder focusを文字列をDartへ戻さず検証。
 
+### [ ] 汎用repositoryの製品所有権是正
+
+達成目標: `dart_appkit` と `dart_macos_runtime` を汎用AppKit/runtime機構だけに限定し、
+製品package、製品語彙、表示policy、検証所有権をconsumer repositoryへ移す。
+
+- [x] tracked package／build target／汎用code内semantic leakの全件inventoryを作成し、
+  [`docs/WORKLOG.md`](docs/WORKLOG.md) とconsumer側task memoに移設順と完了条件を記録する。
+- [ ] PTY native asset packageと検証所有権をconsumerへ移す。
+- [ ] renderer capability packageと検証所有権をconsumerへ移す。
+- [ ] AppleScript capability packageと検証所有権をconsumerへ移す。
+- [ ] App Intents capability packageと検証所有権をconsumerへ移す。
+- [ ] folder Servicesのtab/window語彙を汎用actionへ置換し、consumerから意味を注入する。
+- [ ] Secure Input固有表示をboundedな汎用badgeへ置換し、consumerから文言を注入する。
+- [ ] generic test fixture、現行文書、Makefileを是正し、再混入を拒否するsource auditを追加する。
+- [ ] exact full gateとconsumerのDeveloper JIT／Release AOT受け入れ後に親項目を完了する。
+
 ## 未実装ロードマップ
 
 主要な依存順は次のとおりとする。
