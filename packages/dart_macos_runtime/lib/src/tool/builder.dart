@@ -1246,7 +1246,16 @@ final class RuntimeApplicationBuilder {
       <String>['--find', tool],
       projectWorkingDirectory: currentDirectory,
     );
-    return _existingFile(path, 'Xcode tool $tool');
+    final File file = File(path);
+    if (!await file.exists()) {
+      throw RuntimeBuilderException(
+        'Xcode tool $tool does not exist: $path',
+        exitCode: builderIoErrorExitCode,
+      );
+    }
+    // Preserve xcrun's selected invocation name. Some Xcode tools are
+    // multi-call binaries whose driver mode is selected from argv[0].
+    return file.absolute;
   }
 
   Future<Directory> _packageRoot(File packageConfig, String package) async {

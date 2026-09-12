@@ -376,10 +376,10 @@ final class _Fixture {
       'fake AOT engine',
     );
     _write('${engine.path}/xcodebuild/ProductARM64/gen_snapshot', 'fake gen');
-    _write(
-      '${developer.path}/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc',
-      'fake swiftc',
-    );
+    final String swiftBin =
+        '${developer.path}/Toolchains/XcodeDefault.xctoolchain/usr/bin';
+    _write('$swiftBin/swift-driver', 'fake Swift driver');
+    await Link('$swiftBin/swiftc').create('swift-driver');
     _write(
       '${developer.path}/usr/bin/appintentsmetadataprocessor',
       'fake metadata processor',
