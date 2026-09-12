@@ -6,6 +6,7 @@ import 'package:dart_appkit/dart_appkit.dart';
 import 'package:dart_appkit/src/native/native_bindings.dart'
     show
         NativeRect,
+        NativeDefinitionPresentation,
         NativeScreenSnapshot,
         dartAppKitSecureInputIndicatorAutomatic,
         dartAppKitSecureInputIndicatorManual,
@@ -101,8 +102,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 8 &&
-        app.eventProtocolVersion == 8,
+        bindings.requestedMaximumEventProtocolVersion == 9 &&
+        app.eventProtocolVersion == 9,
     'current event protocol negotiation',
   );
 
@@ -1541,7 +1542,8 @@ Future<void> _testWindowStateEvents() async {
           AppKitKeyEvent() ||
           ApplicationEvent() ||
           MenuItemInvokedEvent() ||
-          GlobalHotKeyPressedEvent():
+          GlobalHotKeyPressedEvent() ||
+          ViewQuickLookRequestedEvent():
         break;
     }
   }, onError: (Object error) => streamErrors.add(error));
@@ -2522,6 +2524,160 @@ Future<void> _testViewContextMenuApi() async {
   await raw.close();
 }
 
+Future<void> _testQuickLookApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (9 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final View view = View();
+  final int handle = testing.nativeViewHandleForTesting(view);
+
+  var applicationRequests = 0;
+  var viewRequests = 0;
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is ViewQuickLookRequestedEvent) ++applicationRequests;
+  }, onError: (Object error) => errors.add(error));
+  final StreamSubscription<ViewQuickLookRequestedEvent> viewEvents = view
+      .onQuickLookRequested
+      .listen((ViewQuickLookRequestedEvent event) {
+        _expect(
+          event.viewHandle == handle && event.x == 12.5 && event.y == 20.25,
+          'view Quick Look event preserves identity and local coordinates',
+        );
+        ++viewRequests;
+      });
+
+  view.quickLookRequestsEnabled = true;
+  _expect(
+    view.quickLookRequestsEnabled &&
+        bindings.quickLookRequestEnabled[handle] == true,
+    'Quick Look request enablement reaches native state',
+  );
+  final int enableOperations = bindings.operations
+      .where(
+        (String operation) => operation == 'viewSetQuickLookRequestEnabled',
+      )
+      .length;
+  view.quickLookRequestsEnabled = true;
+  _expect(
+    bindings.operations
+            .where(
+              (String operation) =>
+                  operation == 'viewSetQuickLookRequestEnabled',
+            )
+            .length ==
+        enableOperations,
+    'equal Quick Look enablement is suppressed',
+  );
+  raw.add(<Object?>[9, 42, handle, 9, 900000, 0, 12.5, 20.25]);
+  _expect(
+    applicationRequests == 1 && viewRequests == 1,
+    'Quick Look request reaches application and exact View once',
+  );
+  raw.add(<Object?>[8, 42, handle, 9, 901000, 0, 12.5, 20.25]);
+  raw.add(<Object?>[9, 42, handle, 10, 902000, 0, 12.5, 20.25]);
+  raw.add(<Object?>[9, 42, handle, 9, 903000, 0, double.nan, 20.25]);
+  _expect(
+    errors.length == 3 && applicationRequests == 1 && viewRequests == 1,
+    'old-version, stale-generation, and non-finite requests are rejected',
+  );
+
+  bindings.failNextOperation = 'viewSetQuickLookRequestEnabled';
+  await _expectThrows<AppKitNativeException>(
+    () => view.quickLookRequestsEnabled = false,
+  );
+  _expect(
+    view.quickLookRequestsEnabled &&
+        bindings.quickLookRequestEnabled[handle] == true,
+    'failed request disablement preserves both caches',
+  );
+  view.quickLookRequestsEnabled = false;
+
+  final DefinitionPresentation definition = DefinitionPresentation(
+    text: 'terminal—日本語',
+    baselineX: 15.5,
+    baselineY: 28.25,
+    font: TextViewFont.named('Test Mono', size: 14),
+  );
+  view.showDefinition(definition);
+  final NativeDefinitionPresentation nativeDefinition =
+      bindings.definitionPresentations[handle]!.single;
+  _expect(
+    nativeDefinition.text == definition.text &&
+        nativeDefinition.fontKind == TextViewFontKind.named.index &&
+        nativeDefinition.fontFamily == 'Test Mono' &&
+        nativeDefinition.fontSize == 14 &&
+        nativeDefinition.baselineX == 15.5 &&
+        nativeDefinition.baselineY == 28.25,
+    'bounded definition text, font, and baseline reach native unchanged',
+  );
+  bindings.failNextOperation = 'viewShowDefinition';
+  await _expectThrows<AppKitNativeException>(
+    () => view.showDefinition(definition),
+  );
+  _expect(
+    bindings.definitionPresentations[handle]!.length == 1,
+    'failed definition presentation publishes no fake state',
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.showDefinition(
+      const DefinitionPresentation(text: '', baselineX: 0, baselineY: 0),
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.showDefinition(
+      DefinitionPresentation(
+        text: 'x' * (DefinitionPresentation.maximumTextUtf8Bytes + 1),
+        baselineX: 0,
+        baselineY: 0,
+      ),
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.showDefinition(
+      const DefinitionPresentation(
+        text: 'bad\nword',
+        baselineX: 0,
+        baselineY: 0,
+      ),
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.showDefinition(
+      const DefinitionPresentation(
+        text: 'word',
+        baselineX: double.infinity,
+        baselineY: 0,
+      ),
+    ),
+  );
+
+  view.quickLookRequestsEnabled = true;
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(view.dispose);
+  raw.add(<Object?>[9, 42, handle, 9, 904000, 0, 12.5, 20.25]);
+  _expect(
+    applicationRequests == 2 && viewRequests == 2,
+    'failed View release preserves Quick Look routing',
+  );
+  view.dispose();
+  raw.add(<Object?>[9, 42, handle, 9, 905000, 0, 12.5, 20.25]);
+  _expect(
+    applicationRequests == 3 && viewRequests == 2,
+    'disposed View no longer receives a late Quick Look request',
+  );
+
+  await viewEvents.cancel();
+  await applicationEvents.cancel();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -2534,6 +2690,7 @@ Future<void> _testLegacyProtocolSelection() async {
     frame: const Rect.fromLTWH(0, 0, 100, 100),
     title: 'Legacy lifecycle',
   );
+  final View view = View();
   await _expectThrows<UnsupportedError>(
     () => app.defersTerminationRequests = true,
   );
@@ -2541,6 +2698,10 @@ Future<void> _testLegacyProtocolSelection() async {
     () => window.defersCloseRequests = true,
   );
   await _expectThrows<UnsupportedError>(() => Menu(title: 'Unavailable'));
+  await _expectThrows<UnsupportedError>(
+    () => view.quickLookRequestsEnabled = true,
+  );
+  view.dispose();
   window.dispose();
   await app.terminate();
   await raw.close();
@@ -2720,6 +2881,7 @@ Future<void> main() async {
   );
   await _test('menu ownership and action routing', _testMenuApi);
   await _test('view context-menu ownership', _testViewContextMenuApi);
+  await _test('Quick Look request and definition API', _testQuickLookApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(

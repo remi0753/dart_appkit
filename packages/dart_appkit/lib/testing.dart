@@ -7,5 +7,6 @@ export 'src/api.dart'
         injectRawAppKitEventForTesting,
         nativeGlobalHotKeyHandleForTesting,
         nativeSecureEventInputHandleForTesting,
+        nativeViewHandleForTesting,
         nativeWindowHandleForTesting,
         requestApplicationTerminationForTesting;

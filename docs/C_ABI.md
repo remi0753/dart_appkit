@@ -213,7 +213,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 8 use the six-field common prefix:
+Versions 2 through 9 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -222,19 +222,20 @@ Versions 2 through 8 use the six-field common prefix:
 
 - `protocolVersion` is negotiated independently from `DA_ABI_VERSION`.
 - `eventType` is a `DaEventType` integer.
-- `sourceHandle` is the stable registry handle of the originating window or
-  menu item. Application-scoped v4 events use zero.
+- `sourceHandle` is the stable registry handle of the originating window,
+  menu item, global hot key, or View. Application-scoped v4 events use zero.
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 8 use nanoseconds.
+  microseconds; versions 2 through 9 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 8 is current. Version 3 adds window state, version 4 adds lifecycle
+- Version 9 is current. Version 3 adds window state, version 4 adds lifecycle
   decisions and menu actions, version 5 adds precision scroll, version 6 adds
   outer-frame and native-fullscreen state, and version 7 adds an application
   effective-appearance boolean (`false` light, `true` dark). Version 8 adds
-  global-hot-key presses. Version-specific types are suppressed for an older
+  global-hot-key presses. Version 9 adds View-local Quick Look requests with
+  finite x/y coordinates. Version-specific types are suppressed for an older
   negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
@@ -265,6 +266,7 @@ Payloads:
 | `APPLICATION_TERMINATE_REQUESTED` | none; positive operation ID in the prefix |
 | `MENU_ITEM_INVOKED` | none; reserved v4 record used by the additive menu API |
 | `GLOBAL_HOT_KEY_PRESSED` | none; the source handle identifies the owned v8 registration |
+| `VIEW_QUICK_LOOK_REQUESTED` | `x: finite double, y: finite double`; the source handle identifies the registered View and the coordinates use that View's AppKit coordinate system |
 
 Coordinates use the content view's top-left origin. Modifier values use stable
 `DaModifier` bits rather than exposing AppKit's enum representation.
@@ -482,6 +484,22 @@ bridge retains only a weak set of attached views for release cleanup, while
 `NSView.menu` provides the native presentation retain graph. The Dart wrapper
 tracks the inverse relationship with weak `View` references so release failure
 leaves both caches retryable and successful release detaches both sides.
+
+`da_view_set_quick_look_request_enabled` registers one generation-checked View
+for non-consuming local pressure observation. The bridge retains the View only
+weakly, selects the deepest registered ancestor under the event, resets state
+below stage 2 or on mouse-up, and posts exactly one v9 request for each first
+transition into stage 2. Disabling or releasing the View removes its observer;
+the shared AppKit monitor is removed when no registered Views remain.
+
+`da_view_show_definition` copies a non-empty term of at most 4096 UTF-8 bytes,
+rejects control and invisible display scalars, and validates a size-prefixed
+`DaDefinitionPresentationConfiguration`. The configuration reuses the closed
+system/monospaced/named font kinds and weights, bounds font size and named font
+bytes as text views do, and requires finite View-local baseline coordinates.
+Presentation uses AppKit's attributed-string definition API. Word selection,
+terminal grid lookup, and whether a request is actionable remain application
+policy; no native callback synchronously enters Dart.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and

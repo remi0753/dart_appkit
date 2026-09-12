@@ -115,6 +115,32 @@ final class _DaViewConfigurationNative extends Struct {
   external int reserved;
 }
 
+final class _DaDefinitionPresentationConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Int32()
+  external int fontKind;
+
+  @Int32()
+  external int fontWeight;
+
+  @Int32()
+  external int reserved0;
+
+  @Int32()
+  external int reserved1;
+
+  @Double()
+  external double fontSize;
+
+  @Double()
+  external double baselineX;
+
+  @Double()
+  external double baselineY;
+}
+
 final class _DaTextViewColorConfigurationNative extends Struct {
   @Int32()
   external int kind;
@@ -503,6 +529,22 @@ typedef _ViewCreateConfiguredDart = int Function(
   Pointer<_DaViewConfigurationNative>,
   Pointer<Uint64>,
 );
+typedef _ViewShowDefinitionNative = Int32 Function(
+  Uint64,
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaDefinitionPresentationConfigurationNative>,
+  Pointer<Uint8>,
+  Size,
+);
+typedef _ViewShowDefinitionDart = int Function(
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaDefinitionPresentationConfigurationNative>,
+  Pointer<Uint8>,
+  int,
+);
 typedef _TextViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaTextViewConfigurationNative>,
   Pointer<Uint8>,
@@ -625,6 +667,17 @@ _ViewCreateConfiguredDart? _lookupViewCreateConfigured(DynamicLibrary library) {
   }
 }
 
+_ViewShowDefinitionDart? _lookupViewShowDefinition(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_ViewShowDefinitionNative, _ViewShowDefinitionDart>(
+          'da_view_show_definition',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
   DynamicLibrary library,
 ) {
@@ -725,6 +778,21 @@ void _writeViewConfiguration(
     ..autoresizingMask = configuration.autoresizingMask
     ..acceptsFirstResponder = configuration.acceptsFirstResponder ? 1 : 0
     ..reserved = 0;
+}
+
+void _writeDefinitionPresentation(
+  _DaDefinitionPresentationConfigurationNative output,
+  NativeDefinitionPresentation presentation,
+) {
+  output
+    ..structSize = sizeOf<_DaDefinitionPresentationConfigurationNative>()
+    ..fontKind = presentation.fontKind
+    ..fontWeight = presentation.fontWeight
+    ..reserved0 = 0
+    ..reserved1 = 0
+    ..fontSize = presentation.fontSize
+    ..baselineX = presentation.baselineX
+    ..baselineY = presentation.baselineY;
 }
 
 void _writeTextViewColor(
@@ -1309,6 +1377,7 @@ final class FfiNativeBindings
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
         NativeViewContextMenuBindings,
+        NativeQuickLookBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1440,6 +1509,11 @@ final class FfiNativeBindings
         library,
         'da_view_set_context_menu',
       ),
+      _viewSetQuickLookRequestEnabled = _lookupHandleInt(
+        library,
+        'da_view_set_quick_look_request_enabled',
+      ),
+      _viewShowDefinition = _lookupViewShowDefinition(library),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -1586,6 +1660,8 @@ final class FfiNativeBindings
   final _ViewCreateConfiguredDart? _viewCreateConfigured;
   final _HandleBoolStatusDart? _viewSetSecureInputIndicator;
   final _TwoHandlesDart? _viewSetContextMenu;
+  final _HandleBoolStatusDart? _viewSetQuickLookRequestEnabled;
+  final _ViewShowDefinitionDart? _viewShowDefinition;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -2831,6 +2907,56 @@ final class FfiNativeBindings
       );
     }
     return _callResult(function(viewHandle, menuHandle));
+  }
+
+  @override
+  NativeCallResult viewSetQuickLookRequestEnabled(int handle, bool enabled) {
+    final _HandleBoolStatusDart? function = _viewSetQuickLookRequestEnabled;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support Quick Look requests',
+      );
+    }
+    return _callResult(function(handle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult viewShowDefinition(
+    int handle,
+    NativeDefinitionPresentation presentation,
+  ) {
+    final _ViewShowDefinitionDart? function = _viewShowDefinition;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support definitions',
+      );
+    }
+    final Pointer<_DaDefinitionPresentationConfigurationNative> configuration =
+        _allocate(sizeOf<_DaDefinitionPresentationConfigurationNative>())
+            .cast<_DaDefinitionPresentationConfigurationNative>();
+    try {
+      _writeDefinitionPresentation(configuration.ref, presentation);
+      return _withUtf8(
+        presentation.text,
+        (Pointer<Uint8> text, int textLength) => _withUtf8(
+          presentation.fontFamily ?? '',
+          (Pointer<Uint8> fontFamily, int fontFamilyLength) => _callResult(
+            function(
+              handle,
+              text,
+              textLength,
+              configuration,
+              fontFamily,
+              fontFamilyLength,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      _free(configuration.cast<Void>());
+    }
   }
 
   @override

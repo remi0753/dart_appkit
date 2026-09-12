@@ -120,6 +120,28 @@ void main(List<String> arguments) {
       contextMenu.message.isEmpty) {
     _fail('view context-menu symbol did not preserve its main-thread guard');
   }
+  final NativeCallResult quickLookEnabled = bindings
+      .viewSetQuickLookRequestEnabled(1, true);
+  final NativeCallResult definition = bindings.viewShowDefinition(
+    1,
+    const NativeDefinitionPresentation(
+      text: 'word',
+      fontKind: 1,
+      fontWeight: 3,
+      fontSize: 13,
+      fontFamily: null,
+      baselineX: 1,
+      baselineY: 2,
+    ),
+  );
+  if (quickLookEnabled.isSuccess ||
+      quickLookEnabled.status != 5 ||
+      quickLookEnabled.message.isEmpty ||
+      definition.isSuccess ||
+      definition.status != 5 ||
+      definition.message.isEmpty) {
+    _fail('Quick Look symbols did not preserve their main-thread guards');
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings

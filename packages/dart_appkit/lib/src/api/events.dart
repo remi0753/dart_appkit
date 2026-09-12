@@ -384,6 +384,31 @@ final class GlobalHotKeyPressedEvent extends AppKitEvent {
   int get globalHotKeyHandle => sourceHandle;
 }
 
+/// One stage-2 pressure transition in a registered View's local coordinates.
+final class ViewQuickLookRequestedEvent extends AppKitEvent {
+  const ViewQuickLookRequestedEvent({
+    required int viewHandle,
+    required int monotonicMicros,
+    int protocolVersion = 9,
+    int sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+    required this.x,
+    required this.y,
+  }) : super(
+         windowHandle: viewHandle,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: sourceGeneration,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+
+  int get viewHandle => sourceHandle;
+  final double x;
+  final double y;
+}
+
 final class ModifierKeys {
   const ModifierKeys(this.bits);
 
@@ -437,6 +462,7 @@ final class _EventCodec {
   static const int _applicationAppearanceChanged = 33;
   static const int _menuItemInvoked = 40;
   static const int _globalHotKeyPressed = 41;
+  static const int _viewQuickLookRequested = 42;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -822,6 +848,19 @@ final class _EventCodec {
           monotonicNanoseconds: monotonicNanoseconds,
           operationId: operationId,
         );
+      case _viewQuickLookRequested:
+        _requireVersionNine(version, 'view Quick Look requested');
+        _expectLength(message, payloadOffset + 2, 'view Quick Look requested');
+        return ViewQuickLookRequestedEvent(
+          viewHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          x: _finiteNumber(message, payloadOffset, 'x'),
+          y: _finiteNumber(message, payloadOffset + 1, 'y'),
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -848,6 +887,12 @@ final class _EventCodec {
   static void _requireVersionFour(int version, String eventName) {
     if (version < 4) {
       throw FormatException('$eventName requires native event protocol 4');
+    }
+  }
+
+  static void _requireVersionNine(int version, String eventName) {
+    if (version < 9) {
+      throw FormatException('$eventName requires native event protocol 9');
     }
   }
 

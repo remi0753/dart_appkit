@@ -25,11 +25,11 @@ final class TwoPaneSplitView extends View {
       application._bindings.splitViewCreate(nativeAxis),
       'TwoPaneSplitView.create',
     );
-    return TwoPaneSplitView._(application._bindings, handle, axis);
+    return TwoPaneSplitView._(application, handle, axis);
   }
 
-  TwoPaneSplitView._(NativeBindings bindings, int handle, this.axis)
-    : super._(bindings, handle, null);
+  TwoPaneSplitView._(AppKitApplication application, int handle, this.axis)
+    : super._(application, handle, null);
 
   final SplitViewAxis axis;
   View? _firstView;

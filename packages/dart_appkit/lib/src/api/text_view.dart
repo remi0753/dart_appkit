@@ -294,11 +294,11 @@ final class TextView extends View {
       application._bindings.textViewCreate(configuration._native),
       'TextView.create',
     );
-    return TextView._(application._bindings, handle, configuration);
+    return TextView._(application, handle, configuration);
   }
 
-  TextView._(NativeBindings bindings, int handle, this.configuration)
-    : super._(bindings, handle, configuration.view);
+  TextView._(AppKitApplication application, int handle, this.configuration)
+    : super._(application, handle, configuration.view);
 
   final TextViewConfiguration configuration;
 

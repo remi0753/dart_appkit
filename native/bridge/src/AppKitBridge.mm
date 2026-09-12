@@ -19,6 +19,8 @@
 #include "CustomViewRegistry.h"
 #include "ObjectRegistry.h"
 
+@class DaQuickLookRequestOwner;
+
 namespace {
 
 int g_application_appearance_observation_context = 0;
@@ -29,6 +31,8 @@ NSMutableDictionary<NSNumber*, NSNumber*>* g_global_hot_key_handles = nil;
 UInt32 g_next_global_hot_key_identifier = 1;
 DaHandle g_secure_event_input_handle = 0;
 NSHashTable<NSView*>* g_context_menu_views = nil;
+NSMutableArray<DaQuickLookRequestOwner*>* g_quick_look_request_owners = nil;
+id g_quick_look_event_monitor = nil;
 
 int32_t EnableSecureEventInputWithSystem() {
   return static_cast<int32_t>(EnableSecureEventInput());
@@ -156,6 +160,14 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 }
 
 @property(nonatomic, assign) DaSecureInputIndicatorState daState;
+
+@end
+
+@interface DaQuickLookRequestOwner : NSObject
+
+@property(nonatomic, weak) NSView* view;
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign) NSInteger previousPressureStage;
 
 @end
 
@@ -397,6 +409,155 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
+@implementation DaQuickLookRequestOwner
+@end
+
+namespace {
+
+DaQuickLookRequestOwner* QuickLookOwnerForHandle(DaHandle handle) {
+  for (DaQuickLookRequestOwner* owner in
+       [g_quick_look_request_owners copy]) {
+    if (owner.view == nil) {
+      [g_quick_look_request_owners removeObject:owner];
+    } else if (owner.daHandle == handle) {
+      return owner;
+    }
+  }
+  return nil;
+}
+
+DaQuickLookRequestOwner* QuickLookOwnerForView(NSView* view) {
+  for (DaQuickLookRequestOwner* owner in
+       [g_quick_look_request_owners copy]) {
+    NSView* candidate = owner.view;
+    if (candidate == nil) {
+      [g_quick_look_request_owners removeObject:owner];
+    } else if (candidate == view) {
+      return owner;
+    }
+  }
+  return nil;
+}
+
+void StopQuickLookMonitorIfUnused() {
+  if (g_quick_look_request_owners.count != 0 ||
+      g_quick_look_event_monitor == nil) {
+    return;
+  }
+  [NSEvent removeMonitor:g_quick_look_event_monitor];
+  g_quick_look_event_monitor = nil;
+  g_quick_look_request_owners = nil;
+}
+
+bool DispatchQuickLookPressure(DaQuickLookRequestOwner* owner, NSPoint point,
+                               NSInteger stage) {
+  if (owner == nil || owner.view == nil || stage < 0 || stage > 2 ||
+      !std::isfinite(point.x) || !std::isfinite(point.y)) {
+    return false;
+  }
+  if (stage < 2) {
+    owner.previousPressureStage = stage;
+    return false;
+  }
+  if (owner.previousPressureStage >= 2) {
+    return false;
+  }
+  owner.previousPressureStage = stage;
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_VIEW_QUICK_LOOK_REQUESTED;
+  event.window = owner.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.x = point.x;
+  event.y = point.y;
+  return dart_appkit::PostEvent(event);
+}
+
+DaQuickLookRequestOwner* QuickLookOwnerUnderEvent(NSEvent* event,
+                                                  NSPoint* out_point) {
+  NSWindow* window = event.window;
+  NSView* content_view = window.contentView;
+  if (window == nil || content_view == nil) {
+    return nil;
+  }
+  const NSPoint content_point =
+      [content_view convertPoint:event.locationInWindow fromView:nil];
+  NSView* hit = [content_view hitTest:content_point];
+  if (hit == nil) {
+    return nil;
+  }
+  DaQuickLookRequestOwner* best = nil;
+  NSUInteger best_depth = NSUIntegerMax;
+  for (DaQuickLookRequestOwner* owner in
+       [g_quick_look_request_owners copy]) {
+    NSView* view = owner.view;
+    if (view == nil) {
+      [g_quick_look_request_owners removeObject:owner];
+      continue;
+    }
+    if (view.window != window ||
+        (view != hit && ![hit isDescendantOf:view])) {
+      continue;
+    }
+    NSUInteger depth = 0;
+    NSView* cursor = hit;
+    while (cursor != nil && cursor != view) {
+      cursor = cursor.superview;
+      ++depth;
+    }
+    if (cursor == view && depth < best_depth) {
+      best = owner;
+      best_depth = depth;
+    }
+  }
+  if (best != nil && out_point != nullptr) {
+    *out_point = [best.view convertPoint:event.locationInWindow fromView:nil];
+  }
+  StopQuickLookMonitorIfUnused();
+  return best;
+}
+
+NSEvent* HandleQuickLookLocalEvent(NSEvent* event) {
+  if (event.type == NSEventTypeLeftMouseUp) {
+    for (DaQuickLookRequestOwner* owner in g_quick_look_request_owners) {
+      if (owner.view.window == event.window) {
+        owner.previousPressureStage = 0;
+      }
+    }
+    return event;
+  }
+  if (event.type != NSEventTypePressure) {
+    return event;
+  }
+  NSPoint point = NSZeroPoint;
+  DaQuickLookRequestOwner* owner = QuickLookOwnerUnderEvent(event, &point);
+  (void)DispatchQuickLookPressure(owner, point, event.stage);
+  return event;
+}
+
+void EnsureQuickLookMonitor() {
+  if (g_quick_look_event_monitor != nil) {
+    return;
+  }
+  g_quick_look_event_monitor = [NSEvent
+      addLocalMonitorForEventsMatchingMask:(NSEventMaskPressure |
+                                            NSEventMaskLeftMouseUp)
+                                  handler:^NSEvent*(NSEvent* event) {
+                                    return HandleQuickLookLocalEvent(event);
+                                  }];
+}
+
+void RemoveQuickLookOwnerForView(NSView* view) {
+  DaQuickLookRequestOwner* owner = QuickLookOwnerForView(view);
+  if (owner != nil) {
+    owner.daHandle = 0;
+    owner.view = nil;
+    [g_quick_look_request_owners removeObject:owner];
+  }
+  StopQuickLookMonitorIfUnused();
+}
+
+}  // namespace
+
 @implementation DaApplicationAppearanceObserver
 
 - (instancetype)initWithApplication:(NSApplication*)application {
@@ -538,6 +699,8 @@ bool HandleUserNotificationWithSystem(
 UserNotificationHandler g_user_notification_handler =
     HandleUserNotificationWithSystem;
 void* g_user_notification_context = nullptr;
+DefinitionPresentationHandler g_definition_presentation_handler = nullptr;
+void* g_definition_presentation_context = nullptr;
 
 bool IsAsciiSchemeCharacter(unichar unit, bool first) {
   const bool alpha = (unit >= 'A' && unit <= 'Z') ||
@@ -1043,6 +1206,64 @@ int32_t ResolveTextViewFont(const DaTextViewConfiguration* configuration,
   return DA_STATUS_OK;
 }
 
+int32_t ResolveDefinitionFont(
+    const DaDefinitionPresentationConfiguration* configuration,
+    const char* font_family, size_t font_family_length, NSFont** out_font) {
+  if (configuration == nullptr ||
+      configuration->struct_size <
+          DA_DEFINITION_PRESENTATION_CONFIGURATION_VERSION_1_SIZE ||
+      configuration->reserved_0 != 0 || configuration->reserved_1 != 0 ||
+      configuration->font_kind < DA_TEXT_VIEW_FONT_SYSTEM ||
+      configuration->font_kind > DA_TEXT_VIEW_FONT_NAMED ||
+      configuration->font_weight < DA_TEXT_VIEW_FONT_WEIGHT_ULTRA_LIGHT ||
+      configuration->font_weight > DA_TEXT_VIEW_FONT_WEIGHT_BLACK ||
+      (configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED &&
+       configuration->font_weight != DA_TEXT_VIEW_FONT_WEIGHT_REGULAR) ||
+      !std::isfinite(configuration->font_size) ||
+      configuration->font_size <= 0.0 ||
+      configuration->font_size > DA_TEXT_VIEW_FONT_MAX_SIZE ||
+      !std::isfinite(configuration->baseline_x) ||
+      !std::isfinite(configuration->baseline_y)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "definition presentation configuration is invalid");
+  }
+  if (font_family_length > DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES) {
+    return SetLastError(DA_STATUS_LIMIT_EXCEEDED,
+                        "definition font family exceeds the UTF-8 limit");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_family =
+      CopyUtf8(font_family, font_family_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  const bool named = configuration->font_kind == DA_TEXT_VIEW_FONT_NAMED;
+  if ((named && copied_family.length == 0) ||
+      (!named && copied_family.length != 0)) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "definition font family must be present only for a named font");
+  }
+  const NSFontWeight weight = TextViewFontWeight(configuration->font_weight);
+  NSFont* font = nil;
+  if (configuration->font_kind == DA_TEXT_VIEW_FONT_SYSTEM) {
+    font = [NSFont systemFontOfSize:configuration->font_size weight:weight];
+  } else if (configuration->font_kind ==
+             DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM) {
+    font = [NSFont monospacedSystemFontOfSize:configuration->font_size
+                                      weight:weight];
+  } else {
+    font = [NSFont fontWithName:copied_family size:configuration->font_size];
+  }
+  if (font == nil) {
+    return SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                        "definition named font is not available");
+  }
+  *out_font = font;
+  return DA_STATUS_OK;
+}
+
 DaTextEditor* TextEditor(DaHandle handle, int32_t* out_status) {
   NSView* view = static_cast<NSView*>(ObjectRegistry::Shared().Lookup(
       handle, ObjectKind::kView, ThreadDomain::kAppKitMain, out_status));
@@ -1294,6 +1515,7 @@ void PrepareViewForRelease(NSView* view) {
     return;
   }
   view.menu = nil;
+  RemoveQuickLookOwnerForView(view);
   [g_context_menu_views removeObject:view];
   if (g_context_menu_views.count == 0) {
     g_context_menu_views = nil;
@@ -1744,6 +1966,18 @@ void InstallSecureEventInputHandlersForTesting(
       active_query == nullptr ? IsApplicationActiveWithSystem : active_query;
 }
 
+void InstallDefinitionPresentationHandlerForTesting(
+    DefinitionPresentationHandler handler, void* context) {
+  g_definition_presentation_handler = handler;
+  g_definition_presentation_context = handler == nullptr ? nullptr : context;
+}
+
+bool HandleQuickLookPressureForTesting(DaHandle handle, double x, double y,
+                                       int64_t stage) {
+  return DispatchQuickLookPressure(QuickLookOwnerForHandle(handle),
+                                   NSMakePoint(x, y), stage);
+}
+
 void ShutdownBridge() {
   if (pthread_main_np() == 0) {
     return;
@@ -1782,6 +2016,7 @@ void ResetBridgeForTesting() {
   InstallUserNotificationHandlerForTesting(nullptr, nullptr);
   InstallSecureEventInputHandlersForTesting(nullptr, nullptr, nullptr,
                                             nullptr);
+  InstallDefinitionPresentationHandlerForTesting(nullptr, nullptr);
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
@@ -3535,6 +3770,118 @@ int32_t da_view_set_context_menu(DaHandle view_handle, DaHandle menu_handle) {
   if (g_context_menu_views.count == 0) {
     g_context_menu_views = nil;
   }
+  return DA_STATUS_OK;
+}
+
+int32_t da_view_set_quick_look_request_enabled(DaHandle view_handle,
+                                               int32_t enabled) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (enabled != 0 && enabled != 1) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "Quick Look request enabled state must be zero or one");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  DaQuickLookRequestOwner* owner = QuickLookOwnerForView(view);
+  if (enabled == 0) {
+    if (owner != nil) {
+      owner.daHandle = 0;
+      owner.view = nil;
+      [g_quick_look_request_owners removeObject:owner];
+    }
+    StopQuickLookMonitorIfUnused();
+    return DA_STATUS_OK;
+  }
+  if (owner != nil) {
+    return DA_STATUS_OK;
+  }
+  if (g_quick_look_request_owners == nil) {
+    g_quick_look_request_owners = [[NSMutableArray alloc] init];
+  }
+  owner = [[DaQuickLookRequestOwner alloc] init];
+  owner.view = view;
+  owner.daHandle = view_handle;
+  owner.previousPressureStage = 0;
+  [g_quick_look_request_owners addObject:owner];
+  EnsureQuickLookMonitor();
+  return DA_STATUS_OK;
+}
+
+int32_t da_view_show_definition(
+    DaHandle view_handle, const char* text, size_t text_length,
+    const DaDefinitionPresentationConfiguration* configuration,
+    const char* font_family, size_t font_family_length) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  if (text_length == 0) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "definition text must not be empty");
+  }
+  if (text_length > DA_DEFINITION_TEXT_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "definition text exceeds the UTF-8 byte limit");
+  }
+  NSString* copied_text = dart_appkit::CopyUtf8(text, text_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (dart_appkit::ContainsUnsafeDisplayText(copied_text)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "definition text contains controls or invisible scalars");
+  }
+  NSFont* font = nil;
+  status = dart_appkit::ResolveDefinitionFont(
+      configuration, font_family, font_family_length, &font);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+
+  dart_appkit::DefinitionPresentationSnapshot snapshot;
+  snapshot.view = view_handle;
+  snapshot.text.assign(text, text_length);
+  if (font_family_length != 0) {
+    snapshot.font_family.assign(font_family, font_family_length);
+  }
+  snapshot.font_kind = configuration->font_kind;
+  snapshot.font_weight = configuration->font_weight;
+  snapshot.font_size = configuration->font_size;
+  snapshot.baseline_x = configuration->baseline_x;
+  snapshot.baseline_y = configuration->baseline_y;
+  if (dart_appkit::g_definition_presentation_handler != nullptr) {
+    if (!dart_appkit::g_definition_presentation_handler(
+            snapshot, dart_appkit::g_definition_presentation_context)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INTERNAL_ERROR,
+          "definition presentation handler rejected the request");
+    }
+    return DA_STATUS_OK;
+  }
+
+  NSAttributedString* attributed = [[NSAttributedString alloc]
+      initWithString:copied_text
+          attributes:@{NSFontAttributeName : font}];
+  [view showDefinitionForAttributedString:attributed
+                                  atPoint:NSMakePoint(
+                                              configuration->baseline_x,
+                                              configuration->baseline_y)];
   return DA_STATUS_OK;
 }
 

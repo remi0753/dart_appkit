@@ -228,6 +228,9 @@ struct RecordedUserNotification {
 };
 std::vector<RecordedUserNotification> g_user_notifications;
 bool g_accept_user_notifications = true;
+std::vector<dart_appkit::DefinitionPresentationSnapshot>
+    g_definition_presentations;
+bool g_accept_definition_presentations = true;
 bool g_fake_application_active = true;
 bool g_fake_secure_input_enabled = false;
 int32_t g_fake_secure_input_enable_status = noErr;
@@ -298,6 +301,17 @@ bool RecordUserNotification(
       {operation, std::string(identifier), std::string(title),
        std::string(body)});
   return g_accept_user_notifications;
+}
+
+bool RecordDefinitionPresentation(
+    const dart_appkit::DefinitionPresentationSnapshot& snapshot,
+    void* context) {
+  if (context != &g_definition_presentations) {
+    ++g_failures;
+    return false;
+  }
+  g_definition_presentations.push_back(snapshot);
+  return g_accept_definition_presentations;
 }
 
 #define EXPECT_TRUE(condition)                                      \
@@ -991,6 +1005,21 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(8));
 
+  event.type = DA_EVENT_VIEW_QUICK_LOOK_REQUESTED;
+  event.x = 20.5;
+  event.y = 30.25;
+  const size_t before_version_nine_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_nine_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 9, 9, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(9));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(9));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1002,7 +1031,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 9, 9, &selected_version),
+      da_application_set_event_port_versioned(4242, 10, 10, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1131,7 +1160,8 @@ void TestApplicationAppearanceObservation() {
   EXPECT_TRUE(capture.events.back().state);
   EXPECT_EQ(capture.events.back().window, static_cast<DaHandle>(0));
   EXPECT_EQ(capture.events.back().operation_id, static_cast<int64_t>(0));
-  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(8));
+  EXPECT_EQ(capture.protocol_versions.back(),
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
 
   NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_APPEARANCE_CHANGED),
@@ -1643,6 +1673,126 @@ void TestViewContextMenus() {
   EXPECT_EQ(da_release(view), DA_STATUS_OK);
   EXPECT_EQ(da_release(replacement), DA_STATUS_OK);
   EXPECT_EQ(da_release(text_view), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestQuickLookRequestsAndDefinitions() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  const DaHandle view = CreateView();
+  const DaHandle menu = CreateMenu("Wrong kind");
+
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(view, 1), DA_STATUS_OK);
+  EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
+      view, 10.5, 20.25, 1));
+  EXPECT_TRUE(dart_appkit::HandleQuickLookPressureForTesting(
+      view, 10.5, 20.25, 2));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_QUICK_LOOK_REQUESTED);
+  EXPECT_EQ(capture.events[0].window, view);
+  EXPECT_TRUE(std::abs(capture.events[0].x - 10.5) < 0.001);
+  EXPECT_TRUE(std::abs(capture.events[0].y - 20.25) < 0.001);
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(9));
+  EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
+      view, 11.0, 21.0, 2));
+  EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
+      view, 11.0, 21.0, 1));
+  EXPECT_TRUE(dart_appkit::HandleQuickLookPressureForTesting(
+      view, 11.0, 21.0, 2));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(view, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(view, 0), DA_STATUS_OK);
+  EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
+      view, 10.0, 20.0, 2));
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(view, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(menu, 1),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  g_definition_presentations.clear();
+  g_accept_definition_presentations = true;
+  dart_appkit::InstallDefinitionPresentationHandlerForTesting(
+      RecordDefinitionPresentation, &g_definition_presentations);
+  DaDefinitionPresentationConfiguration configuration = {
+      DA_DEFINITION_PRESENTATION_CONFIGURATION_VERSION_1_SIZE,
+      DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM,
+      DA_TEXT_VIEW_FONT_WEIGHT_SEMIBOLD,
+      0,
+      0,
+      14.0,
+      15.5,
+      28.25,
+  };
+  const std::string term = "terminal—日本語";
+  EXPECT_EQ(da_view_show_definition(
+                view, term.data(), term.size(), &configuration, nullptr, 0),
+            DA_STATUS_OK);
+  EXPECT_EQ(g_definition_presentations.size(), static_cast<size_t>(1));
+  const dart_appkit::DefinitionPresentationSnapshot& presented =
+      g_definition_presentations[0];
+  EXPECT_EQ(presented.view, view);
+  EXPECT_EQ(presented.text, term);
+  EXPECT_EQ(presented.font_kind,
+            static_cast<int32_t>(DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM));
+  EXPECT_EQ(presented.font_weight,
+            static_cast<int32_t>(DA_TEXT_VIEW_FONT_WEIGHT_SEMIBOLD));
+  EXPECT_TRUE(std::abs(presented.font_size - 14.0) < 0.001);
+  EXPECT_TRUE(std::abs(presented.baseline_x - 15.5) < 0.001);
+  EXPECT_TRUE(std::abs(presented.baseline_y - 28.25) < 0.001);
+
+  NSString* font_name = [NSFont systemFontOfSize:13.0].fontName;
+  const std::string named_font = font_name.UTF8String;
+  configuration.font_kind = DA_TEXT_VIEW_FONT_NAMED;
+  configuration.font_weight = DA_TEXT_VIEW_FONT_WEIGHT_REGULAR;
+  EXPECT_EQ(da_view_show_definition(
+                view, "named", 5, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_OK);
+  EXPECT_EQ(g_definition_presentations.back().font_family, named_font);
+
+  EXPECT_EQ(da_view_show_definition(
+                view, nullptr, 0, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_view_show_definition(
+                view, invalid_utf8, sizeof(invalid_utf8), &configuration,
+                named_font.data(), named_font.size()),
+            DA_STATUS_INVALID_UTF8);
+  const std::string oversized(DA_DEFINITION_TEXT_MAX_UTF8_BYTES + 1, 'a');
+  EXPECT_EQ(da_view_show_definition(
+                view, oversized.data(), oversized.size(), &configuration,
+                named_font.data(), named_font.size()),
+            DA_STATUS_LIMIT_EXCEEDED);
+  configuration.reserved_0 = 1;
+  EXPECT_EQ(da_view_show_definition(
+                view, "bad", 3, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.reserved_0 = 0;
+  configuration.baseline_x = std::numeric_limits<double>::infinity();
+  EXPECT_EQ(da_view_show_definition(
+                view, "bad", 3, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.baseline_x = 15.5;
+  EXPECT_EQ(da_view_show_definition(
+                menu, "bad", 3, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  g_accept_definition_presentations = false;
+  EXPECT_EQ(da_view_show_definition(
+                view, "refused", 7, &configuration, named_font.data(),
+                named_font.size()),
+            DA_STATUS_INTERNAL_ERROR);
+  dart_appkit::InstallDefinitionPresentationHandlerForTesting(nullptr,
+                                                              nullptr);
+
+  EXPECT_EQ(da_view_set_quick_look_request_enabled(view, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_release(view), DA_STATUS_OK);
+  EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
+      view, 10.0, 20.0, 2));
+  EXPECT_EQ(da_release(menu), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
@@ -2539,6 +2689,20 @@ void TestThreadGuardAndFinalizer() {
     EXPECT_EQ(da_application_set_main_menu(1), DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(da_menu_item_perform_action(1), DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(da_view_set_context_menu(1, 2), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_view_set_quick_look_request_enabled(1, 1),
+              DA_STATUS_WRONG_THREAD);
+    DaDefinitionPresentationConfiguration definition = {
+        DA_DEFINITION_PRESENTATION_CONFIGURATION_VERSION_1_SIZE,
+        DA_TEXT_VIEW_FONT_SYSTEM,
+        DA_TEXT_VIEW_FONT_WEIGHT_REGULAR,
+        0,
+        0,
+        13.0,
+        1.0,
+        2.0,
+    };
+    EXPECT_EQ(da_view_show_definition(1, "word", 4, &definition, nullptr, 0),
+              DA_STATUS_WRONG_THREAD);
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
@@ -3478,7 +3642,8 @@ void TestGlobalHotKeys() {
   EXPECT_EQ(capture.events[0].type, DA_EVENT_GLOBAL_HOT_KEY_PRESSED);
   EXPECT_EQ(capture.events[0].window, handle);
   EXPECT_EQ(capture.events[0].operation_id, static_cast<int64_t>(0));
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(8));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
 
   DaHandle invalid = 99;
   EXPECT_EQ(da_global_hot_key_register(128, kTestModifiers, &invalid),
@@ -3659,6 +3824,7 @@ int main() {
     TestUserNotificationsAndDockBadge();
     TestMenus();
     TestViewContextMenus();
+    TestQuickLookRequestsAndDefinitions();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestAttributedTextEditor();

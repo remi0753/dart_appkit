@@ -13,6 +13,9 @@ static_assert(std::is_standard_layout_v<DaTextViewConfiguration>);
 static_assert(sizeof(DaViewConfiguration) == 24);
 static_assert(sizeof(DaTextViewColorConfiguration) == 40);
 static_assert(sizeof(DaTextViewConfiguration) == 160);
+static_assert(
+    std::is_standard_layout_v<DaDefinitionPresentationConfiguration>);
+static_assert(sizeof(DaDefinitionPresentationConfiguration) == 48);
 static_assert(std::is_standard_layout_v<DaMenuConfiguration>);
 static_assert(sizeof(DaMenuConfiguration) == 16);
 static_assert(std::is_standard_layout_v<DaScreenSnapshot>);
@@ -22,7 +25,7 @@ static_assert(sizeof(DaWindowPresentationConfiguration) == 24);
 static_assert(std::is_standard_layout_v<DaSecureEventInputSnapshot>);
 static_assert(sizeof(DaSecureEventInputSnapshot) == 24);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 8);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 9);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);
@@ -36,6 +39,8 @@ int da_header_compiles_as_cpp() {
   auto* custom_view_create = &da_view_create_custom;
   auto* configured_view_create = &da_view_create_configured;
   auto* view_context_menu = &da_view_set_context_menu;
+  auto* quick_look_enabled = &da_view_set_quick_look_request_enabled;
+  auto* show_definition = &da_view_show_definition;
   auto* configured_text_view_create = &da_text_view_create_configured;
   auto* configured_menu_create = &da_menu_create_configured;
   auto* menu_item_set_checked = &da_menu_item_set_checked;
@@ -75,6 +80,8 @@ int da_header_compiles_as_cpp() {
                  secure_event_input_snapshot != nullptr &&
                  secure_input_indicator != nullptr &&
                  view_context_menu != nullptr &&
+                 quick_look_enabled != nullptr &&
+                 show_definition != nullptr &&
                  screen_resolve != nullptr && window_present != nullptr &&
                  window_hide != nullptr &&
                  window_presentation_configuration != nullptr &&

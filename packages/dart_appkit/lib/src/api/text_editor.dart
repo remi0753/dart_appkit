@@ -218,12 +218,12 @@ final class TextEditor extends View {
       editorBindings.textEditorCreate(configuration._native),
       'TextEditor.create',
     );
-    return TextEditor._(bindings, handle, configuration);
+    return TextEditor._(application, handle, configuration);
   }
 
-  TextEditor._(NativeBindings bindings, int handle, this.configuration)
-    : _editorBindings = bindings as NativeTextEditorBindings,
-      super._(bindings, handle, configuration.view);
+  TextEditor._(AppKitApplication application, int handle, this.configuration)
+    : _editorBindings = application._bindings as NativeTextEditorBindings,
+      super._(application, handle, configuration.view);
 
   final TextEditorConfiguration configuration;
   final NativeTextEditorBindings _editorBindings;

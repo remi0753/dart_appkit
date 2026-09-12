@@ -679,6 +679,9 @@ window/application操作を提供する。
 - general pasteboardのplain text read／write／clear／change countを実装した。
 - generic／specialized ViewにAppKit標準のcontext menuを接続し、View/Menuのどちらを
   解放してもnative/Dart双方の所有状態を解除する仕組みを実装した。
+- generic／specialized／provider-owned Viewにstage-2 pressure requestを登録し、有限な
+  View-local座標をv9 eventで非同期配送して、boundedな単語・font・baselineをAppKit標準の
+  definition overlayへ表示する仕組みを実装した。
 - nativeからのtext readを64 MiB UTF-8に制限し、超過時はoutputを空のまま
   `limit exceeded` として失敗させ、partial dataを公開しないcontractを実装した。
 

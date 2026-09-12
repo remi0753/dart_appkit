@@ -38,6 +38,7 @@ final class FakeNativeBindings
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
         NativeViewContextMenuBindings,
+        NativeQuickLookBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -77,6 +78,9 @@ final class FakeNativeBindings
   int secureEventInputDisableCount = 0;
   final Map<int, int> secureInputIndicatorStates = <int, int>{};
   final Map<int, int> viewContextMenus = <int, int>{};
+  final Map<int, bool> quickLookRequestEnabled = <int, bool>{};
+  final Map<int, List<NativeDefinitionPresentation>> definitionPresentations =
+      <int, List<NativeDefinitionPresentation>>{};
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -453,6 +457,27 @@ final class FakeNativeBindings
       } else {
         viewContextMenus[viewHandle] = menuHandle;
       }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult viewSetQuickLookRequestEnabled(int handle, bool enabled) {
+    final NativeCallResult result = _status('viewSetQuickLookRequestEnabled');
+    if (result.isSuccess) quickLookRequestEnabled[handle] = enabled;
+    return result;
+  }
+
+  @override
+  NativeCallResult viewShowDefinition(
+    int handle,
+    NativeDefinitionPresentation presentation,
+  ) {
+    final NativeCallResult result = _status('viewShowDefinition');
+    if (result.isSuccess) {
+      definitionPresentations
+          .putIfAbsent(handle, () => <NativeDefinitionPresentation>[])
+          .add(presentation);
     }
     return result;
   }
@@ -1255,6 +1280,8 @@ final class FakeNativeBindings
       secureInputIndicatorStates.remove(handle);
       viewContextMenus.remove(handle);
       viewContextMenus.removeWhere((int view, int menu) => menu == handle);
+      quickLookRequestEnabled.remove(handle);
+      definitionPresentations.remove(handle);
       if (secureEventInputOwner == handle) {
         if (secureEventInputOwnedEnabled) {
           secureEventInputDisableCount++;

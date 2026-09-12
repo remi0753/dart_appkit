@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 8;
+const int dartAppKitCurrentEventProtocolVersion = 9;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
@@ -50,6 +50,7 @@ const int dartAppKitDefaultViewAutoresizingMask =
     dartAppKitViewAutoresizingWidth | dartAppKitViewAutoresizingHeight;
 const double dartAppKitTextViewFontMaximumSize = 512;
 const int dartAppKitTextViewFontFamilyMaximumUtf8Bytes = 256;
+const int dartAppKitDefinitionMaximumTextUtf8Bytes = 4096;
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
 const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
 const int dartAppKitTextEditorMaximumStyleRuns = 64 * 1024;
@@ -72,6 +73,26 @@ final class NativeViewConfiguration {
   bool get isCompatibilityDefault =>
       acceptsFirstResponder &&
       autoresizingMask == dartAppKitDefaultViewAutoresizingMask;
+}
+
+final class NativeDefinitionPresentation {
+  const NativeDefinitionPresentation({
+    required this.text,
+    required this.fontKind,
+    required this.fontWeight,
+    required this.fontSize,
+    required this.fontFamily,
+    required this.baselineX,
+    required this.baselineY,
+  });
+
+  final String text;
+  final int fontKind;
+  final int fontWeight;
+  final double fontSize;
+  final String? fontFamily;
+  final double baselineX;
+  final double baselineY;
 }
 
 final class NativeTextViewConfiguration {
@@ -497,6 +518,15 @@ abstract interface class NativeMenuItemStateBindings {
 /// Optional view-local context-menu attachment surface for older bridges.
 abstract interface class NativeViewContextMenuBindings {
   NativeCallResult viewSetContextMenu(int viewHandle, int menuHandle);
+}
+
+/// Optional pressure-request and definition-presentation surface.
+abstract interface class NativeQuickLookBindings {
+  NativeCallResult viewSetQuickLookRequestEnabled(int handle, bool enabled);
+  NativeCallResult viewShowDefinition(
+    int handle,
+    NativeDefinitionPresentation presentation,
+  );
 }
 
 /// Optional balanced Secure Event Input and view-indicator surface.

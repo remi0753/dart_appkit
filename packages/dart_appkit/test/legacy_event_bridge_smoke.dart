@@ -208,6 +208,24 @@ void main(List<String> arguments) {
   if (bindings.viewSetContextMenu(1, 2).status != 8) {
     _fail('legacy bridge accepted additive view context-menu attachment');
   }
+  if (bindings.viewSetQuickLookRequestEnabled(1, true).status != 8 ||
+      bindings
+              .viewShowDefinition(
+                1,
+                const NativeDefinitionPresentation(
+                  text: 'word',
+                  fontKind: 1,
+                  fontWeight: 3,
+                  fontSize: 13,
+                  fontFamily: null,
+                  baselineX: 1,
+                  baselineY: 2,
+                ),
+              )
+              .status !=
+          8) {
+    _fail('legacy bridge accepted additive Quick Look APIs');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

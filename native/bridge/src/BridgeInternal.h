@@ -68,6 +68,20 @@ struct ScreenSelectionCandidate {
   bool is_main = false;
 };
 
+struct DefinitionPresentationSnapshot {
+  DaHandle view = 0;
+  std::string text;
+  std::string font_family;
+  int32_t font_kind = DA_TEXT_VIEW_FONT_SYSTEM;
+  int32_t font_weight = DA_TEXT_VIEW_FONT_WEIGHT_REGULAR;
+  double font_size = 0.0;
+  double baseline_x = 0.0;
+  double baseline_y = 0.0;
+};
+
+using DefinitionPresentationHandler = bool (*)(
+    const DefinitionPresentationSnapshot& snapshot, void* context);
+
 /** Returns the selected candidate index, or -1 when no candidate exists. */
 int ResolveScreenSelectionIndex(
     int32_t selection, const std::vector<ScreenSelectionCandidate>& candidates,
@@ -106,6 +120,10 @@ void InstallSecureEventInputHandlersForTesting(
     SecureEventInputStatusHandler disable_handler,
     SecureEventInputEnabledHandler enabled_handler,
     ApplicationActiveQuery active_query);
+void InstallDefinitionPresentationHandlerForTesting(
+    DefinitionPresentationHandler handler, void* context);
+bool HandleQuickLookPressureForTesting(DaHandle handle, double x, double y,
+                                       int64_t stage);
 
 inline bool EventTypeSupportedByProtocol(DaEventType type,
                                          uint32_t protocol_version) {
@@ -132,6 +150,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 7;
     case DA_EVENT_GLOBAL_HOT_KEY_PRESSED:
       return protocol_version >= 8;
+    case DA_EVENT_VIEW_QUICK_LOOK_REQUESTED:
+      return protocol_version >= 9;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

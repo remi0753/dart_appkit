@@ -3258,3 +3258,35 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   scheduler/event/runtime、native capability、renderer、PTY、全Dart package、Kernel、current/legacy
   FFIまで回帰なく通過した。consuming Dart Terminalのexact `make test`も276-file format、analysis、
   generated reference/evidence、Phase 9 security stressを含めて成功し、`git diff --check`もcleanである。
+
+## 2026-09-12 — View Quick Look request and definition presentation
+
+- Provider-owned custom Viewを含むgeneric Viewへ、同期native-to-Dart reentryなしでforce-click相当の
+  lookup要求を届けるため、明示enableされたViewだけを弱参照するnon-consuming local AppKit pressure
+  monitorを追加した。event下で最も深い登録済みancestorを選び、mouse-upまたはstage 2未満で状態を
+  resetし、stage 2へ入る最初のtransitionだけをgeneration-checked eventとしてpostする。
+- Event protocol v9はtype 42 `VIEW_QUICK_LOOK_REQUESTED` と有限なView-local x/yだけを追加する。
+  v1-v8のfield orderを維持し、旧sinkではpost前に抑制する。Runner共有encoder、Dart strict decoder、
+  applicationの弱いView registry、View固有streamを同じhandle generationで接続した。
+- `da_view_show_definition` は非空かつdisplay-safeな4096 UTF-8 bytes以下の語をcopyし、size-prefix、
+  reserved zero、既存のclosed font kind/weight、512-point font上限、256-byte named font、有限baselineを
+  native側でも再検証する。AppKitのattributed-string definition APIを使い、terminal word/grid policyは
+  consumerに残す。test handlerはUIを表示せず同じvalidated snapshotを記録する。
+- Public Dart APIはcache-on-successの `View.quickLookRequestsEnabled`、同期broadcastの
+  `onQuickLookRequested`、immutable `DefinitionPresentation`、`View.showDefinition`を提供する。
+  legacy bridgeではoptional symbol不足をtyped unsupported failureとし、request enableはnegotiated v9
+  未満でもfail closedする。release失敗はrouting/cacheを保持し、成功時だけ登録とstreamを閉じる。
+- Focused native/header/encoder testsはstage transition、deduplication、reset、disable/release、v8 filtering、
+  wrong handle/thread、text/font/configuration bounds、handler refusalを通過した。最初のDart focused runは
+  current protocolを8とする既存assertionが1件残って停止し、singleton application未disposeのため後続が
+  attach conflictとして連鎖した。assertionを9へ更新した再実行は全24 API group、analyzer、current/legacy
+  FFI smokeを通過した。
+- `CI=true DART_SUPPRESS_ANALYTICS=true make runtime-jit-runner runtime-aot-runner` は同じv9 bridgeを
+  Developer JIT／Release AOTの両generic hostへwarning-as-errorでリンクした。dependencyのexact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、C/C++ header、bridge/Runner、event、
+  runtime、native capability、renderer、PTY、全Dart package、Kernel、current/legacy FFIを通過した。
+- 最初のconsuming Dart Terminal exact gateはsealed `AppKitEvent` の2 switchが新View eventを未列挙として
+  compile時に停止した。後続product integrationを先行せず、明示no-op branchだけを追加した。次のrunは
+  stale Phase 7 acceptance hashを意図どおり拒否し、再生成差分が同じsource hash 2箇所だけであることを
+  確認した。最終exact gateは276-file format、analysis、generated reference/evidence、Phase 9 security
+  stress、aggregate testsを含め成功した。`git diff --check`もcleanである。

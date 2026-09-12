@@ -25,6 +25,7 @@ export 'src/api.dart'
         AppKitResolvedScreen,
         AppKitScreen,
         AppKitScreenSelection,
+        DefinitionPresentation,
         ExternalUrlPolicy,
         ExternalUrlSchemePolicy,
         GlobalHotKey,
@@ -68,6 +69,7 @@ export 'src/api.dart'
         TwoPaneSplitView,
         View,
         ViewConfiguration,
+        ViewQuickLookRequestedEvent,
         Window,
         WindowBackingScaleChangedEvent,
         WindowClosedEvent,
@@ -89,6 +91,7 @@ export 'src/api.dart'
 export 'src/native/native_bindings.dart'
     show
         dartAppKitCurrentEventProtocolVersion,
+        dartAppKitDefinitionMaximumTextUtf8Bytes,
         dartAppKitDockBadgeLabelMaximumUtf8Bytes,
         dartAppKitExternalUrlMaximumUtf8Bytes,
         dartAppKitStatusGlobalHotKeyConflict,

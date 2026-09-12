@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)8)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)9)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -177,6 +177,7 @@ typedef struct DaViewConfiguration {
 #define DA_TEXT_VIEW_FONT_MAX_SIZE 512.0
 #define DA_TEXT_VIEW_FONT_FAMILY_MAX_UTF8_BYTES ((size_t)256u)
 #define DA_TEXT_VIEW_PADDING_MAX_EXTENT 4096.0
+#define DA_DEFINITION_TEXT_MAX_UTF8_BYTES ((size_t)4096u)
 
 typedef enum DaTextViewFontKind {
   DA_TEXT_VIEW_FONT_SYSTEM = 0,
@@ -195,6 +196,21 @@ typedef enum DaTextViewFontWeight {
   DA_TEXT_VIEW_FONT_WEIGHT_HEAVY = 7,
   DA_TEXT_VIEW_FONT_WEIGHT_BLACK = 8
 } DaTextViewFontWeight;
+
+/** Size-prefixed font and baseline geometry for definition presentation. */
+typedef struct DaDefinitionPresentationConfiguration {
+  uint64_t struct_size;
+  int32_t font_kind;
+  int32_t font_weight;
+  int32_t reserved_0;
+  int32_t reserved_1;
+  double font_size;
+  double baseline_x;
+  double baseline_y;
+} DaDefinitionPresentationConfiguration;
+
+#define DA_DEFINITION_PRESENTATION_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaDefinitionPresentationConfiguration))
 
 typedef enum DaTextViewColorKind {
   DA_TEXT_VIEW_COLOR_LABEL = 0,
@@ -376,7 +392,8 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
   DA_EVENT_APPLICATION_APPEARANCE_CHANGED = 33,
   DA_EVENT_MENU_ITEM_INVOKED = 40,
-  DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41
+  DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41,
+  DA_EVENT_VIEW_QUICK_LOOK_REQUESTED = 42
 } DaEventType;
 
 /** Stable scroll gesture phase values used by protocol version 5. */
@@ -776,6 +793,22 @@ DA_EXPORT int32_t da_view_set_secure_input_indicator(DaHandle view,
  * clears it when menu is zero. Consumes neither handle.
  */
 DA_EXPORT int32_t da_view_set_context_menu(DaHandle view, DaHandle menu);
+
+/**
+ * Main thread only. Enables or disables asynchronous stage-2 pressure
+ * requests for this view. enabled must be zero or one.
+ */
+DA_EXPORT int32_t da_view_set_quick_look_request_enabled(DaHandle view,
+                                                         int32_t enabled);
+
+/**
+ * Main thread only. Presents a copied bounded term through AppKit definition
+ * lookup at one finite baseline point in the receiver's coordinates.
+ */
+DA_EXPORT int32_t da_view_show_definition(
+    DaHandle view, const char* text, size_t text_length,
+    const DaDefinitionPresentationConfiguration* configuration,
+    const char* font_family, size_t font_family_length);
 
 /**
  * Main thread only. Creates the two-pane helper: two children, one thin

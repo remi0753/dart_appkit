@@ -131,6 +131,7 @@ final class AppKitApplication {
       <int, WeakReference<MenuItem>>{};
   final Map<int, WeakReference<GlobalHotKey>> _globalHotKeys =
       <int, WeakReference<GlobalHotKey>>{};
+  final Map<int, WeakReference<View>> _views = <int, WeakReference<View>>{};
 
   late final StreamSubscription<Object?> _eventSubscription;
   bool _terminated = false;
@@ -416,6 +417,21 @@ final class AppKitApplication {
     _windows[window._handle] = WeakReference<Window>(window);
   }
 
+  void _registerView(View view) {
+    _ensureRunning();
+    if (_views.containsKey(view._handle)) {
+      throw StateError('native view handle ${view._handle} is duplicated');
+    }
+    _views[view._handle] = WeakReference<View>(view);
+  }
+
+  void _unregisterView(View view) {
+    final WeakReference<View>? reference = _views[view._handle];
+    if (identical(reference?.target, view) || reference?.target == null) {
+      _views.remove(view._handle);
+    }
+  }
+
   void _unregisterWindow(Window window) {
     final WeakReference<Window>? reference = _windows[window._handle];
     if (identical(reference?.target, window) || reference?.target == null) {
@@ -502,6 +518,14 @@ final class AppKitApplication {
           _globalHotKeys.remove(event.globalHotKeyHandle);
         }
       }
+      View? view;
+      if (event is ViewQuickLookRequestedEvent) {
+        final WeakReference<View>? reference = _views[event.viewHandle];
+        view = reference?.target;
+        if (view == null) {
+          _views.remove(event.viewHandle);
+        }
+      }
       _events.add(event);
       if (window != null) {
         window._dispatch(event);
@@ -511,6 +535,9 @@ final class AppKitApplication {
       }
       if (globalHotKey != null && event is GlobalHotKeyPressedEvent) {
         globalHotKey._dispatch(event);
+      }
+      if (view != null && event is ViewQuickLookRequestedEvent) {
+        view._dispatchQuickLook(event);
       }
     } on Object catch (error, stackTrace) {
       _events.addError(error, stackTrace);
@@ -532,6 +559,7 @@ final class AppKitApplication {
     _windows.clear();
     _menuItems.clear();
     _globalHotKeys.clear();
+    _views.clear();
     _active = false;
     _effectiveAppearance = null;
     _defersTerminationRequests = false;
@@ -584,6 +612,10 @@ int nativeWindowHandleForTesting(Window window) => window._handle;
 /// Returns the generation-checked global-hot-key handle for routing fixtures.
 /// Exported only from `package:dart_appkit/testing.dart`.
 int nativeGlobalHotKeyHandleForTesting(GlobalHotKey hotKey) => hotKey._handle;
+
+/// Returns the generation-checked View handle for request-routing fixtures.
+/// Exported only from `package:dart_appkit/testing.dart`.
+int nativeViewHandleForTesting(View view) => view._handle;
 
 /// Enters the real native deferred-termination state machine without asking
 /// the host process to exit. Exported only from `package:dart_appkit/testing.dart`.
