@@ -269,7 +269,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 - [x] PTY native asset packageと検証所有権をconsumerへ移す。
 - [x] renderer capability packageと検証所有権をconsumerへ移す。
 - [x] AppleScript capability packageと検証所有権をconsumerへ移す。
-- [ ] App Intents capability packageと検証所有権をconsumerへ移す。
+- [x] App Intents capability packageと検証所有権をconsumerへ移す。
 - [ ] folder Servicesのtab/window語彙を汎用actionへ置換し、consumerから意味を注入する。
 - [ ] Secure Input固有表示をboundedな汎用badgeへ置換し、consumerから文言を注入する。
 - [ ] generic test fixture、現行文書、Makefileを是正し、再混入を拒否するsource auditを追加する。

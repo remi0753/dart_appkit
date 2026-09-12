@@ -3544,3 +3544,22 @@ gates.
 AppleScript ownership transfer is complete. The parent remains open, and the
 next ordered subtask is moving the App Intents capability and verification
 gates.
+
+## 2026-09-12 — App Intents package ownership transfer
+
+- All 16 tracked App Intents capability files moved to the consumer. Its root
+  and package-local dependency declarations resolve the local product package
+  and adjacent generic runtime.
+- The consumer root now owns Swift compilation, C/C++ ABI checks, native
+  queue/perform lifecycle tests, Dart analysis/facade/FFI tests, extracted
+  compiler metadata verification, and aggregate dependencies. Its complete
+  focused gate passed.
+- This repository's tracked and ignored capability tree and all specific
+  Makefile ownership were removed. `make validate`, dry-run stale-reference
+  audit, path absence, and `git diff --check` passed.
+
+### Roadmap checkpoint
+
+All four product package trees are now consumer-owned. The correction parent
+remains open; the next subtask is replacing product-specific folder-Service
+tab/window semantics with generic application-injected actions.
