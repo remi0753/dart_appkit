@@ -3392,3 +3392,25 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、native bridge/Runner/event、runtime、全Dart
   package、Kernel、current/legacy FFIまで通過した。Runtime declarationとterminal tab/window生成は後続の
   順序付きtaskに残す。
+
+## 2026-09-12 — Closed runtime folder Service declarations
+
+- `dart_macos_runtime` manifest schema version 1へoptionalな `services` arrayをadditiveに追加した。各entryは
+  exact `kind`／`menuItem`だけを持ち、kindは `newTabAtFolder`／`newWindowAtFolder`に閉じる。同じkindまたは
+  同じmenu labelの重複、unknown field/type/kind、前後空白、slash、control/invisible scalar、256 UTF-8 byte超を
+  bundle mutation前に拒否し、validated listをimmutableにする。
+- AppleのServices property contractでは `NSServices` はdictionary array、`NSMenuItem.default` と
+  `NSMessage`がinvocationを記述し、`NSSendFileTypes`のUTI selectionはfile URL pasteboardをproviderへ渡す。
+  `NSRequiredContext`はfilterなしでも明示する。runtimeは任意plist fragmentやselectorを受け取らず、closed kindを
+  providerの固定 `openTab`／`openWindow`へ写像し、`public.item` file selectionとempty contextだけを出力する。
+- Pinned Ghosttyのplistも同じ2 message baseとordered menu entriesを宣言する。Ghostty固有のbuild variable、
+  legacy filename/plain-text typesは取り込まず、このbridgeが実際に検証するlocal file URL contractへ合わせた。
+- Builderはnon-empty declarationだけをordered `NSServices`へXML escapeして出力し、同じkind/labelを
+  `runtime-build-manifest.json`へ記録する。omitted/empty declarationは既存plistとbuild-manifest shapeを変更しない。
+  生成後は `/usr/bin/plutil -lint` をsigningより前に実行し、syntax failureを通常builder failureとして扱う。
+- Focused runtime format、analysis、strict parser、legacy omission、Developer JIT／Release AOTのexact plistと
+  build-manifest fixture、256-byte exact boundary、実 `plutil` parseは通過した。public manifest constructorは
+  optional empty defaultを持ち、既存の直接constructor利用もsource-compatibleに保つ。exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` は全native/runtime/package/Kernel/current+legacy FFIを通過し、
+  consuming Dart Terminalの同じexact gateもgenerated evidence、276-file format、analysis、Phase 9 security
+  stress、aggregate suiteまで通過した。

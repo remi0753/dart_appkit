@@ -70,6 +70,9 @@ private Dart implementation is copied or called to fill that gap.
 The repository also contains the separate `dart_macos_runtime` package. It
 turns a strict JSON application manifest plus a Dart `main(List<String>)` into
 the same generic AppKit-main application in Developer JIT or Release AOT form.
+Its optional closed folder-Service declarations generate deterministic
+`NSServices` metadata for the bridge's fixed new-tab/new-window provider
+messages and are copied into the runtime build manifest for audit.
 The application does not compile a runner or depend on native implementation
 paths. `dart_appkit:run` remains available as the compatible lightweight JIT
 developer command. `dart_terminal_renderer_macos` demonstrates the production

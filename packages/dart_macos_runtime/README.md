@@ -26,7 +26,7 @@ The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
 Manifest version 1 contains these required fields plus the optional `runner`,
-`dartHelpers`, and `nativeAssets` values:
+`services`, `dartHelpers`, and `nativeAssets` values:
 
 ```json
 {
@@ -38,6 +38,16 @@ Manifest version 1 contains these required fields plus the optional `runner`,
     "version": "1.0.0",
     "minimumSystemVersion": "14.0"
   },
+  "services": [
+    {
+      "kind": "newTabAtFolder",
+      "menuItem": "New Example Tab Here"
+    },
+    {
+      "kind": "newWindowAtFolder",
+      "menuItem": "New Example Window Here"
+    }
+  ],
   "runner": {
     "activationPolicy": "regular",
     "activateOnLaunch": true,
@@ -71,6 +81,16 @@ and are posted to Dart for either handled result. The nested `messagePump`
 object selects positive integer per-turn budgets. Its defaults are 64 messages
 and 4000 microseconds, while immutable library hard maxima reject values above
 1024 messages or 16000 microseconds.
+
+The optional `services` array is closed to `newTabAtFolder` and
+`newWindowAtFolder`. Each kind may appear at most once and must have a unique,
+trimmed, display-safe `menuItem` no larger than 256 UTF-8 bytes. The builder
+maps those kinds to the fixed `openTab` and `openWindow` AppKit provider
+messages and advertises `public.item` through `NSSendFileTypes`; callers cannot
+inject selectors or arbitrary property-list keys. It emits `NSServices` only
+when the array is non-empty, validates the completed property list before
+signing, and records the same ordered declarations in
+`runtime-build-manifest.json`.
 
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized

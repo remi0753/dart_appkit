@@ -335,10 +335,13 @@ without a shell.
 
 The manifest-driven `dart_macos_runtime:build` path generalizes that workflow.
 One versioned JSON document owns product identity, minimum macOS version,
-entrypoint, declared resources, and diagnostics policy. Unknown keys and path
-traversal are rejected. The builder generates a private Dart wrapper whose
-`main` is retained for native AOT invocation, so applications keep an ordinary
-`main(List<String>)` in both modes.
+entrypoint, declared resources, optional closed folder Services, and diagnostics
+policy. Unknown keys and path traversal are rejected. The Services schema maps
+only `newTabAtFolder` and `newWindowAtFolder` to the fixed AppKit provider
+messages, emits ordered `NSServices` file-type declarations, and does not expose
+arbitrary plist or selector injection. The builder generates a private Dart
+wrapper whose `main` is retained for native AOT invocation, so applications
+keep an ordinary `main(List<String>)` in both modes.
 
 Each native capability declaration fixes an ID, owning package, dylib filename,
 capability ABI, ABI symbol, and initializer symbol. If declarations are present,
@@ -383,7 +386,9 @@ library. Both bundles place the generic executable in `Contents/MacOS`, the
 Engine in `Contents/Frameworks`, and only declared/runtime-owned data in
 `Contents/Resources`. A generated build manifest records mode, architecture,
 bundle identity, payload, Engine, SDK version/revision, helper declarations,
-native assets, capabilities, and resource list.
+native assets, capabilities, folder Service declarations when present, and
+resource list. The completed Info.plist is syntax-validated before signing;
+manifests without Services retain the previous plist and build-manifest shape.
 
 The exported `dmr_*` lifecycle ABI is independent from the `da_*` AppKit ABI.
 The first nonzero 1–255 process result wins on the AppKit main thread;

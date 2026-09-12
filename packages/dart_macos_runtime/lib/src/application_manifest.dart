@@ -94,6 +94,20 @@ final class MacosDartHelperManifest {
   final String entrypoint;
 }
 
+enum MacosApplicationServiceKind { newTabAtFolder, newWindowAtFolder }
+
+final class MacosApplicationServiceManifest {
+  const MacosApplicationServiceManifest({
+    required this.kind,
+    required this.menuItem,
+  });
+
+  static const int maximumMenuItemUtf8Bytes = 256;
+
+  final MacosApplicationServiceKind kind;
+  final String menuItem;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -102,6 +116,7 @@ final class MacosApplicationManifest {
     required this.version,
     required this.minimumSystemVersion,
     required this.entrypoint,
+    this.services = const <MacosApplicationServiceManifest>[],
     required this.dartHelpers,
     required this.resources,
     required this.nativeAssets,
@@ -130,7 +145,7 @@ final class MacosApplicationManifest {
         'nativeCapabilities',
         'diagnostics',
       },
-      const <String>{'dartHelpers', 'nativeAssets', 'runner'},
+      const <String>{'dartHelpers', 'nativeAssets', 'runner', 'services'},
       'manifest',
     );
     if (root['schemaVersion'] != 1) {
@@ -201,6 +216,19 @@ final class MacosApplicationManifest {
       _string(dart['entrypoint'], 'dart.entrypoint'),
       'dart.entrypoint',
     );
+    final Object? serviceValue = root['services'];
+    final List<Object?> serviceValues = switch (serviceValue) {
+      null => const <Object?>[],
+      final List<Object?> value => value,
+      _ => throw const MacosApplicationManifestException(
+        'manifest.services must be an array',
+      ),
+    };
+    final List<MacosApplicationServiceManifest> services =
+        <MacosApplicationServiceManifest>[
+          for (var index = 0; index < serviceValues.length; ++index)
+            _applicationService(serviceValues[index], index),
+        ];
     final MacosRunnerActivationPolicy activationPolicy =
         switch (runner['activationPolicy']) {
           null => MacosRunnerActivationPolicy.regular,
@@ -319,6 +347,17 @@ final class MacosApplicationManifest {
         'manifest.resources contains a duplicate path',
       );
     }
+    if (services.map((value) => value.kind).toSet().length != services.length) {
+      throw const MacosApplicationManifestException(
+        'manifest.services contains a duplicate kind',
+      );
+    }
+    if (services.map((value) => value.menuItem).toSet().length !=
+        services.length) {
+      throw const MacosApplicationManifestException(
+        'manifest.services contains a duplicate menu item',
+      );
+    }
     if (dartHelpers.map((value) => value.name).toSet().length !=
         dartHelpers.length) {
       throw const MacosApplicationManifestException(
@@ -356,6 +395,7 @@ final class MacosApplicationManifest {
       version: version,
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
+      services: List<MacosApplicationServiceManifest>.unmodifiable(services),
       dartHelpers: List<MacosDartHelperManifest>.unmodifiable(dartHelpers),
       resources: List<String>.unmodifiable(resources),
       nativeAssets: List<MacosNativeAssetManifest>.unmodifiable(nativeAssets),
@@ -395,6 +435,7 @@ final class MacosApplicationManifest {
   final String version;
   final String minimumSystemVersion;
   final String entrypoint;
+  final List<MacosApplicationServiceManifest> services;
   final List<MacosDartHelperManifest> dartHelpers;
   final List<String> resources;
   final List<MacosNativeAssetManifest> nativeAssets;
@@ -412,6 +453,52 @@ final class MacosApplicationManifest {
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
+}
+
+MacosApplicationServiceManifest _applicationService(Object? value, int index) {
+  final String path = 'services[$index]';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{'kind', 'menuItem'}, path);
+  final MacosApplicationServiceKind kind = switch (object['kind']) {
+    'newTabAtFolder' => MacosApplicationServiceKind.newTabAtFolder,
+    'newWindowAtFolder' => MacosApplicationServiceKind.newWindowAtFolder,
+    _ => throw MacosApplicationManifestException(
+      '$path.kind must be newTabAtFolder or newWindowAtFolder',
+    ),
+  };
+  final String menuItem = _string(object['menuItem'], '$path.menuItem');
+  if (!_safeServiceMenuItem(menuItem)) {
+    throw MacosApplicationManifestException(
+      '$path.menuItem must be bounded display-safe text without a slash',
+    );
+  }
+  return MacosApplicationServiceManifest(kind: kind, menuItem: menuItem);
+}
+
+bool _safeServiceMenuItem(String value) {
+  if (value.trim() != value ||
+      value.contains('/') ||
+      utf8.encode(value).length >
+          MacosApplicationServiceManifest.maximumMenuItemUtf8Bytes) {
+    return false;
+  }
+  for (final int scalar in value.runes) {
+    final bool unsafe =
+        scalar <= 0x1f ||
+        scalar >= 0x7f && scalar <= 0x9f ||
+        scalar == 0xa0 ||
+        scalar == 0xad ||
+        scalar == 0x61c ||
+        scalar == 0x1680 ||
+        scalar == 0x180e ||
+        scalar >= 0x2000 && scalar <= 0x200f ||
+        scalar >= 0x2028 && scalar <= 0x202f ||
+        scalar >= 0x205f && scalar <= 0x206f ||
+        scalar == 0x3000 ||
+        scalar == 0xfeff;
+    if (unsafe) return false;
+  }
+  return true;
 }
 
 bool _optionalBoolean(

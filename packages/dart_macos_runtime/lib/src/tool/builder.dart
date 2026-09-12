@@ -688,8 +688,15 @@ final class RuntimeApplicationBuilder {
       await destination.parent.create(recursive: true);
       await source.copy(destination.path);
     }
-    await File(_join(contents.path, 'Info.plist'))
-        .writeAsString(_infoPlist(manifest, sdkRevision), flush: true);
+    final File infoPlist = File(_join(contents.path, 'Info.plist'));
+    await infoPlist.writeAsString(
+      _infoPlist(manifest, sdkRevision),
+      flush: true,
+    );
+    await _runChecked('Info.plist validation', '/usr/bin/plutil', <String>[
+      '-lint',
+      infoPlist.path,
+    ], projectRoot.path);
     await File(
       _join(resources.path, 'runtime-build-manifest.json'),
     ).writeAsString(
@@ -716,6 +723,15 @@ final class RuntimeApplicationBuilder {
                     manifest.runner.messagePump.maxTimePerTurnMicros,
               },
             },
+            if (manifest.services.isNotEmpty)
+              'services': <Map<String, Object>>[
+                for (final MacosApplicationServiceManifest service
+                    in manifest.services)
+                  <String, Object>{
+                    'kind': service.kind.name,
+                    'menuItem': service.menuItem,
+                  },
+              ],
             'dartHelpers': <Map<String, Object>>[
               for (final MacosDartHelperManifest helper in manifest.dartHelpers)
                 <String, Object>{
@@ -927,7 +943,7 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
   <string>${_xml(manifest.minimumSystemVersion)}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
-  <key>DMRDartSDKRevision</key>
+${_servicesInfoPlist(manifest.services)}  <key>DMRDartSDKRevision</key>
   <string>${_xml(sdkRevision)}</string>
   <key>DMRDiagnosticsEnabled</key>
   <${manifest.diagnostics.enabled ? 'true' : 'false'}/>
@@ -954,6 +970,37 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
 </dict>
 </plist>
 ''';
+
+String _servicesInfoPlist(List<MacosApplicationServiceManifest> services) {
+  if (services.isEmpty) return '';
+  final StringBuffer buffer = StringBuffer()
+    ..writeln('  <key>NSServices</key>')
+    ..writeln('  <array>');
+  for (final MacosApplicationServiceManifest service in services) {
+    final String message = switch (service.kind) {
+      MacosApplicationServiceKind.newTabAtFolder => 'openTab',
+      MacosApplicationServiceKind.newWindowAtFolder => 'openWindow',
+    };
+    buffer
+      ..writeln('    <dict>')
+      ..writeln('      <key>NSMenuItem</key>')
+      ..writeln('      <dict>')
+      ..writeln('        <key>default</key>')
+      ..writeln('        <string>${_xml(service.menuItem)}</string>')
+      ..writeln('      </dict>')
+      ..writeln('      <key>NSMessage</key>')
+      ..writeln('      <string>$message</string>')
+      ..writeln('      <key>NSRequiredContext</key>')
+      ..writeln('      <dict/>')
+      ..writeln('      <key>NSSendFileTypes</key>')
+      ..writeln('      <array>')
+      ..writeln('        <string>public.item</string>')
+      ..writeln('      </array>')
+      ..writeln('    </dict>');
+  }
+  buffer.writeln('  </array>');
+  return buffer.toString();
+}
 
 String _xml(String value) => value
     .replaceAll('&', '&amp;')

@@ -59,6 +59,19 @@ const String _validManifest = '''
 }
 ''';
 
+String _withFolderServices(String manifest) =>
+    manifest.replaceFirst('"dart":', '''"services": [
+    {
+      "kind": "newTabAtFolder",
+      "menuItem": "New <Terminal> Tab & Here"
+    },
+    {
+      "kind": "newWindowAtFolder",
+      "menuItem": "New Terminal Window Here"
+    }
+  ],
+  "dart":''');
+
 final class _FakeBindings implements RuntimeBindings {
   int runtimeVersion = 1;
   int diagnosticsVersion = 1;
@@ -159,6 +172,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         );
       }
     } else if (executable != '/bin/chmod' &&
+        executable != '/usr/bin/plutil' &&
         executable != '/usr/bin/codesign') {
       throw StateError('unexpected command: $executable $arguments');
     }
@@ -242,6 +256,7 @@ Future<void> main() async {
     _expect(manifest.executableName == 'hello_window', 'executable name');
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
+    _expect(manifest.services.isEmpty, 'services default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
     _expect(
       manifest.runner.activationPolicy == MacosRunnerActivationPolicy.regular,
@@ -267,6 +282,73 @@ Future<void> main() async {
         ),
       );
     });
+    final MacosApplicationManifest serviceManifest =
+        MacosApplicationManifest.parse(_withFolderServices(_validManifest));
+    _expect(serviceManifest.services.length == 2, 'service count');
+    _expect(
+      serviceManifest.services[0].kind ==
+              MacosApplicationServiceKind.newTabAtFolder &&
+          serviceManifest.services[0].menuItem == 'New <Terminal> Tab & Here' &&
+          serviceManifest.services[1].kind ==
+              MacosApplicationServiceKind.newWindowAtFolder,
+      'closed folder service declarations',
+    );
+    _expectThrows<UnsupportedError>(() {
+      serviceManifest.services.add(serviceManifest.services.first);
+    });
+    for (final String services in <String>[
+      '{}',
+      '[true]',
+      '[{"kind":"openFolder","menuItem":"Open Here"}]',
+      '[{"kind":"newTabAtFolder"}]',
+      '[{"kind":"newTabAtFolder","menuItem":"Open Here","extra":true}]',
+      '[{"kind":"newTabAtFolder","menuItem":1}]',
+      '[{"kind":"newTabAtFolder","menuItem":""}]',
+      '[{"kind":"newTabAtFolder","menuItem":" Open Here"}]',
+      '[{"kind":"newTabAtFolder","menuItem":"Open/Here"}]',
+      '[{"kind":"newTabAtFolder","menuItem":"Open\\nHere"}]',
+      '''[
+        {"kind":"newTabAtFolder","menuItem":"Open Tab Here"},
+        {"kind":"newTabAtFolder","menuItem":"Another Tab Here"}
+      ]''',
+      '''[
+        {"kind":"newTabAtFolder","menuItem":"Open Here"},
+        {"kind":"newWindowAtFolder","menuItem":"Open Here"}
+      ]''',
+    ]) {
+      _expectThrows<MacosApplicationManifestException>(() {
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"services": $services, "dart":',
+          ),
+        );
+      });
+    }
+    _expectThrows<MacosApplicationManifestException>(() {
+      final String oversized =
+          'x' * (MacosApplicationServiceManifest.maximumMenuItemUtf8Bytes + 1);
+      MacosApplicationManifest.parse(
+        _validManifest.replaceFirst(
+          '"dart":',
+          '"services": [{"kind":"newTabAtFolder",'
+              '"menuItem":${jsonEncode(oversized)}}], "dart":',
+        ),
+      );
+    });
+    final String boundaryLabel = 'é' * 128;
+    final MacosApplicationManifest boundaryServiceManifest =
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"services": [{"kind":"newTabAtFolder",'
+                '"menuItem":${jsonEncode(boundaryLabel)}}], "dart":',
+          ),
+        );
+    _expect(
+      boundaryServiceManifest.services.single.menuItem == boundaryLabel,
+      'service menu item accepts the exact UTF-8 boundary',
+    );
     _expectThrows<MacosApplicationManifestException>(() {
       MacosApplicationManifest.parse(
         _validManifest.replaceFirst('"bin/main.dart"', '"../bin/main.dart"'),
@@ -549,6 +631,13 @@ Future<void> main() async {
       'helper declaration is recorded',
     );
     _expect(
+      !buildManifest.containsKey('services') &&
+          !File('$contents/Info.plist')
+              .readAsStringSync()
+              .contains('<key>NSServices</key>'),
+      'legacy manifests do not gain Service metadata',
+    );
+    _expect(
       executor.commands.any(
         (_RecordedCommand command) =>
             command.executable.endsWith('/bin/dart') &&
@@ -566,7 +655,7 @@ Future<void> main() async {
     final _Fixture fixture = await _Fixture.create();
     _write(
       '${fixture.project.path}/macos_application.json',
-      _validManifest.replaceFirst('"dart":', '''"runner": {
+      _withFolderServices(_validManifest).replaceFirst('"dart":', '''"runner": {
     "activationPolicy": "prohibited",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
@@ -626,6 +715,62 @@ Future<void> main() async {
           ),
       'runner message-pump policy is bundled',
     );
+    const String expectedServices = '''  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict>
+        <key>default</key>
+        <string>New &lt;Terminal&gt; Tab &amp; Here</string>
+      </dict>
+      <key>NSMessage</key>
+      <string>openTab</string>
+      <key>NSRequiredContext</key>
+      <dict/>
+      <key>NSSendFileTypes</key>
+      <array>
+        <string>public.item</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSMenuItem</key>
+      <dict>
+        <key>default</key>
+        <string>New Terminal Window Here</string>
+      </dict>
+      <key>NSMessage</key>
+      <string>openWindow</string>
+      <key>NSRequiredContext</key>
+      <dict/>
+      <key>NSSendFileTypes</key>
+      <array>
+        <string>public.item</string>
+      </array>
+    </dict>
+  </array>
+''';
+    _expect(
+      infoPlist.contains(expectedServices),
+      'folder Services are deterministic and XML escaped',
+    );
+    final ProcessResult plistLint = Process.runSync('/usr/bin/plutil', <String>[
+      '-lint',
+      '${bundle.path}/Contents/Info.plist',
+    ]);
+    _expect(
+      plistLint.exitCode == 0,
+      'real plutil accepts generated folder Services: ${plistLint.stderr}',
+    );
+    _expect(
+      executor.commands.any(
+        (_RecordedCommand command) =>
+            command.executable == '/usr/bin/plutil' &&
+            command.arguments.length == 2 &&
+            command.arguments.first == '-lint' &&
+            command.arguments.last.endsWith('/Contents/Info.plist'),
+      ),
+      'generated Info.plist is validated before signing',
+    );
     final Map<String, Object?> buildManifest = jsonDecode(
       File('${bundle.path}/Contents/Resources/runtime-build-manifest.json')
           .readAsStringSync(),
@@ -640,6 +785,14 @@ Future<void> main() async {
           messagePump['maxTimePerTurnMicros'] == 2500,
       'runner message-pump policy is recorded',
     );
+    final List<Object?> services = buildManifest['services']! as List<Object?>;
+    _expect(
+      services.length == 2 &&
+          (services[0]! as Map<String, Object?>)['kind'] == 'newTabAtFolder' &&
+          (services[1]! as Map<String, Object?>)['menuItem'] ==
+              'New Terminal Window Here',
+      'validated folder Services are recorded',
+    );
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');
     _expect(launched.arguments.contains('--smoke'), 'arguments forwarded');
@@ -648,6 +801,10 @@ Future<void> main() async {
 
   await _test('Release AOT manifest-driven assembly', () async {
     final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _withFolderServices(_validManifest),
+    );
     final _FakeExecutor executor = _FakeExecutor();
     final int result = await fixture
         .builder(executor)
@@ -671,6 +828,18 @@ Future<void> main() async {
           .readAsStringSync(),
     ) as Map<String, Object?>;
     _expect(buildManifest['runtimeMode'] == 'release-aot', 'mode recorded');
+    _expect(
+      (buildManifest['services']! as List<Object?>).length == 2,
+      'AOT build records folder Services',
+    );
+    final String infoPlist = File('${bundle.path}/Contents/Info.plist')
+        .readAsStringSync();
+    _expect(
+      infoPlist.indexOf('<string>openTab</string>') <
+              infoPlist.indexOf('<string>openWindow</string>') &&
+          infoPlist.contains('<string>public.item</string>'),
+      'AOT Info.plist preserves declared Service order',
+    );
     _expect(
       executor.commands.any(
         (_RecordedCommand command) =>

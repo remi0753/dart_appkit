@@ -54,6 +54,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Manifest-driven Developer JIT application | Generic host build and real hello-window Timer/menu/close smoke | Verified |
 | Manifest-driven Release AOT application | Generic host/snapshot build and the same real hello-window smoke | Verified |
 | Runtime package and builder | Strict manifest/resource tests, fake-process JIT/AOT assembly, Dart analysis | Verified |
+| Closed folder Services declarations | Strict kind/menu/duplicate/unknown-key validation, exact escaped JIT/AOT `NSServices`, legacy omission, build-manifest audit, and pre-signing plist lint | Verified |
 | Versioned native extension services | Size/version C ABI, main-thread registration, invalid UTF-8, duplicate/conflict, and factory failure tests | Verified |
 | Dependency-owned native capability | Dart 3.13 build-hook asset test plus dynamic image ABI/init/create/release/shutdown/lifetime native test | Verified |
 | Terminal renderer capability | C11/C++20 ABI checks, build-hook asset, dynamic `dtr_*` initialization, 1x/2x alpha/CJK/color logical-ink parity, Metal view invariants, window attachment, stale handle, teardown, and image lifetime | Verified |
