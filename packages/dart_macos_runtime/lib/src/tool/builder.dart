@@ -28,6 +28,9 @@ Options:
                                 Default: developer-jit
       --build-dir <directory>   Generated files directory.
       --engine-root <directory> Matching Dart SDK source checkout.
+      --target-architecture <architecture>
+                                Release AOT target: arm64 or x86_64.
+                                Default: current architecture
       --run                     Launch the assembled application.
 ''';
 
@@ -58,6 +61,7 @@ final class RuntimeBuilderOptions {
     required this.mode,
     required this.buildDirectory,
     required this.engineRoot,
+    required this.targetArchitecture,
     required this.runApplication,
     required this.applicationArguments,
   });
@@ -68,6 +72,7 @@ final class RuntimeBuilderOptions {
     var mode = RuntimeBuildMode.developerJit;
     String? buildDirectory;
     String? engineRoot;
+    String? targetArchitecture;
     var runApplication = false;
     var forwarding = false;
     final List<String> applicationArguments = <String>[];
@@ -128,6 +133,16 @@ final class RuntimeBuilderOptions {
       } else if (argument == '--engine-root' ||
           argument.startsWith('--engine-root=')) {
         engineRoot = optionValue('--engine-root');
+      } else if (argument == '--target-architecture' ||
+          argument.startsWith('--target-architecture=')) {
+        final String value = optionValue('--target-architecture');
+        if (value != 'arm64' && value != 'x86_64') {
+          throw RuntimeBuilderException(
+            '--target-architecture must be arm64 or x86_64: $value',
+            exitCode: builderUsageExitCode,
+          );
+        }
+        targetArchitecture = value;
       } else {
         throw RuntimeBuilderException(
           'unknown option: $argument',
@@ -153,6 +168,7 @@ final class RuntimeBuilderOptions {
       mode: mode,
       buildDirectory: buildDirectory,
       engineRoot: engineRoot,
+      targetArchitecture: targetArchitecture,
       runApplication: runApplication,
       applicationArguments: List<String>.unmodifiable(applicationArguments),
     );
@@ -163,6 +179,7 @@ final class RuntimeBuilderOptions {
   final RuntimeBuildMode mode;
   final String? buildDirectory;
   final String? engineRoot;
+  final String? targetArchitecture;
   final bool runApplication;
   final List<String> applicationArguments;
 }
@@ -314,6 +331,22 @@ final class RuntimeApplicationBuilder {
     );
     final MacosApplicationManifest manifest =
         await MacosApplicationManifest.load(manifestFile);
+    final String targetArchitecture =
+        options.targetArchitecture ?? architecture;
+    if (options.targetArchitecture != null &&
+        options.mode != RuntimeBuildMode.releaseAot) {
+      throw const RuntimeBuilderException(
+        '--target-architecture is available only for release-aot builds',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    if (options.runApplication && targetArchitecture != architecture) {
+      throw RuntimeBuilderException(
+        'cannot run a $targetArchitecture application from an $architecture '
+        'builder; build it without --run',
+        exitCode: builderUnavailableExitCode,
+      );
+    }
     final Directory projectRoot = manifestFile.parent;
     final File entrypoint = await _existingFile(
       _join(projectRoot.path, manifest.entrypoint),
@@ -338,10 +371,67 @@ final class RuntimeApplicationBuilder {
     }
 
     final Directory engineRoot = await _engineRoot(options.engineRoot);
+    File targetDartExecutable = dartExecutable;
+    if (targetArchitecture != architecture) {
+      final String targetSdkDirectoryName =
+          'Release${targetArchitecture == 'arm64' ? 'ARM64' : 'X64'}';
+      final Directory targetSdkRoot = await _existingDirectory(
+        _join(engineRoot.path, 'xcodebuild/$targetSdkDirectoryName/dart-sdk'),
+        'target Dart SDK',
+      );
+      final String targetSdkVersion = await _readMetadata(
+        targetSdkRoot,
+        'version',
+      );
+      final String targetSdkRevision = await _readMetadata(
+        targetSdkRoot,
+        'revision',
+      );
+      if (targetSdkVersion != sdkVersion || targetSdkRevision != sdkRevision) {
+        throw RuntimeBuilderException(
+          'target Dart SDK does not match the builder SDK: '
+          '$targetSdkVersion/$targetSdkRevision',
+          exitCode: builderUnavailableExitCode,
+        );
+      }
+      targetDartExecutable = await _existingFile(
+        _join(targetSdkRoot.path, 'bin/dart'),
+        'target Dart executable',
+      );
+      for (final String relativePath in const <String>[
+        'bin/dartvm',
+        'bin/dartaotruntime',
+        'bin/utils/gen_snapshot',
+        'bin/snapshots/dartdev_aot.dart.snapshot',
+        'bin/snapshots/gen_kernel_aot.dart.snapshot',
+        'lib/_internal/vm_platform.dill',
+        'lib/_internal/vm_platform_product.dill',
+        'lib/_internal/vm_platform_strong.dill',
+      ]) {
+        await _existingFile(
+          _join(targetSdkRoot.path, relativePath),
+          'target Dart SDK artifact',
+        );
+      }
+      final String targetDartArchitectures = await _runCapturedChecked(
+        'target Dart architecture validation',
+        '/usr/bin/lipo',
+        <String>['-archs', targetDartExecutable.path],
+        projectWorkingDirectory: projectRoot.path,
+      );
+      if (!targetDartArchitectures
+          .split(RegExp(r'\s+'))
+          .contains(targetArchitecture)) {
+        throw RuntimeBuilderException(
+          'target Dart executable does not contain $targetArchitecture',
+          exitCode: builderUnavailableExitCode,
+        );
+      }
+    }
     final String engineDirectoryName =
         options.mode == RuntimeBuildMode.developerJit
-        ? 'Release${architecture == 'arm64' ? 'ARM64' : 'X64'}'
-        : 'Product${architecture == 'arm64' ? 'ARM64' : 'X64'}';
+        ? 'Release${targetArchitecture == 'arm64' ? 'ARM64' : 'X64'}'
+        : 'Product${targetArchitecture == 'arm64' ? 'ARM64' : 'X64'}';
     final Directory engineOutput = await _existingDirectory(
       _join(engineRoot.path, 'xcodebuild/$engineDirectoryName'),
       'Dart Engine output',
@@ -372,7 +462,7 @@ final class RuntimeApplicationBuilder {
       _join(engineOutput.path, 'bootstrap_gen_kernel.exe'),
       'Dart Engine Kernel compiler',
     );
-    final String toolchain = architecture == 'arm64'
+    final String toolchain = targetArchitecture == 'arm64'
         ? 'clang_arm64_shared'
         : 'clang_x64_shared';
     final File platform = await _existingFile(
@@ -406,6 +496,7 @@ final class RuntimeApplicationBuilder {
             declaration: manifest.appIntents!,
             packageConfig: packageConfig,
             buildRoot: buildRoot,
+            targetArchitecture: targetArchitecture,
           );
     final Directory nativeBuild = Directory(_join(buildRoot.path, 'host'));
     final String makeTarget = options.mode == RuntimeBuildMode.developerJit
@@ -417,6 +508,7 @@ final class RuntimeApplicationBuilder {
       'BUILD_DIR=${nativeBuild.path}',
       'DART_SDK=${sdkRoot.path}',
       'DART_ENGINE_ROOT=${engineRoot.path}',
+      'RUNTIME_TARGET_ARCH=$targetArchitecture',
       if (options.mode == RuntimeBuildMode.developerJit)
         'DART_ENGINE_LIBRARY=${engineLibrary.path}'
       else
@@ -513,7 +605,7 @@ final class RuntimeApplicationBuilder {
         }
         await _runChecked(
           'Dart helper compilation (${helper.name})',
-          dartExecutable.path,
+          targetDartExecutable.path,
           <String>[
             'build',
             'cli',
@@ -521,7 +613,7 @@ final class RuntimeApplicationBuilder {
             '--target=${helperEntrypoint.path}',
             '--packages=${packageConfig.path}',
             '--target-os=macos',
-            '--target-arch=${architecture == 'arm64' ? 'arm64' : 'x64'}',
+            '--target-arch=${targetArchitecture == 'arm64' ? 'arm64' : 'x64'}',
             '--verbosity=warning',
           ],
           projectRoot.path,
@@ -549,7 +641,7 @@ final class RuntimeApplicationBuilder {
       }
       await _runChecked(
         'Dart native asset hooks',
-        dartExecutable.path,
+        targetDartExecutable.path,
         <String>[
           'build',
           'cli',
@@ -557,7 +649,7 @@ final class RuntimeApplicationBuilder {
           '--target=${entrypoint.path}',
           '--packages=${packageConfig.path}',
           '--target-os=macos',
-          '--target-arch=${architecture == 'arm64' ? 'arm64' : 'x64'}',
+          '--target-arch=${targetArchitecture == 'arm64' ? 'arm64' : 'x64'}',
           '--verbosity=warning',
         ],
         projectRoot.path,
@@ -593,6 +685,7 @@ final class RuntimeApplicationBuilder {
       dartHelpers: dartHelpers,
       nativeImages: nativeImages,
       appIntents: compiledAppIntents,
+      targetArchitecture: targetArchitecture,
     );
     output('${bundle.root.path}\n');
     if (!options.runApplication) {
@@ -623,6 +716,7 @@ final class RuntimeApplicationBuilder {
     required MacosAppIntentsManifest declaration,
     required File packageConfig,
     required Directory buildRoot,
+    required String targetArchitecture,
   }) async {
     final Directory packageRoot = await _packageRoot(
       packageConfig,
@@ -673,7 +767,7 @@ final class RuntimeApplicationBuilder {
     );
     final File image = File(_join(outputDirectory.path, declaration.library));
     final String targetTriple =
-        '${architecture == 'arm64' ? 'arm64' : 'x86_64'}-apple-macos'
+        '${targetArchitecture == 'arm64' ? 'arm64' : 'x86_64'}-apple-macos'
         '${manifest.minimumSystemVersion}';
     final File swiftCompiler = await _xcrunFind('swiftc');
     final File metadataProcessor = await _xcrunFind(
@@ -887,6 +981,7 @@ final class RuntimeApplicationBuilder {
     required Map<String, File> dartHelpers,
     required Map<String, File> nativeImages,
     required _CompiledAppIntents? appIntents,
+    required String targetArchitecture,
   }) async {
     final Directory root = Directory(
       _join(buildRoot.path, '${manifest.name}.app'),
@@ -1030,7 +1125,7 @@ final class RuntimeApplicationBuilder {
       const JsonEncoder.withIndent('  ').convert(<String, Object>{
             'schemaVersion': 1,
             'runtimeMode': mode.name,
-            'architecture': architecture,
+            'architecture': targetArchitecture,
             'bundleIdentifier': manifest.bundleIdentifier,
             'executable': manifest.executableName,
             'payload': _basename(bundledPayload.path),

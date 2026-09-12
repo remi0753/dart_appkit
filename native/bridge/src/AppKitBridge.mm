@@ -1459,10 +1459,12 @@ DaApplicationAccessibilityDisplayPreferencesObserver*
 AccessibilityDisplayPreferences QueryAccessibilityDisplayPreferencesWithSystem() {
   NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
   return AccessibilityDisplayPreferences{
-      .reduce_motion = workspace.accessibilityDisplayShouldReduceMotion,
-      .increase_contrast = workspace.accessibilityDisplayShouldIncreaseContrast,
+      .reduce_motion =
+          workspace.accessibilityDisplayShouldReduceMotion != NO,
+      .increase_contrast =
+          workspace.accessibilityDisplayShouldIncreaseContrast != NO,
       .differentiate_without_color =
-          workspace.accessibilityDisplayShouldDifferentiateWithoutColor,
+          workspace.accessibilityDisplayShouldDifferentiateWithoutColor != NO,
   };
 }
 

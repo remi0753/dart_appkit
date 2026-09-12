@@ -181,6 +181,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
   bool failAppIntentsMetadataExtraction = false;
   bool omitAppIntentsMetadata = false;
   bool invalidateAppIntentsVersion = false;
+  bool wrongTargetDartArchitecture = false;
   late String developerDirectory;
   late String macosSdkDirectory;
 
@@ -192,6 +193,14 @@ final class _FakeExecutor implements BuilderProcessExecutor {
     bool inheritStdio = false,
   }) async {
     commands.add(_RecordedCommand(executable, arguments, inheritStdio));
+    if (executable == '/usr/bin/lipo') {
+      return BuilderCommandResult(
+        exitCode: 0,
+        stdoutText: arguments.last.contains('/ReleaseX64/')
+            ? '${wrongTargetDartArchitecture ? 'arm64' : 'x86_64'}\n'
+            : 'arm64\n',
+      );
+    }
     if (executable == '/usr/bin/xcrun') {
       if (arguments.length == 2 && arguments.first == '--find') {
         final String tool = arguments.last;
@@ -367,6 +376,11 @@ final class _Fixture {
       _write('$base/bootstrap_gen_kernel.exe', 'fake compiler');
       _write('$base/clang_arm64_shared/vm_platform.dill', 'fake platform');
     }
+    for (final String output in <String>['ReleaseX64', 'ProductX64']) {
+      final String base = '${engine.path}/xcodebuild/$output';
+      _write('$base/bootstrap_gen_kernel.exe', 'fake compiler');
+      _write('$base/clang_x64_shared/vm_platform.dill', 'fake platform');
+    }
     _write(
       '${engine.path}/xcodebuild/ReleaseARM64/libdart_engine_jit_shared.dylib',
       'fake JIT engine',
@@ -376,6 +390,42 @@ final class _Fixture {
       'fake AOT engine',
     );
     _write('${engine.path}/xcodebuild/ProductARM64/gen_snapshot', 'fake gen');
+    _write(
+      '${engine.path}/xcodebuild/ReleaseX64/libdart_engine_jit_shared.dylib',
+      'fake x64 JIT engine',
+    );
+    _write(
+      '${engine.path}/xcodebuild/ReleaseX64/dart-sdk/bin/dart',
+      'fake dart',
+    );
+    for (final String relativePath in <String>[
+      'bin/dartvm',
+      'bin/dartaotruntime',
+      'bin/utils/gen_snapshot',
+      'bin/snapshots/dartdev_aot.dart.snapshot',
+      'bin/snapshots/gen_kernel_aot.dart.snapshot',
+      'lib/_internal/vm_platform.dill',
+      'lib/_internal/vm_platform_product.dill',
+      'lib/_internal/vm_platform_strong.dill',
+    ]) {
+      _write(
+        '${engine.path}/xcodebuild/ReleaseX64/dart-sdk/$relativePath',
+        'fake target SDK artifact',
+      );
+    }
+    _write(
+      '${engine.path}/xcodebuild/ReleaseX64/dart-sdk/version',
+      '$pinnedDartSdkVersion\n',
+    );
+    _write(
+      '${engine.path}/xcodebuild/ReleaseX64/dart-sdk/revision',
+      '$pinnedDartSdkRevision\n',
+    );
+    _write(
+      '${engine.path}/xcodebuild/ProductX64/libdart_engine_aot_shared.dylib',
+      'fake x64 AOT engine',
+    );
+    _write('${engine.path}/xcodebuild/ProductX64/gen_snapshot', 'fake x64 gen');
     final String swiftBin =
         '${developer.path}/Toolchains/XcodeDefault.xctoolchain/usr/bin';
     _write('$swiftBin/swift-driver', 'fake Swift driver');
@@ -1706,6 +1756,194 @@ Future<void> main() async {
     await fixture.root.delete(recursive: true);
   });
 
+  await _test('Release AOT explicit cross-target propagation', () async {
+    final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _withAppIntents(_validManifest)
+          .replaceFirst('"dart":', '''"dartHelpers": [
+    {"name": "helper", "entrypoint": "bin/helper.dart"}
+  ],
+  "dart":''')
+          .replaceFirst('"nativeCapabilities": []', '''"nativeAssets": [
+    {
+      "id": "example_native_asset",
+      "package": "example_native_asset",
+      "library": "libexample_native_asset.dylib",
+      "abiVersion": 1,
+      "abiVersionSymbol": "example_native_asset_abi_version"
+    }
+  ],
+  "nativeCapabilities": [
+    {
+      "id": "example_view",
+      "package": "example_view",
+      "library": "libexample_view.dylib",
+      "abiVersion": 1,
+      "abiVersionSymbol": "example_abi_version",
+      "initializerSymbol": "example_initialize"
+    }
+  ]'''),
+    );
+    final _FakeExecutor executor = _FakeExecutor();
+    final int result = await fixture
+        .builder(executor)
+        .run(
+          RuntimeBuilderOptions.parse(<String>[
+            '--manifest=${fixture.project.path}/macos_application.json',
+            '--mode=release-aot',
+            '--target-architecture=x86_64',
+            '--build-dir=${fixture.root.path}/build-x86_64',
+          ]),
+        );
+    _expect(result == 0, 'cross-target build succeeds');
+    final Directory bundle = Directory(
+      '${fixture.root.path}/build-x86_64/HelloWindow.app',
+    );
+    final Map<String, Object?> buildManifest = jsonDecode(
+      File('${bundle.path}/Contents/Resources/runtime-build-manifest.json')
+          .readAsStringSync(),
+    ) as Map<String, Object?>;
+    _expect(
+      buildManifest['runtimeMode'] == 'release-aot' &&
+          buildManifest['architecture'] == 'x86_64' &&
+          (buildManifest['appIntents']!
+                  as Map<String, Object?>)['targetTriple'] ==
+              'x86_64-apple-macos14.0',
+      'cross-target evidence records x86_64 consistently',
+    );
+    _expect(
+      executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable.endsWith(
+                  '/ProductX64/bootstrap_gen_kernel.exe',
+                ) &&
+                command.arguments.any(
+                  (String argument) => argument.contains(
+                    '/ProductX64/clang_x64_shared/vm_platform.dill',
+                  ),
+                ),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable.endsWith('/ProductX64/gen_snapshot'),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable == 'make' &&
+                command.arguments.contains('RUNTIME_TARGET_ARCH=x86_64') &&
+                command.arguments.any(
+                  (String argument) => argument.contains(
+                    '/ProductX64/libdart_engine_aot_shared.dylib',
+                  ),
+                ),
+          ),
+      'cross-target selects the x86_64 Engine and native host target',
+    );
+    final List<_RecordedCommand> dartBuilds = executor.commands
+        .where(
+          (_RecordedCommand command) =>
+              command.executable.endsWith('/bin/dart') &&
+              command.arguments.length >= 2 &&
+              command.arguments[0] == 'build' &&
+              command.arguments[1] == 'cli',
+        )
+        .toList();
+    _expect(
+      dartBuilds.length == 2 &&
+          dartBuilds.every(
+            (_RecordedCommand command) =>
+                command.executable.contains('/ReleaseX64/dart-sdk/bin/dart') &&
+                command.arguments.contains('--target-arch=x64'),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
+                command.executable.endsWith('/usr/bin/swiftc') &&
+                command.arguments.contains('x86_64-apple-macos14.0'),
+          ),
+      'helper, native hooks, and App Intents receive the x86_64 target',
+    );
+    await fixture.root.delete(recursive: true);
+  });
+
+  await _test('target architecture execution boundaries', () async {
+    final _Fixture fixture = await _Fixture.create();
+    final RuntimeBuilderException developerFailure =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--mode=developer-jit',
+                  '--target-architecture=arm64',
+                ]),
+              ),
+        );
+    _expect(
+      developerFailure.exitCode == builderUsageExitCode,
+      'Developer JIT rejects an explicit target',
+    );
+    final RuntimeBuilderException foreignRunFailure =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--mode=release-aot',
+                  '--target-architecture=x86_64',
+                  '--run',
+                ]),
+              ),
+        );
+    _expect(
+      foreignRunFailure.exitCode == builderUnavailableExitCode,
+      'a foreign target cannot be launched by the builder',
+    );
+    await Directory('${fixture.engine.path}/xcodebuild/ReleaseX64/dart-sdk')
+        .delete(recursive: true);
+    final RuntimeBuilderException missingTargetSdk =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--mode=release-aot',
+                  '--target-architecture=x86_64',
+                ]),
+              ),
+        );
+    _expect(
+      missingTargetSdk.exitCode == builderIoErrorExitCode,
+      'a foreign target requires the matching target Dart SDK',
+    );
+    await fixture.root.delete(recursive: true);
+
+    final _Fixture wrongArchitecture = await _Fixture.create();
+    final _FakeExecutor wrongExecutor = _FakeExecutor()
+      ..wrongTargetDartArchitecture = true;
+    final RuntimeBuilderException
+    wrongTargetSdk = await _expectThrowsAsync<RuntimeBuilderException>(
+      () => wrongArchitecture
+          .builder(wrongExecutor)
+          .run(
+            RuntimeBuilderOptions.parse(<String>[
+              '--manifest='
+                  '${wrongArchitecture.project.path}/macos_application.json',
+              '--mode=release-aot',
+              '--target-architecture=x86_64',
+            ]),
+          ),
+    );
+    _expect(
+      wrongTargetSdk.exitCode == builderUnavailableExitCode,
+      'a foreign target rejects a target Dart executable with the wrong arch',
+    );
+    await wrongArchitecture.root.delete(recursive: true);
+  });
+
   await _test('native asset hooks are staged by declaration', () async {
     final _Fixture fixture = await _Fixture.create();
     _write(
@@ -1827,6 +2065,12 @@ Future<void> main() async {
         '--manifest=x',
         '--',
         'arg',
+      ]),
+    );
+    _expectThrows<RuntimeBuilderException>(
+      () => RuntimeBuilderOptions.parse(const <String>[
+        '--manifest=x',
+        '--target-architecture=powerpc',
       ]),
     );
   });

@@ -8,6 +8,7 @@ DART_EXECUTABLE := $(shell command -v dart)
 DART_SDK ?= $(shell realpath $(DART_EXECUTABLE) | xargs dirname | xargs dirname)
 DART_ENGINE_ROOT ?= $(PROJECT_ROOT)/.dart_tool/dart-engine/sdk
 HOST_ARCH := $(shell uname -m)
+RUNTIME_TARGET_ARCH ?= $(HOST_ARCH)
 ifeq ($(HOST_ARCH),arm64)
 DART_ENGINE_RELEASE_ARCH := ARM64
 else ifeq ($(HOST_ARCH),x86_64)
@@ -405,7 +406,7 @@ $(RUNTIME_JIT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) $(RUNNER_HEADERS) \
 		$(RUNTIME_HEADERS) $(RUNTIME_JIT_SOURCES) $(DART_ENGINE_LIBRARY) \
 		$(RUNTIME_APP_INTENTS_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANGXX) $(OBJCXX_FLAGS) \
+	$(CLANGXX) $(OBJCXX_FLAGS) -arch $(RUNTIME_TARGET_ARCH) \
 		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
 		-DDA_DART_ENGINE_REVISION=\"$(shell git -C $(DART_ENGINE_ROOT) rev-parse HEAD)\" \
 		-I$(PROJECT_ROOT)/native/bridge/include \
@@ -426,7 +427,7 @@ $(RUNTIME_AOT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
 		$(RUNNER_HEADERS) $(RUNTIME_HEADERS) $(RUNTIME_AOT_SOURCES) \
 		$(DART_ENGINE_AOT_LIBRARY) $(RUNTIME_APP_INTENTS_LIBRARY)
 	@mkdir -p $(NATIVE_BUILD_DIR)
-	$(CLANGXX) $(OBJCXX_FLAGS) \
+	$(CLANGXX) $(OBJCXX_FLAGS) -arch $(RUNTIME_TARGET_ARCH) \
 		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
 		-DDMR_DART_SDK_VERSION=\"$(shell cat $(DART_SDK)/version)\" \
 		-I$(PROJECT_ROOT)/native/bridge/include \

@@ -19,7 +19,25 @@ dart run dart_macos_runtime:build \
 dart run dart_macos_runtime:build \
   --manifest macos_application.json \
   --mode release-aot
+
+dart run dart_macos_runtime:build \
+  --manifest macos_application.json \
+  --mode release-aot \
+  --target-architecture x86_64
 ```
+
+`--target-architecture` is a build-only Release AOT option accepting `arm64`
+or `x86_64`. Omitting it targets the current architecture. A foreign target is
+compiled from the current trusted Dart process using the matching Engine
+Product output, native compiler target, Dart helper/build-hook target, and App
+Intents target. Developer JIT rejects the option, and `--run` rejects a foreign
+target; callers launch a verified foreign thin application separately when the
+host supports the required compatibility runtime. A foreign target also
+requires the matching Engine `ReleaseARM64/dart-sdk` or
+`ReleaseX64/dart-sdk`; the builder verifies that SDK's version, revision, and
+executable architecture plus the required VM/compiler artifacts before using
+it for helpers and build hooks. Generate that SDK from the same pinned Engine
+checkout (for example, its `create_sdk` Ninja target) before a foreign build.
 
 Both modes use the same manifest and `main(List<String>)` application entry.
 The builder generates the VM-retained AOT wrapper; application source does not
