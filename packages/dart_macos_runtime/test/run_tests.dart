@@ -1586,13 +1586,22 @@ Future<void> main() async {
           ) &&
           executor.commands.any(
             (_RecordedCommand command) =>
+                command.executable == '/usr/bin/codesign' &&
+                command.arguments.length == 4 &&
+                command.arguments.last.endsWith(
+                  '/libfixture_app_intents.dylib',
+                ),
+          ) &&
+          executor.commands.any(
+            (_RecordedCommand command) =>
                 command.executable == 'make' &&
                 command.arguments.any(
                   (String argument) =>
                       argument.startsWith('RUNTIME_APP_INTENTS_LIBRARY='),
                 ),
           ),
-      'compiler extraction, metadata processor, and native host link are exact',
+      'compiler extraction, metadata processor, image signing, and native '
+      'host link are exact',
     );
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');

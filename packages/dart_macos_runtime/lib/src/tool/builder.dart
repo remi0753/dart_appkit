@@ -761,6 +761,12 @@ final class RuntimeApplicationBuilder {
       ],
       packageRoot.path,
     );
+    await _runChecked(
+      'App Intents Swift image signing',
+      '/usr/bin/codesign',
+      <String>['--force', '--sign', '-', image.path],
+      packageRoot.path,
+    );
     final File checkedImage = await _boundedFile(
       image.path,
       'App Intents Swift image',
