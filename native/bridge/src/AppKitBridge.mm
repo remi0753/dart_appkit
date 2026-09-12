@@ -27,6 +27,32 @@ EventHandlerRef g_global_hot_key_event_handler = nullptr;
 EventHandlerUPP g_global_hot_key_event_handler_upp = nullptr;
 NSMutableDictionary<NSNumber*, NSNumber*>* g_global_hot_key_handles = nil;
 UInt32 g_next_global_hot_key_identifier = 1;
+DaHandle g_secure_event_input_handle = 0;
+
+int32_t EnableSecureEventInputWithSystem() {
+  return static_cast<int32_t>(EnableSecureEventInput());
+}
+
+int32_t DisableSecureEventInputWithSystem() {
+  return static_cast<int32_t>(DisableSecureEventInput());
+}
+
+bool IsSecureEventInputEnabledWithSystem() {
+  return IsSecureEventInputEnabled() != 0;
+}
+
+bool IsApplicationActiveWithSystem() {
+  return NSApp != nil && NSApp.isActive;
+}
+
+dart_appkit::SecureEventInputStatusHandler
+    g_secure_event_input_enable_handler = EnableSecureEventInputWithSystem;
+dart_appkit::SecureEventInputStatusHandler
+    g_secure_event_input_disable_handler = DisableSecureEventInputWithSystem;
+dart_appkit::SecureEventInputEnabledHandler
+    g_secure_event_input_enabled_handler = IsSecureEventInputEnabledWithSystem;
+dart_appkit::ApplicationActiveQuery g_application_active_query =
+    IsApplicationActiveWithSystem;
 
 OSStatus HandleGlobalHotKeyEvent(EventHandlerCallRef next_handler,
                                  EventRef event,
@@ -123,6 +149,15 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
+@interface DaSecureInputIndicatorView : NSView {
+ @private
+  NSTextField* _label;
+}
+
+@property(nonatomic, assign) DaSecureInputIndicatorState daState;
+
+@end
+
 @implementation DaGlobalHotKeyOwner
 
 @synthesize daIdentifier = _daIdentifier;
@@ -213,6 +248,150 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 - (void)dealloc {
   [self daPrepareForRelease];
+}
+
+@end
+
+@implementation DaSecureEventInputOwner
+
+@synthesize daDesired = _desired;
+@synthesize daOwnedEnabled = _ownedEnabled;
+@synthesize daLastOSStatus = _lastOSStatus;
+
+- (instancetype)init {
+  self = [super init];
+  if (self != nil) {
+    _desired = NO;
+    _ownedEnabled = NO;
+    _preparedForRelease = NO;
+    _lastOSStatus = noErr;
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    [center addObserver:self
+               selector:@selector(daApplicationActivationChanged:)
+                   name:NSApplicationDidBecomeActiveNotification
+                 object:nil];
+    [center addObserver:self
+               selector:@selector(daApplicationActivationChanged:)
+                   name:NSApplicationDidResignActiveNotification
+                 object:nil];
+  }
+  return self;
+}
+
+- (int32_t)daApplyForCurrentApplicationActivity {
+  if (_preparedForRelease) {
+    return noErr;
+  }
+  const BOOL target_enabled =
+      _desired && g_application_active_query != nullptr &&
+      g_application_active_query();
+  if (target_enabled == _ownedEnabled) {
+    _lastOSStatus = noErr;
+    return noErr;
+  }
+  dart_appkit::SecureEventInputStatusHandler handler = target_enabled
+      ? g_secure_event_input_enable_handler
+      : g_secure_event_input_disable_handler;
+  const int32_t status = handler == nullptr ? paramErr : handler();
+  _lastOSStatus = status;
+  if (status == noErr) {
+    _ownedEnabled = target_enabled;
+  }
+  return status;
+}
+
+- (int32_t)daSetDesired:(BOOL)desired {
+  _desired = desired;
+  return [self daApplyForCurrentApplicationActivity];
+}
+
+- (void)daApplicationActivationChanged:(NSNotification*)notification {
+  (void)notification;
+  (void)[self daApplyForCurrentApplicationActivity];
+}
+
+- (void)daPrepareForRelease {
+  if (_preparedForRelease) {
+    return;
+  }
+  [NSNotificationCenter.defaultCenter removeObserver:self];
+  _desired = NO;
+  if (_ownedEnabled) {
+    const int32_t status = g_secure_event_input_disable_handler == nullptr
+                               ? paramErr
+                               : g_secure_event_input_disable_handler();
+    _lastOSStatus = status;
+    if (status == noErr) {
+      _ownedEnabled = NO;
+    }
+  }
+  _preparedForRelease = YES;
+  _daHandle = 0;
+  g_secure_event_input_handle = 0;
+}
+
+- (void)dealloc {
+  [self daPrepareForRelease];
+}
+
+@end
+
+@implementation DaSecureInputIndicatorView
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self != nil) {
+    self.translatesAutoresizingMaskIntoConstraints = NO;
+    self.wantsLayer = YES;
+    self.layer.cornerRadius = 5.0;
+    self.layer.backgroundColor =
+        [NSColor.controlBackgroundColor colorWithAlphaComponent:0.92].CGColor;
+    self.layer.borderColor =
+        [NSColor.separatorColor colorWithAlphaComponent:0.8].CGColor;
+    self.layer.borderWidth = 1.0;
+    _label = [NSTextField labelWithString:@""];
+    _label.translatesAutoresizingMaskIntoConstraints = NO;
+    _label.font = [NSFont monospacedSystemFontOfSize:10.0
+                                             weight:NSFontWeightSemibold];
+    _label.textColor = NSColor.labelColor;
+    [self addSubview:_label];
+    [NSLayoutConstraint activateConstraints:@[
+      [_label.leadingAnchor constraintEqualToAnchor:self.leadingAnchor
+                                          constant:7.0],
+      [_label.trailingAnchor constraintEqualToAnchor:self.trailingAnchor
+                                           constant:-7.0],
+      [_label.topAnchor constraintEqualToAnchor:self.topAnchor constant:4.0],
+      [_label.bottomAnchor constraintEqualToAnchor:self.bottomAnchor
+                                          constant:-4.0],
+    ]];
+    [self setAccessibilityElement:YES];
+    [self setAccessibilityRole:NSAccessibilityGroupRole];
+    [self setAccessibilityIdentifier:@"dart_appkit.secure_input_indicator"];
+  }
+  return self;
+}
+
+- (BOOL)acceptsFirstResponder {
+  return NO;
+}
+
+- (NSView*)hitTest:(NSPoint)point {
+  (void)point;
+  return nil;
+}
+
+- (void)setDaState:(DaSecureInputIndicatorState)state {
+  _daState = state;
+  NSString* mode = state == DA_SECURE_INPUT_INDICATOR_MANUAL ? @"MANUAL"
+                                                             : @"AUTO";
+  _label.stringValue = [NSString stringWithFormat:@"SECURE %@", mode];
+  [self setAccessibilityLabel:
+            [NSString stringWithFormat:@"Secure Keyboard Entry — %@",
+                                       state == DA_SECURE_INPUT_INDICATOR_MANUAL
+                                           ? @"Manual"
+                                           : @"Automatic"]];
+  [self setAccessibilityHelp:
+            @"Keyboard input is protected from other applications."];
 }
 
 @end
@@ -1114,6 +1293,8 @@ int32_t CompletePendingRelease(DaHandle handle) {
     [static_cast<DaMenuItemOwner*>(object) daPrepareForRelease];
   } else if (kind == ObjectKind::kGlobalHotKey) {
     [static_cast<DaGlobalHotKeyOwner*>(object) daPrepareForRelease];
+  } else if (kind == ObjectKind::kSecureEventInput) {
+    [static_cast<DaSecureEventInputOwner*>(object) daPrepareForRelease];
   }
   __strong id released_object =
       registry.CompleteRelease(handle, ThreadDomain::kAppKitMain, &status);
@@ -1518,6 +1699,24 @@ void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
   g_user_notification_context = handler == nullptr ? nullptr : context;
 }
 
+void InstallSecureEventInputHandlersForTesting(
+    SecureEventInputStatusHandler enable_handler,
+    SecureEventInputStatusHandler disable_handler,
+    SecureEventInputEnabledHandler enabled_handler,
+    ApplicationActiveQuery active_query) {
+  g_secure_event_input_enable_handler =
+      enable_handler == nullptr ? EnableSecureEventInputWithSystem
+                                : enable_handler;
+  g_secure_event_input_disable_handler =
+      disable_handler == nullptr ? DisableSecureEventInputWithSystem
+                                 : disable_handler;
+  g_secure_event_input_enabled_handler =
+      enabled_handler == nullptr ? IsSecureEventInputEnabledWithSystem
+                                 : enabled_handler;
+  g_application_active_query =
+      active_query == nullptr ? IsApplicationActiveWithSystem : active_query;
+}
+
 void ShutdownBridge() {
   if (pthread_main_np() == 0) {
     return;
@@ -1554,6 +1753,8 @@ void ResetBridgeForTesting() {
   ShutdownBridge();
   ClearCustomViewClassesForTesting();
   InstallUserNotificationHandlerForTesting(nullptr, nullptr);
+  InstallSecureEventInputHandlersForTesting(nullptr, nullptr, nullptr,
+                                            nullptr);
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
@@ -1590,6 +1791,8 @@ const char* da_status_name(int32_t status) {
       return "global_hot_key_conflict";
     case DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED:
       return "global_hot_key_registration_failed";
+    case DA_STATUS_SECURE_EVENT_INPUT_FAILED:
+      return "secure_event_input_failed";
     default:
       return "unknown_status";
   }
@@ -1979,6 +2182,116 @@ int32_t da_global_hot_key_register(uint16_t key_code, uint64_t modifiers,
             ? exception.reason.UTF8String
             : "global hot key registration raised an exception");
   }
+}
+
+int32_t da_secure_event_input_create(DaHandle* out_handle) {
+  dart_appkit::ClearLastError();
+  if (out_handle == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_handle must not be null");
+  }
+  *out_handle = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (g_secure_event_input_handle != 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "the bridge-wide secure event input owner already exists");
+  }
+  @try {
+    DaSecureEventInputOwner* owner = [[DaSecureEventInputOwner alloc] init];
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        owner, dart_appkit::ObjectKind::kSecureEventInput,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (owner == nil || handle == 0) {
+      [owner daPrepareForRelease];
+      return dart_appkit::SetLastError(
+          DA_STATUS_INTERNAL_ERROR,
+          "secure event input owner allocation failed");
+    }
+    owner.daHandle = handle;
+    g_secure_event_input_handle = handle;
+    *out_handle = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "secure event input owner creation raised an exception");
+  }
+}
+
+int32_t da_secure_event_input_set_desired(DaHandle handle, int32_t desired) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (desired != 0 && desired != 1) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT, "desired must be zero or one");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSecureEventInputOwner* owner =
+      static_cast<DaSecureEventInputOwner*>(
+          dart_appkit::ObjectRegistry::Shared().Lookup(
+              handle, dart_appkit::ObjectKind::kSecureEventInput,
+              dart_appkit::ThreadDomain::kAppKitMain, &status));
+  if (owner == nil) {
+    return status;
+  }
+  const int32_t os_status = [owner daSetDesired:desired != 0];
+  if (os_status != noErr) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_SECURE_EVENT_INPUT_FAILED,
+        std::string(desired != 0 ? "enabling" : "disabling") +
+            " Secure Event Input failed (OSStatus " +
+            std::to_string(os_status) + ")");
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t da_secure_event_input_get_snapshot(
+    DaHandle handle, DaSecureEventInputSnapshot* out_snapshot) {
+  dart_appkit::ClearLastError();
+  if (out_snapshot == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_snapshot must not be null");
+  }
+  const uint64_t struct_size = out_snapshot->struct_size;
+  *out_snapshot = {};
+  if (struct_size < DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_UNSUPPORTED_VERSION,
+        "secure event input snapshot is smaller than version 1");
+  }
+  out_snapshot->struct_size =
+      DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaSecureEventInputOwner* owner =
+      static_cast<DaSecureEventInputOwner*>(
+          dart_appkit::ObjectRegistry::Shared().Lookup(
+              handle, dart_appkit::ObjectKind::kSecureEventInput,
+              dart_appkit::ThreadDomain::kAppKitMain, &status));
+  if (owner == nil) {
+    return status;
+  }
+  out_snapshot->desired = owner.daDesired ? 1 : 0;
+  out_snapshot->owned_enabled = owner.daOwnedEnabled ? 1 : 0;
+  out_snapshot->system_enabled =
+      g_secure_event_input_enabled_handler != nullptr &&
+              g_secure_event_input_enabled_handler()
+          ? 1
+          : 0;
+  out_snapshot->last_os_status = owner.daLastOSStatus;
+  return DA_STATUS_OK;
 }
 
 int32_t da_pasteboard_read_text(DaPasteboardText* out_snapshot) {
@@ -3097,6 +3410,48 @@ int32_t da_view_create(DaHandle* out_view) {
       0,
   };
   return da_view_create_configured(&configuration, out_view);
+}
+
+int32_t da_view_set_secure_input_indicator(DaHandle view_handle,
+                                           int32_t state) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (state < DA_SECURE_INPUT_INDICATOR_HIDDEN ||
+      state > DA_SECURE_INPUT_INDICATOR_MANUAL) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "state must be a DaSecureInputIndicatorState value");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  DaSecureInputIndicatorView* indicator = nil;
+  for (NSView* subview in view.subviews) {
+    if ([subview isKindOfClass:DaSecureInputIndicatorView.class]) {
+      indicator = static_cast<DaSecureInputIndicatorView*>(subview);
+      break;
+    }
+  }
+  if (state == DA_SECURE_INPUT_INDICATOR_HIDDEN) {
+    [indicator removeFromSuperview];
+    return DA_STATUS_OK;
+  }
+  if (indicator == nil) {
+    indicator = [[DaSecureInputIndicatorView alloc] initWithFrame:NSZeroRect];
+    [view addSubview:indicator positioned:NSWindowAbove relativeTo:nil];
+    [NSLayoutConstraint activateConstraints:@[
+      [indicator.topAnchor constraintEqualToAnchor:view.topAnchor constant:8.0],
+      [indicator.trailingAnchor constraintEqualToAnchor:view.trailingAnchor
+                                               constant:-8.0],
+    ]];
+  }
+  indicator.daState = static_cast<DaSecureInputIndicatorState>(state);
+  return DA_STATUS_OK;
 }
 
 int32_t da_split_view_create(int32_t axis, DaHandle* out_view) {

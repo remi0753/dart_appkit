@@ -228,6 +228,48 @@ struct RecordedUserNotification {
 };
 std::vector<RecordedUserNotification> g_user_notifications;
 bool g_accept_user_notifications = true;
+bool g_fake_application_active = true;
+bool g_fake_secure_input_enabled = false;
+int32_t g_fake_secure_input_enable_status = noErr;
+int32_t g_fake_secure_input_disable_status = noErr;
+int g_fake_secure_input_enable_count = 0;
+int g_fake_secure_input_disable_count = 0;
+
+int32_t FakeEnableSecureEventInput() {
+  ++g_fake_secure_input_enable_count;
+  if (g_fake_secure_input_enable_status == noErr) {
+    g_fake_secure_input_enabled = true;
+  }
+  return g_fake_secure_input_enable_status;
+}
+
+int32_t FakeDisableSecureEventInput() {
+  ++g_fake_secure_input_disable_count;
+  if (g_fake_secure_input_disable_status == noErr) {
+    g_fake_secure_input_enabled = false;
+  }
+  return g_fake_secure_input_disable_status;
+}
+
+bool FakeIsSecureEventInputEnabled() {
+  return g_fake_secure_input_enabled;
+}
+
+bool FakeIsApplicationActive() {
+  return g_fake_application_active;
+}
+
+void ResetFakeSecureEventInput() {
+  g_fake_application_active = true;
+  g_fake_secure_input_enabled = false;
+  g_fake_secure_input_enable_status = noErr;
+  g_fake_secure_input_disable_status = noErr;
+  g_fake_secure_input_enable_count = 0;
+  g_fake_secure_input_disable_count = 0;
+  dart_appkit::InstallSecureEventInputHandlersForTesting(
+      FakeEnableSecureEventInput, FakeDisableSecureEventInput,
+      FakeIsSecureEventInputEnabled, FakeIsApplicationActive);
+}
 
 bool RecordExternalUrl(NSURL* url) {
   if (url == nil || url.absoluteString.UTF8String == nullptr) {
@@ -523,6 +565,14 @@ DaGlobalHotKeyOwner* GlobalHotKeyOwnerFor(DaHandle handle) {
   return static_cast<DaGlobalHotKeyOwner*>(object);
 }
 
+DaSecureEventInputSnapshot SecureEventInputSnapshotFor(DaHandle handle) {
+  DaSecureEventInputSnapshot snapshot{};
+  snapshot.struct_size = DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE;
+  EXPECT_EQ(da_secure_event_input_get_snapshot(handle, &snapshot),
+            DA_STATUS_OK);
+  return snapshot;
+}
+
 void ResetWithCapture(Capture* capture) {
   dart_appkit::ResetBridgeForTesting();
   dart_appkit::InstallEventPoster(CapturePoster, capture);
@@ -570,6 +620,8 @@ void TestContractAndErrors() {
       std::string(
           da_status_name(DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED)),
       std::string("global_hot_key_registration_failed"));
+  EXPECT_EQ(std::string(da_status_name(DA_STATUS_SECURE_EVENT_INPUT_FAILED)),
+            std::string("secure_event_input_failed"));
 
   int32_t is_main = 0;
   EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
@@ -3412,6 +3464,136 @@ void TestGlobalHotKeys() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestSecureEventInputAndIndicator() {
+  dart_appkit::ResetBridgeForTesting();
+  ResetFakeSecureEventInput();
+
+  DaHandle owner_handle = 99;
+  EXPECT_EQ(da_secure_event_input_create(&owner_handle), DA_STATUS_OK);
+  EXPECT_TRUE(owner_handle != 0);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+  DaSecureEventInputSnapshot snapshot =
+      SecureEventInputSnapshotFor(owner_handle);
+  EXPECT_EQ(snapshot.struct_size,
+            DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE);
+  EXPECT_EQ(snapshot.desired, 0);
+  EXPECT_EQ(snapshot.owned_enabled, 0);
+  EXPECT_EQ(snapshot.system_enabled, 0);
+  EXPECT_EQ(snapshot.last_os_status, noErr);
+
+  DaHandle duplicate = 99;
+  EXPECT_EQ(da_secure_event_input_create(&duplicate),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(duplicate, static_cast<DaHandle>(0));
+  EXPECT_EQ(da_secure_event_input_set_desired(owner_handle, 1), DA_STATUS_OK);
+  EXPECT_EQ(g_fake_secure_input_enable_count, 1);
+  EXPECT_EQ(da_secure_event_input_set_desired(owner_handle, 1), DA_STATUS_OK);
+  EXPECT_EQ(g_fake_secure_input_enable_count, 1);
+  snapshot = SecureEventInputSnapshotFor(owner_handle);
+  EXPECT_EQ(snapshot.desired, 1);
+  EXPECT_EQ(snapshot.owned_enabled, 1);
+  EXPECT_EQ(snapshot.system_enabled, 1);
+
+  g_fake_application_active = false;
+  [NSNotificationCenter.defaultCenter
+      postNotificationName:NSApplicationDidResignActiveNotification
+                    object:NSApp];
+  EXPECT_EQ(g_fake_secure_input_disable_count, 1);
+  snapshot = SecureEventInputSnapshotFor(owner_handle);
+  EXPECT_EQ(snapshot.desired, 1);
+  EXPECT_EQ(snapshot.owned_enabled, 0);
+
+  g_fake_application_active = true;
+  [NSNotificationCenter.defaultCenter
+      postNotificationName:NSApplicationDidBecomeActiveNotification
+                    object:NSApp];
+  EXPECT_EQ(g_fake_secure_input_enable_count, 2);
+  EXPECT_EQ(SecureEventInputSnapshotFor(owner_handle).owned_enabled, 1);
+
+  g_fake_secure_input_disable_status = -50;
+  EXPECT_EQ(da_secure_event_input_set_desired(owner_handle, 0),
+            DA_STATUS_SECURE_EVENT_INPUT_FAILED);
+  EXPECT_TRUE(LastErrorMessage().find("OSStatus -50") != std::string::npos);
+  snapshot = SecureEventInputSnapshotFor(owner_handle);
+  EXPECT_EQ(snapshot.desired, 0);
+  EXPECT_EQ(snapshot.owned_enabled, 1);
+  EXPECT_EQ(snapshot.last_os_status, -50);
+  g_fake_secure_input_disable_status = noErr;
+  EXPECT_EQ(da_secure_event_input_set_desired(owner_handle, 0), DA_STATUS_OK);
+  EXPECT_EQ(g_fake_secure_input_disable_count, 3);
+  EXPECT_EQ(SecureEventInputSnapshotFor(owner_handle).owned_enabled, 0);
+
+  // Another process may own the global system state. Releasing this owner must
+  // never decrement a reference that this bridge did not acquire.
+  g_fake_secure_input_enabled = true;
+  EXPECT_EQ(da_release(owner_handle), DA_STATUS_OK);
+  EXPECT_EQ(g_fake_secure_input_disable_count, 3);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+
+  DaHandle replacement = 0;
+  EXPECT_EQ(da_secure_event_input_create(&replacement), DA_STATUS_OK);
+  EXPECT_EQ(da_secure_event_input_set_desired(replacement, 1), DA_STATUS_OK);
+  const int disable_count_before_shutdown =
+      g_fake_secure_input_disable_count;
+  dart_appkit::ShutdownBridge();
+  EXPECT_EQ(g_fake_secure_input_disable_count,
+            disable_count_before_shutdown + 1);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+
+  dart_appkit::ResetBridgeForTesting();
+  ResetFakeSecureEventInput();
+  const DaHandle view_handle = CreateView();
+  DaView* view = NativeViewFor(view_handle);
+  view.frame = NSMakeRect(0.0, 0.0, 400.0, 240.0);
+  const NSRect original_bounds = view.bounds;
+  EXPECT_EQ(da_view_set_secure_input_indicator(
+                view_handle, DA_SECURE_INPUT_INDICATOR_AUTOMATIC),
+            DA_STATUS_OK);
+  EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(1));
+  NSView* indicator = view.subviews.lastObject;
+  EXPECT_EQ(std::string(indicator.accessibilityIdentifier.UTF8String),
+            std::string("dart_appkit.secure_input_indicator"));
+  EXPECT_TRUE([indicator.accessibilityLabel containsString:@"Automatic"]);
+  EXPECT_TRUE([indicator hitTest:NSMakePoint(1.0, 1.0)] == nil);
+  EXPECT_TRUE(NSEqualRects(view.bounds, original_bounds));
+  EXPECT_EQ(da_view_set_secure_input_indicator(
+                view_handle, DA_SECURE_INPUT_INDICATOR_MANUAL),
+            DA_STATUS_OK);
+  EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(1));
+  EXPECT_TRUE(view.subviews.lastObject == indicator);
+  EXPECT_TRUE([indicator.accessibilityLabel containsString:@"Manual"]);
+  EXPECT_TRUE(NSEqualRects(view.bounds, original_bounds));
+  EXPECT_EQ(da_view_set_secure_input_indicator(view_handle, 99),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_view_set_secure_input_indicator(
+                view_handle, DA_SECURE_INPUT_INDICATOR_HIDDEN),
+            DA_STATUS_OK);
+  EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(0));
+
+  DaSecureEventInputSnapshot undersized{};
+  undersized.struct_size =
+      DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE - 1;
+  EXPECT_EQ(da_secure_event_input_get_snapshot(view_handle, &undersized),
+            DA_STATUS_UNSUPPORTED_VERSION);
+  EXPECT_EQ(da_secure_event_input_set_desired(view_handle, 1),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_secure_event_input_set_desired(view_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_secure_event_input_get_snapshot(view_handle, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  DaHandle worker_handle = 99;
+  std::thread worker([&]() {
+    worker_status.store(da_secure_event_input_create(&worker_handle));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_handle, static_cast<DaHandle>(0));
+  EXPECT_EQ(da_release(view_handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 }  // namespace
 
 int main() {
@@ -3443,6 +3625,7 @@ int main() {
     TestScrollInputEvent();
     TestKeyEventRouting();
     TestGlobalHotKeys();
+    TestSecureEventInputAndIndicator();
     TestWindowPresentationMetadata();
     TestNativeTabsSplitViewsAndFirstResponder();
     dart_appkit::ResetBridgeForTesting();

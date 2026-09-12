@@ -17,6 +17,7 @@ part 'api/global_hot_key.dart';
 part 'api/menu.dart';
 part 'api/native_resource.dart';
 part 'api/pasteboard.dart';
+part 'api/secure_event_input.dart';
 part 'api/split_view.dart';
 part 'api/text_editor.dart';
 part 'api/text_view.dart';

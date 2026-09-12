@@ -6,6 +6,10 @@ const int dartAppKitMinimumEventProtocolVersion = 1;
 const int dartAppKitCurrentEventProtocolVersion = 8;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
+const int dartAppKitStatusSecureEventInputFailed = 13;
+const int dartAppKitSecureInputIndicatorHidden = 0;
+const int dartAppKitSecureInputIndicatorAutomatic = 1;
+const int dartAppKitSecureInputIndicatorManual = 2;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
@@ -304,6 +308,20 @@ final class NativeScreenSnapshot {
   final double backingScaleFactor;
 }
 
+final class NativeSecureEventInputSnapshot {
+  const NativeSecureEventInputSnapshot({
+    required this.desired,
+    required this.ownedEnabled,
+    required this.systemEnabled,
+    required this.lastOsStatus,
+  });
+
+  final bool desired;
+  final bool ownedEnabled;
+  final bool systemEnabled;
+  final int lastOsStatus;
+}
+
 abstract interface class NativeBindings {
   int abiVersion();
 
@@ -469,6 +487,16 @@ abstract interface class NativeGlobalHotKeyBindings {
     required int keyCode,
     required int modifiers,
   });
+}
+
+/// Optional balanced Secure Event Input and view-indicator surface.
+abstract interface class NativeSecureEventInputBindings {
+  NativeValueResult<int> secureEventInputCreate();
+  NativeCallResult secureEventInputSetDesired(int handle, bool desired);
+  NativeValueResult<NativeSecureEventInputSnapshot> secureEventInputGetSnapshot(
+    int handle,
+  );
+  NativeCallResult viewSetSecureInputIndicator(int handle, int state);
 }
 
 /// Optional current-screen and animated window-presentation surface.

@@ -101,6 +101,19 @@ void main(List<String> arguments) {
       globalHotKey.message.isEmpty) {
     _fail('global hot-key symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> secureInput = bindings.secureEventInputCreate();
+  final NativeCallResult secureIndicator = bindings.viewSetSecureInputIndicator(
+    1,
+    dartAppKitSecureInputIndicatorAutomatic,
+  );
+  if (secureInput.isSuccess ||
+      secureInput.status != 5 ||
+      secureInput.message.isEmpty ||
+      secureIndicator.isSuccess ||
+      secureIndicator.status != 5 ||
+      secureIndicator.message.isEmpty) {
+    _fail('secure-input symbols did not preserve their main-thread guards');
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings

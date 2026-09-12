@@ -370,6 +370,31 @@ record to both the application event stream and the registration-local
 `onPressed` stream. Consumers retain the object for as long as the shortcut is
 active and dispose the old registration only after a replacement succeeds.
 
+## Secure Event Input
+
+`da_secure_event_input_create` creates at most one generation-checked owner for
+the process bridge. `da_secure_event_input_set_desired` stores one Boolean
+request and acquires exactly one Carbon Secure Event Input reference only while
+the application is active. AppKit activation notifications yield that owned
+reference on resignation and reacquire it on activation. Repeated desired
+states are idempotent; explicit, finalizer, and shutdown release balance only a
+reference successfully acquired by this owner.
+
+`DaSecureEventInputSnapshot` is size-prefixed and contains no input or terminal
+content. It separates desired state, owned-reference state, the observational
+global system state, and the last `OSStatus`. The global state is never used as
+proof of ownership, so the bridge cannot disable a reference held by another
+process. Carbon failures return `DA_STATUS_SECURE_EVENT_INPUT_FAILED` with the
+numeric status in the last-error message while retaining ownership knowledge
+for a later retry.
+
+`da_view_set_secure_input_indicator` accepts hidden, automatic, or manual. It
+adds at most one accessible, non-hit-testing overlay to any registered view and
+removes it for hidden. The overlay is constrained only to the target's top and
+trailing anchors and therefore does not change its bounds or terminal grid
+geometry. These are additive symbols under ABI version 1; an older image is
+reported as unsupported by the optional Dart binding surface.
+
 ## Pasteboard policy
 
 The public pasteboard calls select `NSPasteboard.generalPasteboard` and expose

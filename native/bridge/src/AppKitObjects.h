@@ -31,6 +31,24 @@
 
 @end
 
+@interface DaSecureEventInputOwner : NSObject {
+ @private
+  BOOL _desired;
+  BOOL _ownedEnabled;
+  BOOL _preparedForRelease;
+  int32_t _lastOSStatus;
+}
+
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign, readonly) BOOL daDesired;
+@property(nonatomic, assign, readonly) BOOL daOwnedEnabled;
+@property(nonatomic, assign, readonly) int32_t daLastOSStatus;
+
+- (int32_t)daSetDesired:(BOOL)desired;
+- (void)daPrepareForRelease;
+
+@end
+
 @interface DaTextView : DaView
 
 @property(nonatomic, copy) NSString* displayText;

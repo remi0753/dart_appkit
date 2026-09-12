@@ -59,6 +59,10 @@ using UserNotificationHandler = bool (*)(
     UserNotificationOperation operation, std::string_view identifier,
     std::string_view title, std::string_view body, void* context);
 
+using SecureEventInputStatusHandler = int32_t (*)();
+using SecureEventInputEnabledHandler = bool (*)();
+using ApplicationActiveQuery = bool (*)();
+
 struct ScreenSelectionCandidate {
   DaScreenSnapshot snapshot{};
   bool is_main = false;
@@ -97,6 +101,11 @@ void StopApplicationAppearanceObservation();
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
 void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
                                               void* context);
+void InstallSecureEventInputHandlersForTesting(
+    SecureEventInputStatusHandler enable_handler,
+    SecureEventInputStatusHandler disable_handler,
+    SecureEventInputEnabledHandler enabled_handler,
+    ApplicationActiveQuery active_query);
 
 inline bool EventTypeSupportedByProtocol(DaEventType type,
                                          uint32_t protocol_version) {

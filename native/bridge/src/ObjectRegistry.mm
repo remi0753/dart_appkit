@@ -32,6 +32,8 @@ const char* ObjectKindName(ObjectKind kind) {
       return "menu item";
     case ObjectKind::kGlobalHotKey:
       return "global hot key";
+    case ObjectKind::kSecureEventInput:
+      return "secure event input";
   }
   return "unknown";
 }

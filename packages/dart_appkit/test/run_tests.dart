@@ -7,6 +7,8 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
     show
         NativeRect,
         NativeScreenSnapshot,
+        dartAppKitSecureInputIndicatorAutomatic,
+        dartAppKitSecureInputIndicatorManual,
         dartAppKitScreenSelectionMain,
         dartAppKitExternalUrlPolicyForbidCredentials,
         dartAppKitExternalUrlPolicyRequireAuthority,
@@ -286,6 +288,94 @@ Future<void> _testGlobalHotKeyApi() async {
   );
   await legacy.terminate();
   await legacyRaw.close();
+}
+
+Future<void> _testSecureEventInputApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final SecureEventInput secureInput = SecureEventInput();
+  final int handle = testing.nativeSecureEventInputHandleForTesting(
+    secureInput,
+  );
+  _expect(bindings.secureEventInputOwner == handle, 'native secure owner');
+
+  SecureEventInputSnapshot snapshot = secureInput.snapshot();
+  _expect(!snapshot.desired, 'initial request disabled');
+  _expect(!snapshot.ownedEnabled, 'initial reference not owned');
+  secureInput.setDesired(true);
+  secureInput.setDesired(true);
+  _expect(bindings.secureEventInputEnableCount == 1, 'enable is idempotent');
+  snapshot = secureInput.snapshot();
+  _expect(snapshot.desired && snapshot.ownedEnabled, 'active request acquired');
+
+  bindings.changeApplicationActive(false);
+  snapshot = secureInput.snapshot();
+  _expect(snapshot.desired, 'inactive app retains desire');
+  _expect(!snapshot.ownedEnabled, 'inactive app yields owned reference');
+  bindings.changeApplicationActive(true);
+  _expect(bindings.secureEventInputEnableCount == 2, 'activation reacquires');
+
+  final SecureEventInputException duplicate =
+      await _expectThrows<SecureEventInputException>(SecureEventInput.new);
+  _expect(
+    duplicate.reason == SecureEventInputFailure.alreadyOwned,
+    'duplicate owner has typed failure',
+  );
+
+  bindings
+    ..failNextOperation = 'secureEventInputSetDesired'
+    ..failureStatus = dartAppKitStatusSecureEventInputFailed
+    ..failureMessage = 'injected OSStatus -50';
+  final SecureEventInputException systemFailure =
+      await _expectThrows<SecureEventInputException>(
+        () => secureInput.setDesired(false),
+      );
+  _expect(
+    systemFailure.reason == SecureEventInputFailure.systemFailure &&
+        systemFailure.nativeStatus == dartAppKitStatusSecureEventInputFailed,
+    'OS failure has typed result',
+  );
+  _expect(
+    secureInput.snapshot().ownedEnabled,
+    'failed disable retains ownership knowledge',
+  );
+  secureInput.setDesired(false);
+
+  final View view = View();
+  view.secureInputIndicatorState = SecureInputIndicatorState.automatic;
+  _expect(
+    bindings.secureInputIndicatorStates.values.single ==
+        dartAppKitSecureInputIndicatorAutomatic,
+    'automatic indicator reaches native view',
+  );
+  view.secureInputIndicatorState = SecureInputIndicatorState.manual;
+  _expect(
+    view.secureInputIndicatorState == SecureInputIndicatorState.manual &&
+        bindings.secureInputIndicatorStates.values.single ==
+            dartAppKitSecureInputIndicatorManual,
+    'manual indicator is distinct and cached after success',
+  );
+  bindings.failNextOperation = 'viewSetSecureInputIndicator';
+  await _expectThrows<AppKitNativeException>(
+    () => view.secureInputIndicatorState = SecureInputIndicatorState.automatic,
+  );
+  _expect(
+    view.secureInputIndicatorState == SecureInputIndicatorState.manual,
+    'failed indication does not corrupt Dart state',
+  );
+
+  bindings.secureEventInputSystemEnabled = true;
+  secureInput.dispose();
+  _expect(
+    bindings.secureEventInputSystemEnabled,
+    'dispose leaves externally-owned system state untouched',
+  );
+  view.dispose();
+  await app.terminate();
+  await raw.close();
 }
 
 Future<void> _testGenericViewBoundary() async {
@@ -2507,6 +2597,10 @@ Future<void> main() async {
     _testLifecycleRequestEvents,
   );
   await _test('exclusive global hot-key ownership', _testGlobalHotKeyApi);
+  await _test(
+    'balanced Secure Event Input ownership and indication',
+    _testSecureEventInputApi,
+  );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
   await _test('allowlisted external URL opening', _testExternalUrlApi);
   await _test(

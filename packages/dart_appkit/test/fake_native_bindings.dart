@@ -13,6 +13,7 @@ enum FakeObjectKind {
   menu,
   menuItem,
   globalHotKey,
+  secureEventInput,
 }
 
 final class FakeMenuItemState {
@@ -35,6 +36,7 @@ final class FakeNativeBindings
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
+        NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
@@ -63,6 +65,15 @@ final class FakeNativeBindings
   int? mainMenu;
   final Map<int, ({int keyCode, int modifiers})> globalHotKeys =
       <int, ({int keyCode, int modifiers})>{};
+  int? secureEventInputOwner;
+  bool secureEventInputDesired = false;
+  bool secureEventInputOwnedEnabled = false;
+  bool secureEventInputSystemEnabled = false;
+  bool applicationActive = true;
+  int secureEventInputLastOsStatus = 0;
+  int secureEventInputEnableCount = 0;
+  int secureEventInputDisableCount = 0;
+  final Map<int, int> secureInputIndicatorStates = <int, int>{};
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -335,6 +346,96 @@ final class FakeNativeBindings
     if (result.isSuccess) {
       objects[handle] = FakeObjectKind.globalHotKey;
       globalHotKeys[handle] = (keyCode: keyCode, modifiers: modifiers);
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> secureEventInputCreate() {
+    if (secureEventInputOwner != null) {
+      operations.add('secureEventInputCreate');
+      return const NativeValueResult<int>.failure(
+        10,
+        'injected Secure Event Input owner already exists',
+      );
+    }
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'secureEventInputCreate',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.secureEventInput;
+      secureEventInputOwner = handle;
+      secureEventInputDesired = false;
+      secureEventInputOwnedEnabled = false;
+      secureEventInputLastOsStatus = 0;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult secureEventInputSetDesired(int handle, bool desired) {
+    final NativeCallResult result = _status('secureEventInputSetDesired');
+    if (secureEventInputOwner != handle) {
+      return const NativeCallResult.failure(3, 'invalid secure input handle');
+    }
+    secureEventInputDesired = desired;
+    if (!result.isSuccess) {
+      secureEventInputLastOsStatus = failureStatus;
+      return result;
+    }
+    _applySecureEventInputState();
+    return result;
+  }
+
+  void changeApplicationActive(bool active) {
+    applicationActive = active;
+    _applySecureEventInputState();
+  }
+
+  void _applySecureEventInputState() {
+    final bool target = secureEventInputDesired && applicationActive;
+    if (target == secureEventInputOwnedEnabled) {
+      secureEventInputLastOsStatus = 0;
+      return;
+    }
+    if (target) {
+      secureEventInputEnableCount++;
+    } else {
+      secureEventInputDisableCount++;
+    }
+    secureEventInputOwnedEnabled = target;
+    secureEventInputSystemEnabled = target;
+    secureEventInputLastOsStatus = 0;
+  }
+
+  @override
+  NativeValueResult<NativeSecureEventInputSnapshot> secureEventInputGetSnapshot(
+    int handle,
+  ) {
+    if (secureEventInputOwner != handle) {
+      return const NativeValueResult<NativeSecureEventInputSnapshot>.failure(
+        3,
+        'invalid secure input handle',
+      );
+    }
+    return _value<NativeSecureEventInputSnapshot>(
+      'secureEventInputGetSnapshot',
+      NativeSecureEventInputSnapshot(
+        desired: secureEventInputDesired,
+        ownedEnabled: secureEventInputOwnedEnabled,
+        systemEnabled: secureEventInputSystemEnabled,
+        lastOsStatus: secureEventInputLastOsStatus,
+      ),
+    );
+  }
+
+  @override
+  NativeCallResult viewSetSecureInputIndicator(int handle, int state) {
+    final NativeCallResult result = _status('viewSetSecureInputIndicator');
+    if (result.isSuccess) {
+      secureInputIndicatorStates[handle] = state;
     }
     return result;
   }
@@ -1125,6 +1226,17 @@ final class FakeNativeBindings
       submenus.remove(handle);
       menuItemEnabled.remove(handle);
       globalHotKeys.remove(handle);
+      secureInputIndicatorStates.remove(handle);
+      if (secureEventInputOwner == handle) {
+        if (secureEventInputOwnedEnabled) {
+          secureEventInputDisableCount++;
+          secureEventInputSystemEnabled = false;
+        }
+        secureEventInputOwner = null;
+        secureEventInputDesired = false;
+        secureEventInputOwnedEnabled = false;
+        secureEventInputLastOsStatus = 0;
+      }
       if (mainMenu == handle) {
         mainMenu = null;
       }

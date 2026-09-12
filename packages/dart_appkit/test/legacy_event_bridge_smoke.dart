@@ -193,6 +193,18 @@ void main(List<String> arguments) {
       8) {
     _fail('legacy bridge accepted additive global hot-key registration');
   }
+  if (bindings.secureEventInputCreate().status != 8 ||
+      bindings.secureEventInputSetDesired(1, true).status != 8 ||
+      bindings.secureEventInputGetSnapshot(1).status != 8 ||
+      bindings
+              .viewSetSecureInputIndicator(
+                1,
+                dartAppKitSecureInputIndicatorAutomatic,
+              )
+              .status !=
+          8) {
+    _fail('legacy bridge accepted additive secure-input APIs');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

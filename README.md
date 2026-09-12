@@ -10,6 +10,7 @@ generic, text, registered native-provider, and two-child split views, explicit
 first-responder selection, menus and menu-item actions, periodic `Timer`
 updates, lifecycle/window/input events, cached application light/dark
 appearance, exclusive owned system-wide physical-key registrations,
+balanced Secure Event Input ownership with automatic/manual view indication,
 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
@@ -175,6 +176,17 @@ focus and autoresizing behavior. Defaults preserve the original focusable,
 width/height-sizable, monospaced 18-point regular text with 20-point padding,
 label foreground, and window background. Registered custom views remain wholly
 provider-owned.
+
+`SecureEventInput` is the single bridge-wide balanced owner for macOS Secure
+Event Input. `setDesired(true)` acquires exactly one reference while the
+application is active, yields only that owned reference when the application
+resigns active, and reacquires it on activation while the request remains
+desired. Its content-free snapshot distinguishes retained desire, bridge
+ownership, observed global state, and the last Carbon status. A view's
+`secureInputIndicatorState` adds a non-interactive top-right `SECURE AUTO` or
+`SECURE MANUAL` overlay without resizing the view or participating in terminal
+grid layout; `hidden` removes it. Detection and user policy remain consumer
+responsibilities.
 
 `TwoPaneSplitView.refreshFraction()` explicitly observes the current native
 first-child fraction after a user drags its divider. The cached `fraction`

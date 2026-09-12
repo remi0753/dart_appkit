@@ -20,6 +20,7 @@ enum class ObjectKind : uint8_t {
   kMenu = 4,
   kMenuItem = 5,
   kGlobalHotKey = 6,
+  kSecureEventInput = 7,
 };
 
 enum class ThreadDomain : uint8_t {

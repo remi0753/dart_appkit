@@ -3175,3 +3175,35 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   lifecycle/diagnostics、capabilities、renderer、PTY、全 Dart packages、Kernel、FFI まで回帰なく
   通過した。`make runtime-jit-runner runtime-aot-runner` では同じ追加 ABI を Developer JIT と
   Release AOT の両 generic host に warning-as-error でリンクできた。
+
+## 2026-09-12 — Balanced Secure Event Input substrate
+
+- Dart Terminal の Secure Keyboard Entry は user-visible manual mode と、terminal content を
+  読まない automatic mode の双方から同じ macOS lease を要求する。AppKit bridge は policy や
+  PTY echo 判定を持たず、単一 retained desire、owned reference、system observation、表示状態だけを
+  提供する境界とした。
+- macOS SDK の Carbon contract は enable/disable の全呼び出しを balance する必要があり、API は
+  thread-safe ではなく、非アクティブ時に解除するよう求める。実装は main-thread owner が成功した
+  enable transition だけを `_ownedEnabled` に記録し、その記録がある場合だけ disable する。system
+  enabled bit は他プロセスも反映するため snapshot 専用であり、ownership 判定には使用しない。
+- `DaSecureEventInputOwner` は activation/resignation notification で retained desire を維持したまま
+  yield/reacquire する。明示 release、finalizer、bridge shutdown は同じ prepare path を通り、owner
+  が取得した参照を高々一度だけ解放する。Carbon failure は専用 status、数値 OSStatus、更新された
+  desired state と未変更の owned state を残し、呼び出し側が安全に retry できる。
+- 表示は generic view 上の1つの accessibility element とし、`SECURE AUTO` と `SECURE MANUAL` を
+  区別する。hit test と first responder を受けず、target の top/trailing anchor にだけ拘束され、
+  target bounds、Metal drawable、terminal grid geometry を変更しない。hidden は overlay を除去する。
+- Public Dart API は `SecureEventInput`、content-free snapshot、typed failure、3状態の
+  `SecureInputIndicatorState` を公開する。FFI はすべて optional additive symbol とし、旧 bridge は
+  unsupported を返す。fake binding でも desired/owned/system の区別と cache-on-success を再現した。
+- Native focused test は acquire idempotence、inactive yield、active reacquire、disable failure/retry、
+  external owner preservation、shutdown balance、single owner、wrong type/thread/size、indicator identity、
+  accessibility、non-hit-testing、bounds invariance を通過した。Dart test は public owner/snapshot、
+  typed duplicate/system failure、activation、automatic/manual indication、failure時 cache保持を通過した。
+  `make contract-check ffi-smoke public-dart-api-host-probe` も additive ABI と current FFI を通過した。
+- Exact `CI=true DART_SUPPRESS_ANALYTICS=true make test` は scaffold/header、warning-clean bridge、
+  Runner、scheduler/events、runtime lifecycle/diagnostics、native capability、renderer、PTY、全 Dart
+  packages、Kernel compilation、current/legacy FFI を回帰なく通過した。`make runtime-jit-runner
+  runtime-aot-runner` も同じ bridge を Developer JIT／Release AOT の両 generic host に
+  warning-as-error でリンクした。さらに consuming Dart Terminal の exact `make test` は
+  272-file format、analysis、generated reference/evidence、Phase 9 security stress を含めて成功した。

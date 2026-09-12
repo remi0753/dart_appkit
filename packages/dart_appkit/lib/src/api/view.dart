@@ -60,6 +60,32 @@ base class View extends _NativeResource {
   /// Package-owned base behavior, or `null` for provider/container views.
   final ViewConfiguration? viewConfiguration;
 
+  SecureInputIndicatorState _secureInputIndicatorState =
+      SecureInputIndicatorState.hidden;
+
+  /// Current non-interactive badge shown over this view.
+  SecureInputIndicatorState get secureInputIndicatorState =>
+      _secureInputIndicatorState;
+
+  set secureInputIndicatorState(SecureInputIndicatorState state) {
+    ensureAlive();
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeSecureEventInputBindings) {
+      throw const AppKitNativeException(
+        operation: 'View.secureInputIndicatorState',
+        status: 8,
+        nativeMessage: 'native bridge does not support secure-input indication',
+      );
+    }
+    final NativeSecureEventInputBindings secureBindings =
+        bindings as NativeSecureEventInputBindings;
+    _checkCall(
+      secureBindings.viewSetSecureInputIndicator(_handle, state._nativeValue),
+      'View.secureInputIndicatorState',
+    );
+    _secureInputIndicatorState = state;
+  }
+
   /// Performs the opaque, synchronous operation registered by this custom
   /// view's native provider. The payload is copied for the call and is never
   /// retained by dart_appkit.

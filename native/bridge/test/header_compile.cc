@@ -19,6 +19,8 @@ static_assert(std::is_standard_layout_v<DaScreenSnapshot>);
 static_assert(sizeof(DaScreenSnapshot) == 88);
 static_assert(std::is_standard_layout_v<DaWindowPresentationConfiguration>);
 static_assert(sizeof(DaWindowPresentationConfiguration) == 24);
+static_assert(std::is_standard_layout_v<DaSecureEventInputSnapshot>);
+static_assert(sizeof(DaSecureEventInputSnapshot) == 24);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
 static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 8);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
@@ -41,6 +43,11 @@ int da_header_compiles_as_cpp() {
       &da_application_open_external_url_with_policy;
   auto* key_event_routing = &da_window_set_key_event_routing;
   auto* global_hot_key_register = &da_global_hot_key_register;
+  auto* secure_event_input_create = &da_secure_event_input_create;
+  auto* secure_event_input_set_desired =
+      &da_secure_event_input_set_desired;
+  auto* secure_event_input_snapshot = &da_secure_event_input_get_snapshot;
+  auto* secure_input_indicator = &da_view_set_secure_input_indicator;
   auto* screen_resolve = &da_application_resolve_screen;
   auto* window_present = &da_window_present;
   auto* window_hide = &da_window_hide;
@@ -60,6 +67,10 @@ int da_header_compiles_as_cpp() {
                  external_url_open_with_policy != nullptr &&
                  key_event_routing != nullptr &&
                  global_hot_key_register != nullptr &&
+                 secure_event_input_create != nullptr &&
+                 secure_event_input_set_desired != nullptr &&
+                 secure_event_input_snapshot != nullptr &&
+                 secure_input_indicator != nullptr &&
                  screen_resolve != nullptr && window_present != nullptr &&
                  window_hide != nullptr &&
                  window_presentation_configuration != nullptr &&

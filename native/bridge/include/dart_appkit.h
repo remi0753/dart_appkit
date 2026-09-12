@@ -310,6 +310,31 @@ typedef struct DaPasteboardText {
   int64_t change_count;
 } DaPasteboardText;
 
+/**
+ * Size-prefixed, content-free Secure Event Input ownership snapshot.
+ *
+ * desired records the client's retained request. owned_enabled is true only
+ * when this bridge successfully acquired one balanced system reference.
+ * system_enabled is observational and may also reflect another process.
+ */
+typedef struct DaSecureEventInputSnapshot {
+  uint64_t struct_size;
+  int32_t desired;
+  int32_t owned_enabled;
+  int32_t system_enabled;
+  int32_t last_os_status;
+} DaSecureEventInputSnapshot;
+
+#define DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaSecureEventInputSnapshot))
+
+/** Non-interactive secure-input indication rendered over a view. */
+typedef enum DaSecureInputIndicatorState {
+  DA_SECURE_INPUT_INDICATOR_HIDDEN = 0,
+  DA_SECURE_INPUT_INDICATOR_AUTOMATIC = 1,
+  DA_SECURE_INPUT_INDICATOR_MANUAL = 2
+} DaSecureInputIndicatorState;
+
 typedef enum DaStatus {
   DA_STATUS_OK = 0,
   DA_STATUS_INVALID_ARGUMENT = 1,
@@ -323,7 +348,8 @@ typedef enum DaStatus {
   DA_STATUS_SHUTTING_DOWN = 9,
   DA_STATUS_LIMIT_EXCEEDED = 10,
   DA_STATUS_GLOBAL_HOT_KEY_CONFLICT = 11,
-  DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED = 12
+  DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED = 12,
+  DA_STATUS_SECURE_EVENT_INPUT_FAILED = 13
 } DaStatus;
 
 /** Event list slot 1; slot 0 is the negotiated event protocol version. */
@@ -504,6 +530,26 @@ DA_EXPORT int32_t da_application_set_dock_badge_label(
 DA_EXPORT int32_t da_global_hot_key_register(uint16_t key_code,
                                              uint64_t modifiers,
                                              DaHandle* out_handle);
+
+/**
+ * Main thread only. Creates the bridge-wide Secure Event Input owner.
+ *
+ * At most one owner may exist. The returned resource starts undesired and
+ * disabled; da_release balances any reference acquired by this owner.
+ */
+DA_EXPORT int32_t da_secure_event_input_create(DaHandle* out_handle);
+
+/**
+ * Main thread only. Retains a desired state and applies it while the app is
+ * active. Activation changes automatically yield and reacquire the owned
+ * reference. Repeating a state is idempotent.
+ */
+DA_EXPORT int32_t da_secure_event_input_set_desired(DaHandle handle,
+                                                    int32_t desired);
+
+/** Main thread only. Reads desired, owned, system, and last OSStatus state. */
+DA_EXPORT int32_t da_secure_event_input_get_snapshot(
+    DaHandle handle, DaSecureEventInputSnapshot* out_snapshot);
 
 /**
  * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.
@@ -714,6 +760,13 @@ DA_EXPORT int32_t da_view_create(DaHandle* out_view);
 /** Main thread only. Creates a configured generic AppKit view. */
 DA_EXPORT int32_t da_view_create_configured(
     const DaViewConfiguration* configuration, DaHandle* out_view);
+
+/**
+ * Main thread only. Shows or removes a non-interactive secure-input badge.
+ * The overlay does not participate in the target view's layout or resize it.
+ */
+DA_EXPORT int32_t da_view_set_secure_input_indicator(DaHandle view,
+                                                     int32_t state);
 
 /**
  * Main thread only. Creates the two-pane helper: two children, one thin

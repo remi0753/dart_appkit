@@ -41,6 +41,23 @@ final class _DaScreenSnapshotNative extends Struct {
   external double backingScaleFactor;
 }
 
+final class _DaSecureEventInputSnapshotNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Int32()
+  external int desired;
+
+  @Int32()
+  external int ownedEnabled;
+
+  @Int32()
+  external int systemEnabled;
+
+  @Int32()
+  external int lastOsStatus;
+}
+
 final class _DaWindowPresentationConfigurationNative extends Struct {
   @Uint64()
   external int structSize;
@@ -470,6 +487,14 @@ typedef _GlobalHotKeyRegisterNative = Int32 Function(
   Pointer<Uint64>,
 );
 typedef _GlobalHotKeyRegisterDart = int Function(int, int, Pointer<Uint64>);
+typedef _SecureEventInputSnapshotNative = Int32 Function(
+  Uint64,
+  Pointer<_DaSecureEventInputSnapshotNative>,
+);
+typedef _SecureEventInputSnapshotDart = int Function(
+  int,
+  Pointer<_DaSecureEventInputSnapshotNative>,
+);
 typedef _ViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaViewConfigurationNative>,
   Pointer<Uint64>,
@@ -576,15 +601,18 @@ _SetEventPortVersionedDart? _lookupSetEventPortVersioned(
   }
 }
 
-_CreateHandleDart? _lookupViewCreate(DynamicLibrary library) {
+_CreateHandleDart? _lookupCreateHandle(DynamicLibrary library, String symbol) {
   try {
     return library.lookupFunction<_CreateHandleNative, _CreateHandleDart>(
-      'da_view_create',
+      symbol,
     );
   } on ArgumentError {
     return null;
   }
 }
+
+_CreateHandleDart? _lookupViewCreate(DynamicLibrary library) =>
+    _lookupCreateHandle(library, 'da_view_create');
 
 _ViewCreateConfiguredDart? _lookupViewCreateConfigured(DynamicLibrary library) {
   try {
@@ -1218,6 +1246,19 @@ _GlobalHotKeyRegisterDart? _lookupGlobalHotKeyRegister(DynamicLibrary library) {
   }
 }
 
+_SecureEventInputSnapshotDart? _lookupSecureEventInputSnapshot(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _SecureEventInputSnapshotNative,
+      _SecureEventInputSnapshotDart
+    >('da_secure_event_input_get_snapshot');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _ScreenResolveDart? _lookupScreenResolve(DynamicLibrary library) {
   try {
     return library.lookupFunction<_ScreenResolveNative, _ScreenResolveDart>(
@@ -1266,6 +1307,7 @@ final class FfiNativeBindings
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
+        NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -1306,6 +1348,15 @@ final class FfiNativeBindings
         'da_application_set_dock_badge_label',
       ),
       _globalHotKeyRegister = _lookupGlobalHotKeyRegister(library),
+      _secureEventInputCreate = _lookupCreateHandle(
+        library,
+        'da_secure_event_input_create',
+      ),
+      _secureEventInputSetDesired = _lookupHandleInt(
+        library,
+        'da_secure_event_input_set_desired',
+      ),
+      _secureEventInputGetSnapshot = _lookupSecureEventInputSnapshot(library),
       _applicationResolveScreen = _lookupScreenResolve(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
@@ -1375,6 +1426,10 @@ final class FfiNativeBindings
       ),
       _viewCreate = _lookupViewCreate(library),
       _viewCreateConfigured = _lookupViewCreateConfigured(library),
+      _viewSetSecureInputIndicator = _lookupHandleInt(
+        library,
+        'da_view_set_secure_input_indicator',
+      ),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -1476,6 +1531,9 @@ final class FfiNativeBindings
   final _StringStatusDart? _applicationRemoveUserNotification;
   final _StringStatusDart? _applicationSetDockBadgeLabel;
   final _GlobalHotKeyRegisterDart? _globalHotKeyRegister;
+  final _CreateHandleDart? _secureEventInputCreate;
+  final _HandleBoolStatusDart? _secureEventInputSetDesired;
+  final _SecureEventInputSnapshotDart? _secureEventInputGetSnapshot;
   final _ScreenResolveDart? _applicationResolveScreen;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
@@ -1515,6 +1573,7 @@ final class FfiNativeBindings
   final _TwoHandlesDart? _windowMakeFirstResponder;
   final _CreateHandleDart? _viewCreate;
   final _ViewCreateConfiguredDart? _viewCreateConfigured;
+  final _HandleBoolStatusDart? _viewSetSecureInputIndicator;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -1883,6 +1942,68 @@ final class FfiNativeBindings
       return _valueResult<int>(
         function(keyCode, modifiers, output),
         output.value,
+      );
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<int> secureEventInputCreate() {
+    final _CreateHandleDart? function = _secureEventInputCreate;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support Secure Event Input',
+      );
+    }
+    final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    try {
+      output.value = 0;
+      return _valueResult<int>(function(output), output.value);
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult secureEventInputSetDesired(int handle, bool desired) {
+    final _HandleBoolStatusDart? function = _secureEventInputSetDesired;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support Secure Event Input',
+      );
+    }
+    return _callResult(function(handle, desired ? 1 : 0));
+  }
+
+  @override
+  NativeValueResult<NativeSecureEventInputSnapshot> secureEventInputGetSnapshot(
+    int handle,
+  ) {
+    final _SecureEventInputSnapshotDart? function =
+        _secureEventInputGetSnapshot;
+    if (function == null) {
+      return const NativeValueResult<NativeSecureEventInputSnapshot>.failure(
+        8,
+        'legacy native bridge does not support Secure Event Input',
+      );
+    }
+    final Pointer<_DaSecureEventInputSnapshotNative> output = _allocate(
+      sizeOf<_DaSecureEventInputSnapshotNative>(),
+    ).cast<_DaSecureEventInputSnapshotNative>();
+    try {
+      output.ref.structSize = sizeOf<_DaSecureEventInputSnapshotNative>();
+      final int status = function(handle, output);
+      return _valueResult<NativeSecureEventInputSnapshot>(
+        status,
+        NativeSecureEventInputSnapshot(
+          desired: output.ref.desired != 0,
+          ownedEnabled: output.ref.ownedEnabled != 0,
+          systemEnabled: output.ref.systemEnabled != 0,
+          lastOsStatus: output.ref.lastOsStatus,
+        ),
       );
     } finally {
       _free(output.cast<Void>());
@@ -2662,6 +2783,18 @@ final class FfiNativeBindings
       }
       _free(handlePointer.cast<Void>());
     }
+  }
+
+  @override
+  NativeCallResult viewSetSecureInputIndicator(int handle, int state) {
+    final _HandleBoolStatusDart? function = _viewSetSecureInputIndicator;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support secure-input indication',
+      );
+    }
+    return _callResult(function(handle, state));
   }
 
   @override
