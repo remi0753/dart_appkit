@@ -13,6 +13,8 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "AppKitObjects.h"
 #include "BridgeInternal.h"
@@ -21,6 +23,8 @@
 
 @class DaQuickLookRequestOwner;
 @class DaServicesTextRequestor;
+@class DaDropDestinationOwner;
+@class DaDropDestinationSession;
 
 namespace {
 
@@ -35,6 +39,8 @@ NSHashTable<NSView*>* g_context_menu_views = nil;
 NSMutableArray<DaQuickLookRequestOwner*>* g_quick_look_request_owners = nil;
 id g_quick_look_event_monitor = nil;
 NSMutableArray<DaServicesTextRequestor*>* g_services_text_requestors = nil;
+NSMutableArray<DaDropDestinationOwner*>* g_drop_destination_owners = nil;
+NSMapTable<NSWindow*, DaDropDestinationSession*>* g_drop_sessions = nil;
 
 int32_t EnableSecureEventInputWithSystem() {
   return static_cast<int32_t>(EnableSecureEventInput());
@@ -180,6 +186,27 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 @property(nonatomic, copy) NSString* selectionText;
 @property(nonatomic, assign) BOOL acceptsReturnedText;
 @property(nonatomic, assign) NSUInteger maximumReturnedTextUtf8Bytes;
+
+@end
+
+@interface DaDropDestinationOwner : NSObject
+
+@property(nonatomic, weak) NSView* view;
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign) BOOL acceptsPlainText;
+@property(nonatomic, assign) BOOL acceptsFileUrls;
+@property(nonatomic, assign) NSUInteger maximumTextUtf8Bytes;
+@property(nonatomic, assign) NSUInteger maximumFileUrlCount;
+@property(nonatomic, assign) NSUInteger maximumFileUrlUtf8Bytes;
+@property(nonatomic, assign) NSUInteger maximumTotalFileUrlUtf8Bytes;
+
+@end
+
+@interface DaDropDestinationSession : NSObject
+
+@property(nonatomic, weak) DaDropDestinationOwner* owner;
+@property(nonatomic, assign) NSInteger sequenceNumber;
+@property(nonatomic, assign) DaDropContentKind contentKind;
 
 @end
 
@@ -461,6 +488,12 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
+@implementation DaDropDestinationOwner
+@end
+
+@implementation DaDropDestinationSession
+@end
+
 namespace {
 
 DaServicesTextRequestor* ServicesTextRequestorForView(NSView* view) {
@@ -490,6 +523,241 @@ void RemoveServicesTextRequestorForView(NSView* view) {
   if (g_services_text_requestors.count == 0) {
     g_services_text_requestors = nil;
   }
+}
+
+DaDropDestinationOwner* DropDestinationOwnerForView(NSView* view) {
+  for (DaDropDestinationOwner* owner in [g_drop_destination_owners copy]) {
+    NSView* candidate = owner.view;
+    if (candidate == nil) {
+      [g_drop_destination_owners removeObject:owner];
+    } else if (candidate == view) {
+      return owner;
+    }
+  }
+  if (g_drop_destination_owners.count == 0) {
+    g_drop_destination_owners = nil;
+  }
+  return nil;
+}
+
+void ClearDropSessionsForOwner(DaDropDestinationOwner* owner) {
+  if (owner == nil || g_drop_sessions == nil) {
+    return;
+  }
+  for (NSWindow* window in g_drop_sessions.keyEnumerator.allObjects) {
+    if ([g_drop_sessions objectForKey:window].owner == owner) {
+      [g_drop_sessions removeObjectForKey:window];
+    }
+  }
+  if (g_drop_sessions.count == 0) {
+    g_drop_sessions = nil;
+  }
+}
+
+void RemoveDropDestinationOwnerForView(NSView* view) {
+  DaDropDestinationOwner* owner = DropDestinationOwnerForView(view);
+  if (owner != nil) {
+    ClearDropSessionsForOwner(owner);
+    owner.daHandle = 0;
+    owner.view = nil;
+    [g_drop_destination_owners removeObject:owner];
+  }
+  if (g_drop_destination_owners.count == 0) {
+    g_drop_destination_owners = nil;
+  }
+}
+
+bool PasteboardOffersType(NSPasteboard* pasteboard, NSPasteboardType type) {
+  return pasteboard != nil &&
+         [pasteboard availableTypeFromArray:@[ type ]] != nil;
+}
+
+DaDropDestinationOwner* ResolveDropDestination(
+    NSWindow* window, id<NSDraggingInfo> sender,
+    DaDropContentKind* out_content_kind, NSPoint* out_local_point) {
+  if (window == nil || sender == nil ||
+      ([sender draggingSourceOperationMask] & NSDragOperationCopy) == 0) {
+    return nil;
+  }
+  NSPasteboard* pasteboard = [sender draggingPasteboard];
+  const bool offers_file_urls =
+      PasteboardOffersType(pasteboard, NSPasteboardTypeFileURL);
+  const bool offers_plain_text =
+      PasteboardOffersType(pasteboard, NSPasteboardTypeString);
+  if (!offers_file_urls && !offers_plain_text) {
+    return nil;
+  }
+  NSView* content_view = window.contentView;
+  if (content_view == nil) {
+    return nil;
+  }
+  const NSPoint location = [sender draggingLocation];
+  if (!std::isfinite(location.x) || !std::isfinite(location.y)) {
+    return nil;
+  }
+  DaDropDestinationOwner* best = nil;
+  DaDropContentKind best_kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  NSPoint best_local_point = NSZeroPoint;
+  NSUInteger best_depth = 0;
+  for (DaDropDestinationOwner* owner in
+       [g_drop_destination_owners copy]) {
+    NSView* view = owner.view;
+    if (view == nil) {
+      [g_drop_destination_owners removeObject:owner];
+      continue;
+    }
+    DaDropContentKind kind = DA_DROP_CONTENT_PLAIN_TEXT;
+    if (offers_file_urls && owner.acceptsFileUrls) {
+      kind = DA_DROP_CONTENT_FILE_URLS;
+    } else if (!offers_plain_text || !owner.acceptsPlainText) {
+      continue;
+    }
+    const NSPoint local_point = [view convertPoint:location fromView:nil];
+    if (!std::isfinite(local_point.x) || !std::isfinite(local_point.y) ||
+        !NSPointInRect(local_point, view.bounds) || view.isHidden ||
+        view.alphaValue <= 0.0 || view.window != window) {
+      continue;
+    }
+    NSUInteger depth = 0;
+    NSView* cursor = view;
+    bool visible_in_ancestry = true;
+    while (cursor != nil && cursor != content_view) {
+      const NSPoint cursor_point =
+          [cursor convertPoint:location fromView:nil];
+      if (!std::isfinite(cursor_point.x) || !std::isfinite(cursor_point.y) ||
+          !NSPointInRect(cursor_point, cursor.bounds) || cursor.isHidden ||
+          cursor.alphaValue <= 0.0) {
+        visible_in_ancestry = false;
+        break;
+      }
+      cursor = cursor.superview;
+      ++depth;
+    }
+    if (visible_in_ancestry && cursor == content_view &&
+        (best == nil || depth > best_depth)) {
+      best = owner;
+      best_kind = kind;
+      best_local_point = local_point;
+      best_depth = depth;
+    }
+  }
+  if (best != nil && out_content_kind != nullptr) {
+    *out_content_kind = best_kind;
+  }
+  if (best != nil && out_local_point != nullptr) {
+    *out_local_point = best_local_point;
+  }
+  return best;
+}
+
+void ClearDropSession(NSWindow* window) {
+  [g_drop_sessions removeObjectForKey:window];
+  if (g_drop_sessions.count == 0) {
+    g_drop_sessions = nil;
+  }
+}
+
+void SetDropSession(NSWindow* window, DaDropDestinationOwner* owner,
+                    NSInteger sequence_number, DaDropContentKind kind) {
+  if (g_drop_sessions == nil) {
+    g_drop_sessions = [NSMapTable weakToStrongObjectsMapTable];
+  }
+  DaDropDestinationSession* session = [[DaDropDestinationSession alloc] init];
+  session.owner = owner;
+  session.sequenceNumber = sequence_number;
+  session.contentKind = kind;
+  [g_drop_sessions setObject:session forKey:window];
+}
+
+DaDropDestinationOwner* ResolveActiveDropDestination(
+    NSWindow* window, id<NSDraggingInfo> sender,
+    DaDropContentKind* out_content_kind, NSPoint* out_local_point) {
+  DaDropDestinationSession* session = [g_drop_sessions objectForKey:window];
+  if (session == nil || session.owner == nil ||
+      session.sequenceNumber != [sender draggingSequenceNumber]) {
+    return nil;
+  }
+  DaDropContentKind kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  NSPoint local_point = NSZeroPoint;
+  DaDropDestinationOwner* owner = ResolveDropDestination(
+      window, sender, &kind, &local_point);
+  if (owner == nil || owner != session.owner || kind != session.contentKind) {
+    return nil;
+  }
+  if (out_content_kind != nullptr) {
+    *out_content_kind = kind;
+  }
+  if (out_local_point != nullptr) {
+    *out_local_point = local_point;
+  }
+  return owner;
+}
+
+void AppendUint32LittleEndian(std::string* output, uint32_t value) {
+  output->push_back(static_cast<char>(value & 0xffu));
+  output->push_back(static_cast<char>((value >> 8) & 0xffu));
+  output->push_back(static_cast<char>((value >> 16) & 0xffu));
+  output->push_back(static_cast<char>((value >> 24) & 0xffu));
+}
+
+bool CopyDropFileUrlPacket(NSPasteboard* pasteboard,
+                           DaDropDestinationOwner* owner,
+                           std::string* out_packet) {
+  const NSInteger initial_change_count = pasteboard.changeCount;
+  NSArray<NSPasteboardItem*>* items = pasteboard.pasteboardItems;
+  if (items.count == 0 || items.count > owner.maximumFileUrlCount ||
+      items.count > DA_DROP_FILE_URL_MAX_COUNT) {
+    return false;
+  }
+  std::vector<std::string> urls;
+  urls.reserve(items.count);
+  size_t total_url_bytes = 0;
+  for (NSPasteboardItem* item in items) {
+    NSString* value = [item stringForType:NSPasteboardTypeFileURL];
+    NSURL* url = value == nil ? nil : [NSURL URLWithString:value];
+    NSString* host = url.host;
+    const bool local_host = host == nil || host.length == 0 ||
+                            [host caseInsensitiveCompare:@"localhost"] ==
+                                NSOrderedSame;
+    if (url == nil || !url.isFileURL || url.baseURL != nil || !local_host ||
+        url.user != nil || url.password != nil || url.port != nil ||
+        url.query != nil || url.fragment != nil || url.path.length == 0 ||
+        ![url.path hasPrefix:@"/"]) {
+      return false;
+    }
+    NSURL* normalized = url.URLByStandardizingPath;
+    NSData* bytes = [normalized.absoluteString
+        dataUsingEncoding:NSUTF8StringEncoding
+     allowLossyConversion:NO];
+    if (bytes == nil || bytes.length == 0 ||
+        bytes.length > owner.maximumFileUrlUtf8Bytes ||
+        bytes.length > DA_DROP_FILE_URL_MAX_UTF8_BYTES ||
+        total_url_bytes >
+            owner.maximumTotalFileUrlUtf8Bytes - bytes.length) {
+      return false;
+    }
+    total_url_bytes += bytes.length;
+    urls.emplace_back(static_cast<const char*>(bytes.bytes), bytes.length);
+  }
+  if (total_url_bytes > owner.maximumTotalFileUrlUtf8Bytes ||
+      total_url_bytes > DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES ||
+      pasteboard.changeCount != initial_change_count) {
+    return false;
+  }
+  const size_t packet_size = sizeof(uint32_t) +
+                             urls.size() * sizeof(uint32_t) +
+                             total_url_bytes;
+  if (packet_size > DA_DROP_FILE_URL_PACKET_MAX_BYTES) {
+    return false;
+  }
+  out_packet->clear();
+  out_packet->reserve(packet_size);
+  AppendUint32LittleEndian(out_packet, static_cast<uint32_t>(urls.size()));
+  for (const std::string& url : urls) {
+    AppendUint32LittleEndian(out_packet, static_cast<uint32_t>(url.size()));
+    out_packet->append(url);
+  }
+  return true;
 }
 
 DaQuickLookRequestOwner* QuickLookOwnerForHandle(DaHandle handle) {
@@ -684,6 +952,77 @@ id DaServicesTextRequestorForWindow(NSWindow* window,
     g_services_text_requestors = nil;
   }
   return best;
+}
+
+NSDragOperation DaDropDraggingUpdated(NSWindow* window,
+                                      id<NSDraggingInfo> sender) {
+  DaDropContentKind kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  DaDropDestinationOwner* owner =
+      ResolveDropDestination(window, sender, &kind, nullptr);
+  if (owner == nil) {
+    ClearDropSession(window);
+    return NSDragOperationNone;
+  }
+  SetDropSession(window, owner, [sender draggingSequenceNumber], kind);
+  return NSDragOperationCopy;
+}
+
+void DaDropDraggingExited(NSWindow* window, id<NSDraggingInfo> sender) {
+  (void)sender;
+  ClearDropSession(window);
+}
+
+BOOL DaDropPrepareForOperation(NSWindow* window, id<NSDraggingInfo> sender) {
+  return ResolveActiveDropDestination(window, sender, nullptr, nullptr) != nil;
+}
+
+BOOL DaDropPerformOperation(NSWindow* window, id<NSDraggingInfo> sender) {
+  DaDropContentKind kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  NSPoint local_point = NSZeroPoint;
+  DaDropDestinationOwner* owner = ResolveActiveDropDestination(
+      window, sender, &kind, &local_point);
+  if (owner == nil) {
+    ClearDropSession(window);
+    return NO;
+  }
+  std::string payload;
+  NSPasteboard* pasteboard = [sender draggingPasteboard];
+  if (kind == DA_DROP_CONTENT_PLAIN_TEXT) {
+    DaPasteboardText snapshot{};
+    if (dart_appkit::ReadPasteboardTextWithLimit(
+            pasteboard, owner.maximumTextUtf8Bytes, &snapshot) !=
+            DA_STATUS_OK ||
+        snapshot.has_text == 0) {
+      ClearDropSession(window);
+      return NO;
+    }
+    if (snapshot.text_length != 0) {
+      payload.assign(snapshot.text, snapshot.text_length);
+    }
+  } else if (kind == DA_DROP_CONTENT_FILE_URLS) {
+    if (!CopyDropFileUrlPacket(pasteboard, owner, &payload)) {
+      ClearDropSession(window);
+      return NO;
+    }
+  } else {
+    ClearDropSession(window);
+    return NO;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_VIEW_DROP_PERFORMED;
+  event.window = owner.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.x = local_point.x;
+  event.y = local_point.y;
+  event.drop_content_kind = kind;
+  event.characters = std::move(payload);
+  ClearDropSession(window);
+  return dart_appkit::PostEvent(event) ? YES : NO;
+}
+
+void DaDropDraggingEnded(NSWindow* window, id<NSDraggingInfo> sender) {
+  (void)sender;
+  ClearDropSession(window);
 }
 
 @implementation DaApplicationAppearanceObserver
@@ -1616,6 +1955,8 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
   owner.daHandle = 0;
   owner.window.daHandle = 0;
   owner.window.delegate = nil;
+  ClearDropSession(owner.window);
+  [owner.window unregisterDraggedTypes];
   [owner.window orderOut:nil];
   [owner daCloseProgrammatically];
 }
@@ -1645,6 +1986,7 @@ void PrepareViewForRelease(NSView* view) {
   view.menu = nil;
   RemoveQuickLookOwnerForView(view);
   RemoveServicesTextRequestorForView(view);
+  RemoveDropDestinationOwnerForView(view);
   [g_context_menu_views removeObject:view];
   if (g_context_menu_views.count == 0) {
     g_context_menu_views = nil;
@@ -2136,6 +2478,10 @@ void ShutdownBridge() {
     }
   }
   registry.Clear();
+  [g_drop_sessions removeAllObjects];
+  g_drop_sessions = nil;
+  [g_drop_destination_owners removeAllObjects];
+  g_drop_destination_owners = nil;
   StopGlobalHotKeyInfrastructure();
 }
 
@@ -3132,6 +3478,10 @@ int32_t da_window_create_configured(
     window.releasedWhenClosed = NO;
     window.acceptsMouseMovedEvents = YES;
     window.daKeyEventRouting = DA_KEY_EVENT_ROUTING_DART_AND_APPKIT;
+    [window registerForDraggedTypes:@[
+      NSPasteboardTypeString,
+      NSPasteboardTypeFileURL,
+    ]];
 
     DaWindowOwner* owner = [[DaWindowOwner alloc] initWithWindow:window];
     const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
@@ -4086,6 +4436,71 @@ int32_t da_view_set_services_text_requestor(
       configuration->accepts_returned_text != 0;
   requestor.maximumReturnedTextUtf8Bytes =
       configuration->maximum_returned_text_utf8_bytes;
+  return DA_STATUS_OK;
+}
+
+int32_t da_view_set_drop_destination(
+    DaHandle view_handle,
+    const DaDropDestinationConfiguration* configuration) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  if (configuration == nullptr) {
+    RemoveDropDestinationOwnerForView(view);
+    return DA_STATUS_OK;
+  }
+  if (configuration->struct_size <
+          DA_DROP_DESTINATION_CONFIGURATION_VERSION_1_SIZE ||
+      (configuration->accepts_plain_text != 0 &&
+       configuration->accepts_plain_text != 1) ||
+      (configuration->accepts_file_urls != 0 &&
+       configuration->accepts_file_urls != 1) ||
+      configuration->reserved_0 != 0 || configuration->reserved_1 != 0 ||
+      (configuration->accepts_plain_text == 0 &&
+       configuration->accepts_file_urls == 0) ||
+      configuration->maximum_text_utf8_bytes == 0 ||
+      configuration->maximum_text_utf8_bytes > DA_DROP_TEXT_MAX_UTF8_BYTES ||
+      configuration->maximum_file_url_count == 0 ||
+      configuration->maximum_file_url_count > DA_DROP_FILE_URL_MAX_COUNT ||
+      configuration->maximum_file_url_utf8_bytes == 0 ||
+      configuration->maximum_file_url_utf8_bytes >
+          DA_DROP_FILE_URL_MAX_UTF8_BYTES ||
+      configuration->maximum_total_file_url_utf8_bytes == 0 ||
+      configuration->maximum_total_file_url_utf8_bytes >
+          DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES ||
+      configuration->maximum_file_url_utf8_bytes >
+          configuration->maximum_total_file_url_utf8_bytes) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "drop destination configuration is invalid or exceeds hard limits");
+  }
+  DaDropDestinationOwner* owner = DropDestinationOwnerForView(view);
+  if (owner == nil) {
+    if (g_drop_destination_owners == nil) {
+      g_drop_destination_owners = [[NSMutableArray alloc] init];
+    }
+    owner = [[DaDropDestinationOwner alloc] init];
+    owner.view = view;
+    [g_drop_destination_owners addObject:owner];
+  } else {
+    ClearDropSessionsForOwner(owner);
+  }
+  owner.daHandle = view_handle;
+  owner.acceptsPlainText = configuration->accepts_plain_text != 0;
+  owner.acceptsFileUrls = configuration->accepts_file_urls != 0;
+  owner.maximumTextUtf8Bytes = configuration->maximum_text_utf8_bytes;
+  owner.maximumFileUrlCount = configuration->maximum_file_url_count;
+  owner.maximumFileUrlUtf8Bytes =
+      configuration->maximum_file_url_utf8_bytes;
+  owner.maximumTotalFileUrlUtf8Bytes =
+      configuration->maximum_total_file_url_utf8_bytes;
   return DA_STATUS_OK;
 }
 

@@ -171,6 +171,22 @@ void main(List<String> arguments) {
       'receive-only Services requestor did not preserve its main-thread guard',
     );
   }
+  final NativeCallResult dropDestination = bindings.viewSetDropDestination(
+    1,
+    const NativeDropDestinationConfiguration(
+      acceptsPlainText: true,
+      acceptsFileUrls: true,
+      maximumTextUtf8Bytes: 1024,
+      maximumFileUrlCount: 2,
+      maximumFileUrlUtf8Bytes: 256,
+      maximumTotalFileUrlUtf8Bytes: 512,
+    ),
+  );
+  if (dropDestination.isSuccess ||
+      dropDestination.status != 5 ||
+      dropDestination.message.isEmpty) {
+    _fail('drop destination symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings

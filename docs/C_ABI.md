@@ -216,7 +216,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 10 use the six-field common prefix:
+Versions 2 through 11 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -230,17 +230,18 @@ Versions 2 through 10 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 10 use nanoseconds.
+  microseconds; versions 2 through 11 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 10 is current. Version 3 adds window state, version 4 adds lifecycle
+- Version 11 is current. Version 3 adds window state, version 4 adds lifecycle
   decisions and menu actions, version 5 adds precision scroll, version 6 adds
   outer-frame and native-fullscreen state, and version 7 adds an application
   effective-appearance boolean (`false` light, `true` dark). Version 8 adds
   global-hot-key presses. Version 9 adds View-local Quick Look requests with
   finite x/y coordinates. Version 10 adds bounded plain text returned by a
-  Service to its registered View. Version-specific types are suppressed for an
-  older negotiated sink.
+  Service to its registered View. Version 11 adds a bounded performed
+  plain-text or local-file-URL drop with finite target-local coordinates.
+  Version-specific types are suppressed for an older negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
 to the same deferred application decision and operation-ID state used by the
@@ -272,6 +273,7 @@ Payloads:
 | `GLOBAL_HOT_KEY_PRESSED` | none; the source handle identifies the owned v8 registration |
 | `VIEW_QUICK_LOOK_REQUESTED` | `x: finite double, y: finite double`; the source handle identifies the registered View and the coordinates use that View's AppKit coordinate system |
 | `VIEW_SERVICES_TEXT_RECEIVED` | `text: Uint8 typed data`; the source handle identifies the registered View, native admission bounds UTF-8 before posting, and Dart strictly decodes the length-carrying bytes |
+| `VIEW_DROP_PERFORMED` | `contentKind: int, x/y: finite double, content: Uint8 typed data`; text is exact bounded UTF-8, while file URLs use a bounded little-endian count/length packet and the source handle identifies the destination View |
 
 Coordinates use the content view's top-left origin. Modifier values use stable
 `DaModifier` bits rather than exposing AppKit's enum representation.
@@ -522,6 +524,26 @@ under the cached limit and posts `DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED` to the
 generation-checked View. Both synchronous AppKit methods use native state only;
 neither synchronously calls Dart. View release clears the copied selection and
 invalidates a retained requestor before registry ownership is dropped.
+
+`da_view_set_drop_destination` installs or replaces a size-prefixed immutable
+copy-only policy for a View, or removes it when configuration is null. The
+policy independently enables `NSPasteboardTypeString` and
+`NSPasteboardTypeFileURL`, requires at least one, and bounds text bytes, file
+URL count, bytes per URL, and aggregate URL bytes beneath fixed 64 MiB/256/
+1 MiB/64 MiB hard maxima. Every `DaWindow` advertises only those two drag
+types, then uses target-local geometry and window ancestry to select the
+deepest compatible registered View. A source without `NSDragOperationCopy`
+is rejected.
+
+Enter/update cache only the generation-owned native destination and drag
+sequence. Exit/end, policy replacement, View release, and window release clear
+that state. Prepare revalidates location, type, sequence, and owner. Perform
+copies one bounded payload and posts `DA_EVENT_VIEW_DROP_PERFORMED`; no drag
+callback synchronously enters Dart. Plain text preserves exact UTF-8 bytes.
+File URL items must all be absolute local `file:` URLs without credentials,
+ports, queries, or fragments; native standardizes them and serializes one
+little-endian `uint32` count followed by `uint32 byteLength + UTF-8 bytes` per
+item. Dart checks every framing, byte, URL, and generation invariant again.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and

@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)10)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)11)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -179,6 +179,14 @@ typedef struct DaViewConfiguration {
 #define DA_TEXT_VIEW_PADDING_MAX_EXTENT 4096.0
 #define DA_DEFINITION_TEXT_MAX_UTF8_BYTES ((size_t)4096u)
 #define DA_SERVICES_TEXT_MAX_UTF8_BYTES DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES
+#define DA_DROP_TEXT_MAX_UTF8_BYTES DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES
+#define DA_DROP_FILE_URL_MAX_COUNT ((uint64_t)256u)
+#define DA_DROP_FILE_URL_MAX_UTF8_BYTES ((uint64_t)(1024u * 1024u))
+#define DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES \
+  ((uint64_t)DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES)
+#define DA_DROP_FILE_URL_PACKET_MAX_BYTES                              \
+  ((size_t)(DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES + sizeof(uint32_t) + \
+            DA_DROP_FILE_URL_MAX_COUNT * sizeof(uint32_t)))
 
 typedef enum DaTextViewFontKind {
   DA_TEXT_VIEW_FONT_SYSTEM = 0,
@@ -225,6 +233,27 @@ typedef struct DaServicesTextRequestorConfiguration {
 
 #define DA_SERVICES_TEXT_REQUESTOR_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaServicesTextRequestorConfiguration))
+
+/** Size-prefixed immutable text/file-URL drop-destination policy. */
+typedef struct DaDropDestinationConfiguration {
+  uint64_t struct_size;
+  uint64_t maximum_text_utf8_bytes;
+  uint64_t maximum_file_url_count;
+  uint64_t maximum_file_url_utf8_bytes;
+  uint64_t maximum_total_file_url_utf8_bytes;
+  int32_t accepts_plain_text;
+  int32_t accepts_file_urls;
+  int32_t reserved_0;
+  int32_t reserved_1;
+} DaDropDestinationConfiguration;
+
+#define DA_DROP_DESTINATION_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaDropDestinationConfiguration))
+
+typedef enum DaDropContentKind {
+  DA_DROP_CONTENT_PLAIN_TEXT = 0,
+  DA_DROP_CONTENT_FILE_URLS = 1
+} DaDropContentKind;
 
 typedef enum DaTextViewColorKind {
   DA_TEXT_VIEW_COLOR_LABEL = 0,
@@ -408,7 +437,8 @@ typedef enum DaEventType {
   DA_EVENT_MENU_ITEM_INVOKED = 40,
   DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41,
   DA_EVENT_VIEW_QUICK_LOOK_REQUESTED = 42,
-  DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED = 43
+  DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED = 43,
+  DA_EVENT_VIEW_DROP_PERFORMED = 44
 } DaEventType;
 
 /** Stable scroll gesture phase values used by protocol version 5. */
@@ -832,6 +862,13 @@ DA_EXPORT int32_t da_view_show_definition(
 DA_EXPORT int32_t da_view_set_services_text_requestor(
     DaHandle view, const char* selection_text, size_t selection_text_length,
     const DaServicesTextRequestorConfiguration* configuration);
+
+/**
+ * Main thread only. Replaces one View's bounded copy-only drop destination.
+ * A null configuration disables the destination.
+ */
+DA_EXPORT int32_t da_view_set_drop_destination(
+    DaHandle view, const DaDropDestinationConfiguration* configuration);
 
 /**
  * Main thread only. Creates the two-pane helper: two children, one thin

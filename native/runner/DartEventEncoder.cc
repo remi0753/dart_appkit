@@ -127,6 +127,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 7:
     case 8:
     case 9:
+    case 10:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -172,6 +173,26 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       length += 1;
       SetUtf8Bytes(&values[payload_offset], event.characters);
       break;
+    case DA_EVENT_VIEW_DROP_PERFORMED: {
+      if (!std::isfinite(event.x) || !std::isfinite(event.y) ||
+          (event.drop_content_kind != DA_DROP_CONTENT_PLAIN_TEXT &&
+           event.drop_content_kind != DA_DROP_CONTENT_FILE_URLS)) {
+        return false;
+      }
+      const size_t maximum_bytes =
+          event.drop_content_kind == DA_DROP_CONTENT_PLAIN_TEXT
+              ? DA_DROP_TEXT_MAX_UTF8_BYTES
+              : DA_DROP_FILE_URL_PACKET_MAX_BYTES;
+      if (event.characters.size() > maximum_bytes) {
+        return false;
+      }
+      length += 4;
+      SetInt64(&values[payload_offset], event.drop_content_kind);
+      SetDouble(&values[payload_offset + 1], event.x);
+      SetDouble(&values[payload_offset + 2], event.y);
+      SetUtf8Bytes(&values[payload_offset + 3], event.characters);
+      break;
+    }
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;
       SetDouble(&values[payload_offset], event.width);

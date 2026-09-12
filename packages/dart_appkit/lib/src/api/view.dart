@@ -99,6 +99,93 @@ final class ServicesTextRequestorConfiguration {
   );
 }
 
+/// One immutable copy-only text/file-URL drop-destination policy.
+final class DropDestinationConfiguration {
+  const DropDestinationConfiguration({
+    this.acceptsPlainText = true,
+    this.acceptsFileUrls = true,
+    this.maximumTextUtf8Bytes = maximumTextUtf8BytesLimit,
+    this.maximumFileUrlCount = maximumFileUrlCountLimit,
+    this.maximumFileUrlUtf8Bytes = maximumFileUrlUtf8BytesLimit,
+    this.maximumTotalFileUrlUtf8Bytes = maximumTotalFileUrlUtf8BytesLimit,
+  });
+
+  static const int maximumTextUtf8BytesLimit =
+      dartAppKitDropMaximumTextUtf8Bytes;
+  static const int maximumFileUrlCountLimit = dartAppKitDropMaximumFileUrlCount;
+  static const int maximumFileUrlUtf8BytesLimit =
+      dartAppKitDropMaximumFileUrlUtf8Bytes;
+  static const int maximumTotalFileUrlUtf8BytesLimit =
+      dartAppKitDropMaximumTotalFileUrlUtf8Bytes;
+
+  final bool acceptsPlainText;
+  final bool acceptsFileUrls;
+  final int maximumTextUtf8Bytes;
+  final int maximumFileUrlCount;
+  final int maximumFileUrlUtf8Bytes;
+  final int maximumTotalFileUrlUtf8Bytes;
+
+  NativeDropDestinationConfiguration get _native {
+    if (!acceptsPlainText && !acceptsFileUrls) {
+      throw ArgumentError(
+        'a drop destination must accept plain text, file URLs, or both',
+      );
+    }
+    RangeError.checkValueInInterval(
+      maximumTextUtf8Bytes,
+      1,
+      maximumTextUtf8BytesLimit,
+      'maximumTextUtf8Bytes',
+    );
+    RangeError.checkValueInInterval(
+      maximumFileUrlCount,
+      1,
+      maximumFileUrlCountLimit,
+      'maximumFileUrlCount',
+    );
+    RangeError.checkValueInInterval(
+      maximumFileUrlUtf8Bytes,
+      1,
+      maximumFileUrlUtf8BytesLimit,
+      'maximumFileUrlUtf8Bytes',
+    );
+    RangeError.checkValueInInterval(
+      maximumTotalFileUrlUtf8Bytes,
+      maximumFileUrlUtf8Bytes,
+      maximumTotalFileUrlUtf8BytesLimit,
+      'maximumTotalFileUrlUtf8Bytes',
+    );
+    return NativeDropDestinationConfiguration(
+      acceptsPlainText: acceptsPlainText,
+      acceptsFileUrls: acceptsFileUrls,
+      maximumTextUtf8Bytes: maximumTextUtf8Bytes,
+      maximumFileUrlCount: maximumFileUrlCount,
+      maximumFileUrlUtf8Bytes: maximumFileUrlUtf8Bytes,
+      maximumTotalFileUrlUtf8Bytes: maximumTotalFileUrlUtf8Bytes,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is DropDestinationConfiguration &&
+      other.acceptsPlainText == acceptsPlainText &&
+      other.acceptsFileUrls == acceptsFileUrls &&
+      other.maximumTextUtf8Bytes == maximumTextUtf8Bytes &&
+      other.maximumFileUrlCount == maximumFileUrlCount &&
+      other.maximumFileUrlUtf8Bytes == maximumFileUrlUtf8Bytes &&
+      other.maximumTotalFileUrlUtf8Bytes == maximumTotalFileUrlUtf8Bytes;
+
+  @override
+  int get hashCode => Object.hash(
+    acceptsPlainText,
+    acceptsFileUrls,
+    maximumTextUtf8Bytes,
+    maximumFileUrlCount,
+    maximumFileUrlUtf8Bytes,
+    maximumTotalFileUrlUtf8Bytes,
+  );
+}
+
 /// Immutable behavior selected when a plain or simple text [View] is created.
 final class ViewConfiguration {
   const ViewConfiguration({
@@ -158,6 +245,9 @@ base class View extends _NativeResource {
           StreamController<ViewQuickLookRequestedEvent>.broadcast(sync: true),
       _servicesTextEventController =
           StreamController<ViewServicesTextReceivedEvent>.broadcast(sync: true),
+      _dropEventController = StreamController<ViewDropPerformedEvent>.broadcast(
+        sync: true,
+      ),
       super(_application._bindings, handle) {
     _application._registerView(this);
   }
@@ -169,18 +259,56 @@ base class View extends _NativeResource {
   final StreamController<ViewQuickLookRequestedEvent> _quickLookEventController;
   final StreamController<ViewServicesTextReceivedEvent>
   _servicesTextEventController;
+  final StreamController<ViewDropPerformedEvent> _dropEventController;
 
   SecureInputIndicatorState _secureInputIndicatorState =
       SecureInputIndicatorState.hidden;
   Menu? _contextMenu;
   bool _quickLookRequestsEnabled = false;
   ServicesTextRequestorConfiguration? _servicesTextRequestor;
+  DropDestinationConfiguration? _dropDestination;
 
   Stream<ViewQuickLookRequestedEvent> get onQuickLookRequested =>
       _quickLookEventController.stream;
 
   Stream<ViewServicesTextReceivedEvent> get onServicesTextReceived =>
       _servicesTextEventController.stream;
+
+  Stream<ViewDropPerformedEvent> get onDropPerformed =>
+      _dropEventController.stream;
+
+  DropDestinationConfiguration? get dropDestination {
+    ensureAlive();
+    return _dropDestination;
+  }
+
+  set dropDestination(DropDestinationConfiguration? value) {
+    ensureAlive();
+    if (value == _dropDestination) {
+      return;
+    }
+    if (value != null && _application.eventProtocolVersion < 11) {
+      throw UnsupportedError(
+        'drop destinations require native event protocol 11',
+      );
+    }
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeDropDestinationBindings) {
+      throw const AppKitNativeException(
+        operation: 'View.dropDestination',
+        status: 8,
+        nativeMessage: 'native bridge does not support drop destinations',
+      );
+    }
+    _checkCall(
+      (bindings as NativeDropDestinationBindings).viewSetDropDestination(
+        _handle,
+        value?._native,
+      ),
+      'View.dropDestination',
+    );
+    _dropDestination = value;
+  }
 
   ServicesTextRequestorConfiguration? get servicesTextRequestor {
     ensureAlive();
@@ -350,6 +478,12 @@ base class View extends _NativeResource {
     }
   }
 
+  void _dispatchDrop(ViewDropPerformedEvent event) {
+    if (!isDisposed) {
+      _dropEventController.add(event);
+    }
+  }
+
   void _contextMenuDisposed(Menu menu) {
     if (identical(_contextMenu, menu)) {
       _contextMenu = null;
@@ -368,5 +502,6 @@ base class View extends _NativeResource {
     _application._unregisterView(this);
     unawaited(_quickLookEventController.close());
     unawaited(_servicesTextEventController.close());
+    unawaited(_dropEventController.close());
   }
 }

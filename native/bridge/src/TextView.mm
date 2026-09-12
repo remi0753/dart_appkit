@@ -519,6 +519,34 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
                                      returnType:returnType];
 }
 
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender {
+  return DaDropDraggingUpdated(self, sender);
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender {
+  return DaDropDraggingUpdated(self, sender);
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)sender {
+  DaDropDraggingExited(self, sender);
+}
+
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)sender {
+  return DaDropPrepareForOperation(self, sender);
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender {
+  return DaDropPerformOperation(self, sender);
+}
+
+- (void)draggingEnded:(id<NSDraggingInfo>)sender {
+  DaDropDraggingEnded(self, sender);
+}
+
+- (BOOL)wantsPeriodicDraggingUpdates {
+  return NO;
+}
+
 - (void)sendEvent:(NSEvent*)event {
   const BOOL isKeyEvent = event.type == NSEventTypeKeyDown ||
                           event.type == NSEventTypeKeyUp;

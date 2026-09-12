@@ -3325,3 +3325,34 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - Final focused validationはscaffold、native bridge、shared event encoder、Dart API全25 group、launcher、current/
   legacy FFIを通過した。Developer JIT／Release AOT runnerは同じv10 bridgeをwarning-as-errorでlinkし、exact
   `CI=true DART_SUPPRESS_ANALYTICS=true make test`は全native/runtime/package/Kernel/FFI gateを通過した。
+
+## 2026-09-12 — Bounded text and local-file-URL drop destination
+
+- Provider-owned custom Viewへsubclassやinput-intercepting overlayを要求せず、known `DaWindow` が
+  `NSPasteboardTypeString`／`NSPasteboardTypeFileURL`を登録してdrag callbacksを受ける。各locationを
+  registered View座標へ変換し、同じwindow/content ancestry内で包含する最深compatible Viewを同期選択する。
+  source maskはcopyを含む場合だけ受理し、enter/update/prepareはnative session snapshotだけを使う。
+- Size-prefixed policyはtext/file URLを独立にenableし、少なくとも一方を必須とする。text 64 MiB、URL
+  256件、1 URL 1 MiB、URL aggregate 64 MiBをhard maximumとし、それ以下のapplication boundを各Viewへ
+  copyする。exit/end、policy replace、View/window releaseはactive drag sequenceをinvalidateする。
+- Performはbounded text、または全itemがcredential/port/query/fragmentなしのabsolute local `file:` URLである
+  listだけをcopyする。file URLはstandardize後、little-endian countと各UTF-8 byte lengthを持つclosed packetへ
+  encodeする。Event protocol v11はtype 44とcontent kind、有限なView-local x/y、length-bearing `Uint8` dataだけを
+  追加し、Dartはframing/UTF-8/local URL/generationを再検証してapplicationとexact Viewへ同期stream routingする。
+- 最初のnative runはtest pasteboardがproduction bounded-readで参照する `changeCount` を実装しておらず
+  selector exceptionで停止した。fixtureへstable countを追加した次のrunでは、非表示unit-test windowのAppKit
+  `hitTest:` がbounds内のnested childを返さないことを確認した。visibilityに依存するhit-testを採用せず、有限座標、
+  same-window ancestry、bounds、depthを明示計算するrouterへ変更した。
+- 次のnative runは `file://localhost/` がFoundation standardizationでcanonicalな `file:///` へ変換される正しい
+  結果とfixture期待値だけが不一致だった。canonical期待値へ修正後、native bridgeとshared encoderが通過した。
+  最初のDart analysisはsealed `AppKitEvent` の既存test switchに新eventがなく停止し、explicit no-op case追加後は
+  全26 Dart API groupが通過した。current/legacy FFI smokeも通過した。
+- `CI=true DART_SUPPRESS_ANALYTICS=true make runtime-jit-runner runtime-aot-runner` はv11 bridgeを
+  Developer JIT／Release AOTの両generic hostへwarning-as-errorでlinkした。exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、C/C++ header、native bridge、Runner、event、
+  runtime、native capability、renderer、PTY、全Dart package、Kernel、current/legacy FFIまで通過した。
+  consuming Dart Terminalでは新sealed eventを後続product integrationへ先行接続せず2つのswitchへexplicit
+  no-opとして追加した。最初のacceptance evidence再生成はsandbox外のClang module cacheへ書けず停止したが、
+  approved normal buildの再実行は成功し、source hash 2箇所だけを更新した。terminal exact `make test`も
+  generated evidence、276-file format、analysis、Phase 9 security stress、aggregate testsを含め成功した。
+  両repositoryの `git diff --check` はcleanである。

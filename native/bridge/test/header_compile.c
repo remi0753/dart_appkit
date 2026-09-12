@@ -12,6 +12,8 @@ _Static_assert(sizeof(DaDefinitionPresentationConfiguration) == 48,
                "unexpected DaDefinitionPresentationConfiguration layout");
 _Static_assert(sizeof(DaServicesTextRequestorConfiguration) == 32,
                "unexpected DaServicesTextRequestorConfiguration layout");
+_Static_assert(sizeof(DaDropDestinationConfiguration) == 56,
+               "unexpected DaDropDestinationConfiguration layout");
 _Static_assert(sizeof(DaMenuConfiguration) == 16,
                "unexpected DaMenuConfiguration layout");
 _Static_assert(sizeof(DaScreenSnapshot) == 88,
@@ -23,7 +25,7 @@ _Static_assert(sizeof(DaSecureEventInputSnapshot) == 24,
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 10,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 11,
                "unexpected current event protocol version");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");
@@ -67,6 +69,9 @@ int da_header_compiles_as_c(void) {
       DaHandle, const char*, size_t,
       const DaServicesTextRequestorConfiguration*) =
       da_view_set_services_text_requestor;
+  int32_t (*drop_destination)(
+      DaHandle, const DaDropDestinationConfiguration*) =
+      da_view_set_drop_destination;
   int32_t (*screen_resolve)(int32_t, DaScreenSnapshot*) =
       da_application_resolve_screen;
   int32_t (*window_present)(DaHandle, DaRect, DaRect, double, int32_t) =
@@ -117,6 +122,7 @@ int da_header_compiles_as_c(void) {
                  view_context_menu != 0 &&
                  quick_look_enabled != 0 && show_definition != 0 &&
                  services_text_requestor != 0 &&
+                 drop_destination != 0 &&
                  screen_resolve != 0 && window_present != 0 &&
                  window_hide != 0 && window_presentation_configuration != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&

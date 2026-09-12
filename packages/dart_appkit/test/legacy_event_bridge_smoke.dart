@@ -239,6 +239,22 @@ void main(List<String> arguments) {
       8) {
     _fail('legacy bridge accepted additive Services requestor APIs');
   }
+  if (bindings
+          .viewSetDropDestination(
+            1,
+            const NativeDropDestinationConfiguration(
+              acceptsPlainText: true,
+              acceptsFileUrls: true,
+              maximumTextUtf8Bytes: 1024,
+              maximumFileUrlCount: 2,
+              maximumFileUrlUtf8Bytes: 256,
+              maximumTotalFileUrlUtf8Bytes: 512,
+            ),
+          )
+          .status !=
+      8) {
+    _fail('legacy bridge accepted additive drop destination APIs');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

@@ -216,6 +216,78 @@ int32_t PerformTestCustomViewOperation(void* context, void* view,
 
 @end
 
+@interface DaDropTestPasteboard : NSObject
+
+@property(nonatomic, copy) NSString* text;
+@property(nonatomic, copy) NSArray<NSPasteboardItem*>* fileItems;
+@property(nonatomic, assign) BOOL advertisesText;
+@property(nonatomic, assign) BOOL advertisesFileUrls;
+
+@end
+
+@implementation DaDropTestPasteboard
+
+- (NSInteger)changeCount {
+  return 1;
+}
+
+- (NSPasteboardType)availableTypeFromArray:
+    (NSArray<NSPasteboardType>*)types {
+  for (NSPasteboardType type in types) {
+    if ((self.advertisesFileUrls &&
+         [type isEqualToString:NSPasteboardTypeFileURL]) ||
+        (self.advertisesText &&
+         [type isEqualToString:NSPasteboardTypeString])) {
+      return type;
+    }
+  }
+  return nil;
+}
+
+- (NSString*)stringForType:(NSPasteboardType)type {
+  return self.advertisesText &&
+                 [type isEqualToString:NSPasteboardTypeString]
+             ? self.text
+             : nil;
+}
+
+- (NSArray<NSPasteboardItem*>*)pasteboardItems {
+  return self.fileItems;
+}
+
+@end
+
+
+@interface DaDraggingInfoProbe : NSObject
+
+@property(nonatomic, strong) DaDropTestPasteboard* pasteboard;
+@property(nonatomic, assign) NSPoint location;
+@property(nonatomic, assign) NSDragOperation sourceOperationMask;
+@property(nonatomic, assign) NSInteger sequenceNumber;
+
+@end
+
+
+@implementation DaDraggingInfoProbe
+
+- (NSPasteboard*)draggingPasteboard {
+  return (NSPasteboard*)self.pasteboard;
+}
+
+- (NSPoint)draggingLocation {
+  return self.location;
+}
+
+- (NSDragOperation)draggingSourceOperationMask {
+  return self.sourceOperationMask;
+}
+
+- (NSInteger)draggingSequenceNumber {
+  return self.sequenceNumber;
+}
+
+@end
+
 namespace {
 
 int g_failures = 0;
@@ -385,6 +457,35 @@ DaHandle CreateView() {
   EXPECT_EQ(da_view_create(&handle), DA_STATUS_OK);
   EXPECT_TRUE(handle != 0);
   return handle;
+}
+
+NSArray<NSPasteboardItem*>* FileUrlItems(
+    NSArray<NSString*>* file_urls) {
+  NSMutableArray<NSPasteboardItem*>* items = [[NSMutableArray alloc] init];
+  for (NSString* file_url in file_urls) {
+    NSPasteboardItem* item = [[NSPasteboardItem alloc] init];
+    EXPECT_TRUE([item setString:file_url forType:NSPasteboardTypeFileURL]);
+    [items addObject:item];
+  }
+  return items;
+}
+
+uint32_t ReadUint32LittleEndian(const std::string& bytes, size_t offset) {
+  if (offset + sizeof(uint32_t) > bytes.size()) {
+    EXPECT_TRUE(false);
+    return 0;
+  }
+  return static_cast<uint32_t>(
+             static_cast<unsigned char>(bytes[offset])) |
+         static_cast<uint32_t>(
+             static_cast<unsigned char>(bytes[offset + 1]))
+             << 8 |
+         static_cast<uint32_t>(
+             static_cast<unsigned char>(bytes[offset + 2]))
+             << 16 |
+         static_cast<uint32_t>(
+             static_cast<unsigned char>(bytes[offset + 3]))
+             << 24;
 }
 
 DaViewConfiguration DefaultViewConfiguration() {
@@ -1035,6 +1136,24 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(10));
 
+  event.type = DA_EVENT_VIEW_DROP_PERFORMED;
+  event.drop_content_kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  event.x = 1.0;
+  event.y = 2.0;
+  event.characters = "drop";
+  const size_t before_version_eleven_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_eleven_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 11, 11,
+                                              &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(11));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(11));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1046,7 +1165,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 11, 11, &selected_version),
+      da_application_set_event_port_versioned(4242, 12, 12, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1878,7 +1997,7 @@ void TestServicesTextRequestors() {
   EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED);
   EXPECT_EQ(capture.events[0].window, inner_handle);
   EXPECT_EQ(capture.events[0].characters, returned_text);
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(10));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(11));
 
   configuration.maximum_returned_text_utf8_bytes = 3;
   EXPECT_EQ(da_view_set_services_text_requestor(
@@ -1967,6 +2086,243 @@ void TestServicesTextRequestors() {
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(outer_handle), DA_STATUS_OK);
   EXPECT_TRUE(![outer_requestor readSelectionFromPasteboard:pasteboard]);
+  EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestDropDestinations() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  const DaHandle outer_handle = CreateView();
+  const DaHandle inner_handle = CreateView();
+  const DaHandle wrong_kind = CreateMenu("Wrong kind");
+  DaView* outer = NativeViewFor(outer_handle);
+  DaView* inner = NativeViewFor(inner_handle);
+  [outer addSubview:inner];
+  EXPECT_EQ(da_window_set_content_view(window_handle, outer_handle),
+            DA_STATUS_OK);
+  inner.frame = NSMakeRect(50.0, 50.0, 100.0, 100.0);
+  DaWindow* window = OwnerFor(window_handle).window;
+  EXPECT_TRUE([window respondsToSelector:@selector(draggingEntered:)]);
+  EXPECT_TRUE([window respondsToSelector:@selector(performDragOperation:)]);
+
+  DaDropDestinationConfiguration outer_configuration = {
+      DA_DROP_DESTINATION_CONFIGURATION_VERSION_1_SIZE,
+      32,
+      2,
+      256,
+      512,
+      1,
+      0,
+      0,
+      0,
+  };
+  DaDropDestinationConfiguration inner_configuration = outer_configuration;
+  inner_configuration.accepts_plain_text = 0;
+  inner_configuration.accepts_file_urls = 1;
+  EXPECT_EQ(da_view_set_drop_destination(outer_handle, &outer_configuration),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &inner_configuration),
+            DA_STATUS_OK);
+
+  DaDropTestPasteboard* pasteboard = [[DaDropTestPasteboard alloc] init];
+  pasteboard.fileItems = @[];
+  const std::string dropped_text("drop\0—text", 12);
+  pasteboard.text = [[NSString alloc]
+      initWithBytes:dropped_text.data()
+             length:dropped_text.size()
+           encoding:NSUTF8StringEncoding];
+  pasteboard.advertisesText = YES;
+  DaDraggingInfoProbe* dragging = [[DaDraggingInfoProbe alloc] init];
+  dragging.pasteboard = pasteboard;
+  dragging.location = [outer convertPoint:NSMakePoint(75.0, 75.0)
+                                    toView:nil];
+  dragging.sourceOperationMask = NSDragOperationCopy;
+  dragging.sequenceNumber = 1;
+  id<NSDraggingInfo> dragging_info = (id<NSDraggingInfo>)dragging;
+
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE([window prepareForDragOperation:dragging_info]);
+  [window draggingExited:dragging_info];
+  EXPECT_TRUE(![window prepareForDragOperation:dragging_info]);
+  EXPECT_EQ([window draggingUpdated:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE([window performDragOperation:dragging_info]);
+  EXPECT_TRUE(![window prepareForDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_DROP_PERFORMED);
+  EXPECT_EQ(capture.events[0].window, outer_handle);
+  EXPECT_EQ(capture.events[0].drop_content_kind,
+            DA_DROP_CONTENT_PLAIN_TEXT);
+  EXPECT_EQ(capture.events[0].characters, dropped_text);
+  EXPECT_TRUE(std::isfinite(capture.events[0].x));
+  EXPECT_TRUE(std::isfinite(capture.events[0].y));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(11));
+
+  pasteboard.text = @"fallback";
+  pasteboard.advertisesFileUrls = YES;
+  pasteboard.fileItems = FileUrlItems(@[
+    @"file:///tmp/one%20two",
+    @"file://localhost/tmp/%E6%97%A5",
+  ]);
+  dragging.sequenceNumber = 2;
+  EXPECT_TRUE([pasteboard availableTypeFromArray:@[
+                NSPasteboardTypeFileURL
+              ]] != nil);
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE([window prepareForDragOperation:dragging_info]);
+  EXPECT_TRUE([window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.events[1].window, inner_handle);
+  EXPECT_EQ(capture.events[1].drop_content_kind,
+            DA_DROP_CONTENT_FILE_URLS);
+  if (capture.events.size() >= 2 &&
+      capture.events[1].drop_content_kind == DA_DROP_CONTENT_FILE_URLS) {
+    EXPECT_EQ(ReadUint32LittleEndian(capture.events[1].characters, 0),
+              static_cast<uint32_t>(2));
+    size_t packet_offset = sizeof(uint32_t);
+    const std::vector<std::string> expected_urls = {
+        "file:///tmp/one%20two",
+        "file:///tmp/%E6%97%A5",
+    };
+    for (const std::string& expected : expected_urls) {
+      const uint32_t length =
+          ReadUint32LittleEndian(capture.events[1].characters, packet_offset);
+      packet_offset += sizeof(uint32_t);
+      EXPECT_EQ(length, static_cast<uint32_t>(expected.size()));
+      EXPECT_EQ(capture.events[1].characters.substr(packet_offset, length),
+                expected);
+      packet_offset += length;
+    }
+    EXPECT_EQ(packet_offset, capture.events[1].characters.size());
+  }
+
+  dragging.sourceOperationMask = NSDragOperationMove;
+  dragging.sequenceNumber = 3;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationNone);
+  EXPECT_TRUE(![window prepareForDragOperation:dragging_info]);
+  dragging.sourceOperationMask = NSDragOperationCopy;
+  pasteboard.advertisesText = NO;
+  pasteboard.advertisesFileUrls = NO;
+  dragging.sequenceNumber = 4;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationNone);
+
+  pasteboard.advertisesFileUrls = YES;
+  pasteboard.fileItems = FileUrlItems(@[ @"file://server/tmp/remote" ]);
+  dragging.sequenceNumber = 5;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE([window prepareForDragOperation:dragging_info]);
+  EXPECT_TRUE(![window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+
+  pasteboard.advertisesFileUrls = NO;
+  pasteboard.advertisesText = YES;
+  pasteboard.text = [@"x" stringByPaddingToLength:33
+                                      withString:@"x"
+                                 startingAtIndex:0];
+  dragging.sequenceNumber = 6;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE(![window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+
+  pasteboard.advertisesText = NO;
+  pasteboard.advertisesFileUrls = YES;
+  NSString* oversized_url = [@"file:///tmp/" stringByAppendingString:
+      [@"x" stringByPaddingToLength:300
+                         withString:@"x"
+                    startingAtIndex:0]];
+  pasteboard.fileItems = FileUrlItems(@[ oversized_url ]);
+  dragging.sequenceNumber = 7;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE(![window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+
+  pasteboard.fileItems = FileUrlItems(@[ @"file:///tmp/query?bad=1" ]);
+  dragging.sequenceNumber = 8;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE(![window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+
+  pasteboard.fileItems = FileUrlItems(@[
+    @"file:///tmp/one",
+    @"file:///tmp/two",
+    @"file:///tmp/three",
+  ]);
+  dragging.sequenceNumber = 9;
+  EXPECT_EQ([window draggingUpdated:dragging_info], NSDragOperationCopy);
+  EXPECT_TRUE(![window performDragOperation:dragging_info]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+
+  pasteboard.fileItems = FileUrlItems(@[ @"file:///tmp/valid" ]);
+  dragging.sequenceNumber = 10;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &inner_configuration),
+            DA_STATUS_OK);
+  EXPECT_TRUE(![window prepareForDragOperation:dragging_info]);
+  [window draggingEnded:dragging_info];
+
+  DaDropDestinationConfiguration invalid = inner_configuration;
+  invalid.struct_size = 0;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.accepts_file_urls = 2;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.accepts_file_urls = 0;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_text_utf8_bytes = 0;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_text_utf8_bytes = DA_DROP_TEXT_MAX_UTF8_BYTES + 1;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_file_url_count = DA_DROP_FILE_URL_MAX_COUNT + 1;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_file_url_utf8_bytes = 513;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_file_url_utf8_bytes =
+      DA_DROP_FILE_URL_MAX_UTF8_BYTES + 1;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.maximum_total_file_url_utf8_bytes =
+      DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES + 1;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = inner_configuration;
+  invalid.reserved_1 = 1;
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_view_set_drop_destination(wrong_kind, &inner_configuration),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(
+        da_view_set_drop_destination(inner_handle, &inner_configuration));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  dragging.sequenceNumber = 11;
+  EXPECT_EQ([window draggingEntered:dragging_info], NSDragOperationCopy);
+  EXPECT_EQ(da_release(inner_handle), DA_STATUS_OK);
+  EXPECT_TRUE(![window prepareForDragOperation:dragging_info]);
+  EXPECT_EQ(da_view_set_drop_destination(inner_handle, &inner_configuration),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_view_set_drop_destination(outer_handle, nullptr), DA_STATUS_OK);
+  EXPECT_EQ(da_release(outer_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
@@ -4002,6 +4358,7 @@ int main() {
     TestViewContextMenus();
     TestQuickLookRequestsAndDefinitions();
     TestServicesTextRequestors();
+    TestDropDestinations();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestAttributedTextEditor();

@@ -161,6 +161,35 @@ final class _DaServicesTextRequestorConfigurationNative extends Struct {
   external int reserved1;
 }
 
+final class _DaDropDestinationConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int maximumTextUtf8Bytes;
+
+  @Uint64()
+  external int maximumFileUrlCount;
+
+  @Uint64()
+  external int maximumFileUrlUtf8Bytes;
+
+  @Uint64()
+  external int maximumTotalFileUrlUtf8Bytes;
+
+  @Int32()
+  external int acceptsPlainText;
+
+  @Int32()
+  external int acceptsFileUrls;
+
+  @Int32()
+  external int reserved0;
+
+  @Int32()
+  external int reserved1;
+}
+
 final class _DaTextViewColorConfigurationNative extends Struct {
   @Int32()
   external int kind;
@@ -577,6 +606,14 @@ typedef _ViewSetServicesTextRequestorDart = int Function(
   int,
   Pointer<_DaServicesTextRequestorConfigurationNative>,
 );
+typedef _ViewSetDropDestinationNative = Int32 Function(
+  Uint64,
+  Pointer<_DaDropDestinationConfigurationNative>,
+);
+typedef _ViewSetDropDestinationDart = int Function(
+  int,
+  Pointer<_DaDropDestinationConfigurationNative>,
+);
 typedef _TextViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaTextViewConfigurationNative>,
   Pointer<Uint8>,
@@ -723,6 +760,19 @@ _ViewSetServicesTextRequestorDart? _lookupViewSetServicesTextRequestor(
   }
 }
 
+_ViewSetDropDestinationDart? _lookupViewSetDropDestination(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _ViewSetDropDestinationNative,
+      _ViewSetDropDestinationDart
+    >('da_view_set_drop_destination');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
   DynamicLibrary library,
 ) {
@@ -849,6 +899,22 @@ void _writeServicesTextRequestorConfiguration(
     ..maximumReturnedTextUtf8Bytes = configuration.maximumReturnedTextUtf8Bytes
     ..hasSelection = configuration.selectionText == null ? 0 : 1
     ..acceptsReturnedText = configuration.acceptsReturnedText ? 1 : 0
+    ..reserved0 = 0
+    ..reserved1 = 0;
+}
+
+void _writeDropDestinationConfiguration(
+  _DaDropDestinationConfigurationNative output,
+  NativeDropDestinationConfiguration configuration,
+) {
+  output
+    ..structSize = sizeOf<_DaDropDestinationConfigurationNative>()
+    ..maximumTextUtf8Bytes = configuration.maximumTextUtf8Bytes
+    ..maximumFileUrlCount = configuration.maximumFileUrlCount
+    ..maximumFileUrlUtf8Bytes = configuration.maximumFileUrlUtf8Bytes
+    ..maximumTotalFileUrlUtf8Bytes = configuration.maximumTotalFileUrlUtf8Bytes
+    ..acceptsPlainText = configuration.acceptsPlainText ? 1 : 0
+    ..acceptsFileUrls = configuration.acceptsFileUrls ? 1 : 0
     ..reserved0 = 0
     ..reserved1 = 0;
 }
@@ -1437,6 +1503,7 @@ final class FfiNativeBindings
         NativeViewContextMenuBindings,
         NativeQuickLookBindings,
         NativeServicesTextRequestorBindings,
+        NativeDropDestinationBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1576,6 +1643,7 @@ final class FfiNativeBindings
       _viewSetServicesTextRequestor = _lookupViewSetServicesTextRequestor(
         library,
       ),
+      _viewSetDropDestination = _lookupViewSetDropDestination(library),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -1725,6 +1793,7 @@ final class FfiNativeBindings
   final _HandleBoolStatusDart? _viewSetQuickLookRequestEnabled;
   final _ViewShowDefinitionDart? _viewShowDefinition;
   final _ViewSetServicesTextRequestorDart? _viewSetServicesTextRequestor;
+  final _ViewSetDropDestinationDart? _viewSetDropDestination;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -3056,6 +3125,35 @@ final class FfiNativeBindings
           function(handle, selection, selectionLength, nativeConfiguration),
         ),
       );
+    } finally {
+      _free(nativeConfiguration.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult viewSetDropDestination(
+    int handle,
+    NativeDropDestinationConfiguration? configuration,
+  ) {
+    final _ViewSetDropDestinationDart? function = _viewSetDropDestination;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support drop destinations',
+      );
+    }
+    if (configuration == null) {
+      return _callResult(function(handle, nullptr));
+    }
+    final Pointer<_DaDropDestinationConfigurationNative> nativeConfiguration =
+        _allocate(sizeOf<_DaDropDestinationConfigurationNative>())
+            .cast<_DaDropDestinationConfigurationNative>();
+    try {
+      _writeDropDestinationConfiguration(
+        nativeConfiguration.ref,
+        configuration,
+      );
+      return _callResult(function(handle, nativeConfiguration));
     } finally {
       _free(nativeConfiguration.cast<Void>());
     }

@@ -687,6 +687,9 @@ window/application操作を提供する。
 - generic／specialized／provider-owned Viewへ、bounded plain-text selectionと
   returned-text上限をnative snapshotとして保持するServices requestorを実装した。同期AppKit
   callbackはDartへ再入せず、returned textをgeneration-checked v10 eventで非同期配送する。
+- generic／specialized／provider-owned Viewへcopy-onlyのplain-text／local file-URL drop
+  destinationを実装した。window ancestryで最深targetを同期選択し、bounded performだけを
+  generation-checked v11 eventで非同期配送する。
 
 未実装:
 
@@ -701,7 +704,7 @@ window/application操作を提供する。
 - 64 MiBをnative hard maximumとして維持しつつ、applicationが用途ごとにより小さい
   `maxUtf8Bytes` を指定してcopy前に拒否できるread APIを追加する。
 - copy/paste availability、pasteboard change、lazy data providerを追加する。
-- View単位のdrag source／drop target、operation negotiation、file promiseを追加する。
+- View単位のdrag source、copy以外のoperation negotiation、file promiseを追加する。
 
 完了条件:
 

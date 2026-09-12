@@ -97,7 +97,7 @@
 
 @end
 
-@interface DaWindow : NSWindow
+@interface DaWindow : NSWindow <NSDraggingDestination>
 
 @property(nonatomic, assign) DaHandle daHandle;
 @property(nonatomic, assign) DaKeyEventRouting daKeyEventRouting;
@@ -110,6 +110,14 @@
 id DaServicesTextRequestorForWindow(NSWindow* window,
                                     NSPasteboardType send_type,
                                     NSPasteboardType return_type);
+
+/** Routes copy-only drag destination callbacks through registered Views. */
+NSDragOperation DaDropDraggingUpdated(NSWindow* window,
+                                      id<NSDraggingInfo> sender);
+void DaDropDraggingExited(NSWindow* window, id<NSDraggingInfo> sender);
+BOOL DaDropPrepareForOperation(NSWindow* window, id<NSDraggingInfo> sender);
+BOOL DaDropPerformOperation(NSWindow* window, id<NSDraggingInfo> sender);
+void DaDropDraggingEnded(NSWindow* window, id<NSDraggingInfo> sender);
 
 @interface DaWindowOwner : NSObject <NSWindowDelegate> {
  @private

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 10;
+const int dartAppKitCurrentEventProtocolVersion = 11;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
@@ -52,6 +52,12 @@ const double dartAppKitTextViewFontMaximumSize = 512;
 const int dartAppKitTextViewFontFamilyMaximumUtf8Bytes = 256;
 const int dartAppKitDefinitionMaximumTextUtf8Bytes = 4096;
 const int dartAppKitServicesMaximumTextUtf8Bytes =
+    dartAppKitPasteboardMaximumTextUtf8Bytes;
+const int dartAppKitDropMaximumTextUtf8Bytes =
+    dartAppKitPasteboardMaximumTextUtf8Bytes;
+const int dartAppKitDropMaximumFileUrlCount = 256;
+const int dartAppKitDropMaximumFileUrlUtf8Bytes = 1024 * 1024;
+const int dartAppKitDropMaximumTotalFileUrlUtf8Bytes =
     dartAppKitPasteboardMaximumTextUtf8Bytes;
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
 const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
@@ -107,6 +113,24 @@ final class NativeServicesTextRequestorConfiguration {
   final String? selectionText;
   final bool acceptsReturnedText;
   final int maximumReturnedTextUtf8Bytes;
+}
+
+final class NativeDropDestinationConfiguration {
+  const NativeDropDestinationConfiguration({
+    required this.acceptsPlainText,
+    required this.acceptsFileUrls,
+    required this.maximumTextUtf8Bytes,
+    required this.maximumFileUrlCount,
+    required this.maximumFileUrlUtf8Bytes,
+    required this.maximumTotalFileUrlUtf8Bytes,
+  });
+
+  final bool acceptsPlainText;
+  final bool acceptsFileUrls;
+  final int maximumTextUtf8Bytes;
+  final int maximumFileUrlCount;
+  final int maximumFileUrlUtf8Bytes;
+  final int maximumTotalFileUrlUtf8Bytes;
 }
 
 final class NativeTextViewConfiguration {
@@ -548,6 +572,14 @@ abstract interface class NativeServicesTextRequestorBindings {
   NativeCallResult viewSetServicesTextRequestor(
     int handle,
     NativeServicesTextRequestorConfiguration? configuration,
+  );
+}
+
+/// Optional bounded copy-only text/file-URL drop-destination surface.
+abstract interface class NativeDropDestinationBindings {
+  NativeCallResult viewSetDropDestination(
+    int handle,
+    NativeDropDestinationConfiguration? configuration,
   );
 }
 

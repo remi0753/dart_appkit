@@ -40,6 +40,7 @@ final class FakeNativeBindings
         NativeViewContextMenuBindings,
         NativeQuickLookBindings,
         NativeServicesTextRequestorBindings,
+        NativeDropDestinationBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -84,6 +85,8 @@ final class FakeNativeBindings
       <int, List<NativeDefinitionPresentation>>{};
   final Map<int, NativeServicesTextRequestorConfiguration>
   servicesTextRequestors = <int, NativeServicesTextRequestorConfiguration>{};
+  final Map<int, NativeDropDestinationConfiguration> dropDestinations =
+      <int, NativeDropDestinationConfiguration>{};
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -496,6 +499,22 @@ final class FakeNativeBindings
         servicesTextRequestors.remove(handle);
       } else {
         servicesTextRequestors[handle] = configuration;
+      }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult viewSetDropDestination(
+    int handle,
+    NativeDropDestinationConfiguration? configuration,
+  ) {
+    final NativeCallResult result = _status('viewSetDropDestination');
+    if (result.isSuccess) {
+      if (configuration == null) {
+        dropDestinations.remove(handle);
+      } else {
+        dropDestinations[handle] = configuration;
       }
     }
     return result;
@@ -1302,6 +1321,7 @@ final class FakeNativeBindings
       quickLookRequestEnabled.remove(handle);
       definitionPresentations.remove(handle);
       servicesTextRequestors.remove(handle);
+      dropDestinations.remove(handle);
       if (secureEventInputOwner == handle) {
         if (secureEventInputOwnedEnabled) {
           secureEventInputDisableCount++;

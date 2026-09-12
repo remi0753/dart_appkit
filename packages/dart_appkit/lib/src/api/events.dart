@@ -432,6 +432,50 @@ final class ViewServicesTextReceivedEvent extends AppKitEvent {
   final String text;
 }
 
+sealed class DroppedContent {
+  const DroppedContent();
+}
+
+final class DroppedPlainText extends DroppedContent {
+  const DroppedPlainText(this.text);
+
+  final String text;
+}
+
+final class DroppedFileUrls extends DroppedContent {
+  DroppedFileUrls(Iterable<Uri> fileUrls)
+    : fileUrls = List<Uri>.unmodifiable(fileUrls);
+
+  final List<Uri> fileUrls;
+}
+
+/// One bounded copy operation performed over a registered View.
+final class ViewDropPerformedEvent extends AppKitEvent {
+  const ViewDropPerformedEvent({
+    required int viewHandle,
+    required int monotonicMicros,
+    int protocolVersion = 11,
+    int sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+    required this.x,
+    required this.y,
+    required this.content,
+  }) : super(
+         windowHandle: viewHandle,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: sourceGeneration,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+
+  int get viewHandle => sourceHandle;
+  final double x;
+  final double y;
+  final DroppedContent content;
+}
+
 final class ModifierKeys {
   const ModifierKeys(this.bits);
 
@@ -487,6 +531,7 @@ final class _EventCodec {
   static const int _globalHotKeyPressed = 41;
   static const int _viewQuickLookRequested = 42;
   static const int _viewServicesTextReceived = 43;
+  static const int _viewDropPerformed = 44;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -906,6 +951,35 @@ final class _EventCodec {
             dartAppKitServicesMaximumTextUtf8Bytes,
           ),
         );
+      case _viewDropPerformed:
+        _requireVersionEleven(version, 'view drop performed');
+        _expectLength(message, payloadOffset + 4, 'view drop performed');
+        final int contentKind = _integer(message, payloadOffset, 'contentKind');
+        final DroppedContent content = switch (contentKind) {
+          0 => DroppedPlainText(
+            _boundedUtf8String(
+              message,
+              payloadOffset + 3,
+              'text',
+              dartAppKitDropMaximumTextUtf8Bytes,
+            ),
+          ),
+          1 => DroppedFileUrls(_boundedFileUrls(message, payloadOffset + 3)),
+          _ => throw FormatException(
+            'unknown dropped content kind $contentKind',
+          ),
+        };
+        return ViewDropPerformedEvent(
+          viewHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          x: _finiteNumber(message, payloadOffset + 1, 'x'),
+          y: _finiteNumber(message, payloadOffset + 2, 'y'),
+          content: content,
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -944,6 +1018,12 @@ final class _EventCodec {
   static void _requireVersionTen(int version, String eventName) {
     if (version < 10) {
       throw FormatException('$eventName requires native event protocol 10');
+    }
+  }
+
+  static void _requireVersionEleven(int version, String eventName) {
+    if (version < 11) {
+      throw FormatException('$eventName requires native event protocol 11');
     }
   }
 
@@ -1094,5 +1174,78 @@ final class _EventCodec {
     } on FormatException {
       throw FormatException('$name must contain valid UTF-8');
     }
+  }
+
+  static List<Uri> _boundedFileUrls(List<Object?> values, int index) {
+    final Object? value = values[index];
+    if (value is! Uint8List) {
+      throw const FormatException('fileUrls must be a byte packet');
+    }
+    final int maximumPacketBytes =
+        dartAppKitDropMaximumTotalFileUrlUtf8Bytes +
+        4 +
+        dartAppKitDropMaximumFileUrlCount * 4;
+    if (value.length < 4 || value.length > maximumPacketBytes) {
+      throw const FormatException('file URL packet size is invalid');
+    }
+    final ByteData data = ByteData.sublistView(value);
+    int offset = 0;
+    final int count = data.getUint32(offset, Endian.little);
+    offset += 4;
+    if (count == 0 || count > dartAppKitDropMaximumFileUrlCount) {
+      throw const FormatException('file URL count is invalid');
+    }
+    final List<Uri> result = <Uri>[];
+    int totalUrlBytes = 0;
+    for (int item = 0; item < count; item++) {
+      if (offset + 4 > value.length) {
+        throw const FormatException('file URL packet is truncated');
+      }
+      final int length = data.getUint32(offset, Endian.little);
+      offset += 4;
+      if (length == 0 ||
+          length > dartAppKitDropMaximumFileUrlUtf8Bytes ||
+          offset + length > value.length) {
+        throw const FormatException('file URL byte length is invalid');
+      }
+      totalUrlBytes += length;
+      if (totalUrlBytes > dartAppKitDropMaximumTotalFileUrlUtf8Bytes) {
+        throw const FormatException('file URL bytes exceed the total limit');
+      }
+      final String encoded;
+      try {
+        encoded = utf8.decode(
+          Uint8List.sublistView(value, offset, offset + length),
+          allowMalformed: false,
+        );
+      } on FormatException {
+        throw const FormatException('file URL must contain valid UTF-8');
+      }
+      offset += length;
+      final Uri uri;
+      try {
+        uri = Uri.parse(encoded);
+      } on FormatException {
+        throw const FormatException('dropped file URL is malformed');
+      }
+      final String host = uri.host.toLowerCase();
+      if (!uri.isAbsolute ||
+          uri.scheme.toLowerCase() != 'file' ||
+          !uri.path.startsWith('/') ||
+          (host.isNotEmpty && host != 'localhost') ||
+          uri.userInfo.isNotEmpty ||
+          uri.hasPort ||
+          uri.hasQuery ||
+          uri.hasFragment) {
+        throw const FormatException(
+          'dropped URL must be an absolute local file URL',
+        );
+      }
+      result.add(uri);
+    }
+    if (offset != value.length) {
+      throw const FormatException('file URL packet has trailing bytes');
+    }
+    return result;
   }
 }

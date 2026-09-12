@@ -520,7 +520,8 @@ final class AppKitApplication {
       }
       View? view;
       if (event is ViewQuickLookRequestedEvent ||
-          event is ViewServicesTextReceivedEvent) {
+          event is ViewServicesTextReceivedEvent ||
+          event is ViewDropPerformedEvent) {
         final WeakReference<View>? reference = _views[event.sourceHandle];
         view = reference?.target;
         if (view == null) {
@@ -542,6 +543,9 @@ final class AppKitApplication {
       }
       if (view != null && event is ViewServicesTextReceivedEvent) {
         view._dispatchServicesText(event);
+      }
+      if (view != null && event is ViewDropPerformedEvent) {
+        view._dispatchDrop(event);
       }
     } on Object catch (error, stackTrace) {
       _events.addError(error, stackTrace);

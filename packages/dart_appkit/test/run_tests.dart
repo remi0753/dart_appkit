@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
     show
         NativeRect,
         NativeDefinitionPresentation,
+        NativeDropDestinationConfiguration,
         NativeScreenSnapshot,
         NativeServicesTextRequestorConfiguration,
         dartAppKitSecureInputIndicatorAutomatic,
@@ -103,8 +105,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 10 &&
-        app.eventProtocolVersion == 10,
+        bindings.requestedMaximumEventProtocolVersion == 11 &&
+        app.eventProtocolVersion == 11,
     'current event protocol negotiation',
   );
 
@@ -1545,7 +1547,8 @@ Future<void> _testWindowStateEvents() async {
           MenuItemInvokedEvent() ||
           GlobalHotKeyPressedEvent() ||
           ViewQuickLookRequestedEvent() ||
-          ViewServicesTextReceivedEvent():
+          ViewServicesTextReceivedEvent() ||
+          ViewDropPerformedEvent():
         break;
     }
   }, onError: (Object error) => streamErrors.add(error));
@@ -2863,6 +2866,276 @@ Future<void> _testServicesTextRequestorApi() async {
   await raw.close();
 }
 
+Uint8List _dropFileUrlPacket(Iterable<String> urls) {
+  final BytesBuilder builder = BytesBuilder(copy: false);
+  void addUint32(int value) {
+    final ByteData data = ByteData(4)..setUint32(0, value, Endian.little);
+    builder.add(data.buffer.asUint8List());
+  }
+
+  final List<Uint8List> values = urls
+      .map((String url) => Uint8List.fromList(utf8.encode(url)))
+      .toList(growable: false);
+  addUint32(values.length);
+  for (final Uint8List value in values) {
+    addUint32(value.length);
+    builder.add(value);
+  }
+  return builder.takeBytes();
+}
+
+Future<void> _testDropDestinationApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (11 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final View view = View();
+  final int handle = testing.nativeViewHandleForTesting(view);
+  final List<Object> errors = <Object>[];
+  final List<ViewDropPerformedEvent> applicationDrops =
+      <ViewDropPerformedEvent>[];
+  final List<ViewDropPerformedEvent> viewDrops = <ViewDropPerformedEvent>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is ViewDropPerformedEvent) applicationDrops.add(event);
+  }, onError: errors.add);
+  final StreamSubscription<ViewDropPerformedEvent> viewEvents = view
+      .onDropPerformed
+      .listen(viewDrops.add);
+
+  const DropDestinationConfiguration configuration =
+      DropDestinationConfiguration(
+        maximumTextUtf8Bytes: 1024,
+        maximumFileUrlCount: 2,
+        maximumFileUrlUtf8Bytes: 256,
+        maximumTotalFileUrlUtf8Bytes: 512,
+      );
+  view.dropDestination = configuration;
+  final NativeDropDestinationConfiguration nativeConfiguration =
+      bindings.dropDestinations[handle]!;
+  _expect(
+    view.dropDestination == configuration &&
+        nativeConfiguration.acceptsPlainText &&
+        nativeConfiguration.acceptsFileUrls &&
+        nativeConfiguration.maximumTextUtf8Bytes == 1024 &&
+        nativeConfiguration.maximumFileUrlCount == 2 &&
+        nativeConfiguration.maximumFileUrlUtf8Bytes == 256 &&
+        nativeConfiguration.maximumTotalFileUrlUtf8Bytes == 512,
+    'immutable drop policy reaches native with all explicit bounds',
+  );
+  final int updateCount = bindings.operations
+      .where((String operation) => operation == 'viewSetDropDestination')
+      .length;
+  view.dropDestination = configuration;
+  _expect(
+    bindings.operations
+            .where((String operation) => operation == 'viewSetDropDestination')
+            .length ==
+        updateCount,
+    'equal drop policies suppress native work',
+  );
+
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1100000,
+    0,
+    0,
+    12.5,
+    20.25,
+    Uint8List.fromList(<int>[0x61, 0, 0xe2, 0x80, 0x94, 0x62]),
+  ]);
+  final ViewDropPerformedEvent textEvent = applicationDrops.single;
+  _expect(
+    identical(textEvent, viewDrops.single) &&
+        textEvent.x == 12.5 &&
+        textEvent.y == 20.25 &&
+        textEvent.content is DroppedPlainText &&
+        (textEvent.content as DroppedPlainText).text == 'a\u0000—b',
+    'bounded dropped text reaches application and exact View once',
+  );
+
+  final Uint8List filePacket = _dropFileUrlPacket(<String>[
+    'file:///tmp/one%20two',
+    'file://localhost/tmp/%E6%97%A5',
+  ]);
+  raw.add(<Object?>[11, 44, handle, 11, 1101000, 0, 1, 30, 40, filePacket]);
+  final DroppedFileUrls files =
+      applicationDrops.last.content as DroppedFileUrls;
+  _expect(
+    applicationDrops.length == 2 &&
+        viewDrops.length == 2 &&
+        files.fileUrls.map((Uri uri) => uri.toString()).join('|') ==
+            'file:///tmp/one%20two|file://localhost/tmp/%E6%97%A5',
+    'length-prefixed local file URLs decode in exact order',
+  );
+  await _expectThrows<UnsupportedError>(() {
+    files.fileUrls.add(Uri.file('/tmp/mutation'));
+  });
+
+  raw.add(<Object?>[10, 44, handle, 11, 1102000, 0, 0, 1, 2, Uint8List(0)]);
+  raw.add(<Object?>[11, 44, handle, 12, 1103000, 0, 0, 1, 2, Uint8List(0)]);
+  raw.add(<Object?>[11, 44, handle, 11, 1104000, 0, 2, 1, 2, Uint8List(0)]);
+  raw.add(<Object?>[11, 44, handle, 11, 1105000, 0, 0, 1, 2, 'text']);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1106000,
+    0,
+    0,
+    1,
+    2,
+    Uint8List.fromList(<int>[0xc3]),
+  ]);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1107000,
+    0,
+    1,
+    1,
+    2,
+    Uint8List.fromList(<int>[0, 0, 0, 0]),
+  ]);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1108000,
+    0,
+    1,
+    1,
+    2,
+    _dropFileUrlPacket(<String>['file://server/tmp/x']),
+  ]);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1109000,
+    0,
+    1,
+    1,
+    2,
+    Uint8List.fromList(<int>[...filePacket, 0]),
+  ]);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1110000,
+    0,
+    0,
+    double.infinity,
+    2,
+    Uint8List(0),
+  ]);
+  _expect(
+    errors.length == 9 && applicationDrops.length == 2 && viewDrops.length == 2,
+    'old, stale, unknown, malformed, remote, trailing, and non-finite drops '
+    'fail closed',
+  );
+
+  bindings.failNextOperation = 'viewSetDropDestination';
+  await _expectThrows<AppKitNativeException>(
+    () => view.dropDestination = const DropDestinationConfiguration(
+      acceptsFileUrls: false,
+    ),
+  );
+  _expect(
+    view.dropDestination == configuration &&
+        bindings.dropDestinations[handle] == nativeConfiguration,
+    'failed drop policy update preserves wrapper and native snapshots',
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.dropDestination = const DropDestinationConfiguration(
+      acceptsPlainText: false,
+      acceptsFileUrls: false,
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => view.dropDestination = const DropDestinationConfiguration(
+      maximumTextUtf8Bytes: 0,
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => view.dropDestination = const DropDestinationConfiguration(
+      maximumFileUrlCount:
+          DropDestinationConfiguration.maximumFileUrlCountLimit + 1,
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => view.dropDestination = const DropDestinationConfiguration(
+      maximumFileUrlUtf8Bytes: 2,
+      maximumTotalFileUrlUtf8Bytes: 1,
+    ),
+  );
+
+  view.dropDestination = null;
+  _expect(
+    view.dropDestination == null &&
+        !bindings.dropDestinations.containsKey(handle),
+    'drop destination can be disabled explicitly',
+  );
+  view.dropDestination = configuration;
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(view.dispose);
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1111000,
+    0,
+    0,
+    1,
+    2,
+    Uint8List.fromList('retryable'.codeUnits),
+  ]);
+  _expect(
+    applicationDrops.length == 3 && viewDrops.length == 3,
+    'failed View release preserves drop routing',
+  );
+  view.dispose();
+  _expect(
+    !bindings.dropDestinations.containsKey(handle),
+    'successful View release clears native drop snapshot',
+  );
+  raw.add(<Object?>[
+    11,
+    44,
+    handle,
+    11,
+    1112000,
+    0,
+    0,
+    1,
+    2,
+    Uint8List.fromList('late'.codeUnits),
+  ]);
+  _expect(
+    applicationDrops.length == 4 && viewDrops.length == 3,
+    'disposed View ignores a late drop while application observes it',
+  );
+
+  await viewEvents.cancel();
+  await applicationEvents.cancel();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -2890,6 +3163,9 @@ Future<void> _testLegacyProtocolSelection() async {
     () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
       selectionText: 'selected',
     ),
+  );
+  await _expectThrows<UnsupportedError>(
+    () => view.dropDestination = const DropDestinationConfiguration(),
   );
   view.dispose();
   window.dispose();
@@ -3076,6 +3352,7 @@ Future<void> main() async {
     'cached plain-text Services requestor API',
     _testServicesTextRequestorApi,
   );
+  await _test('bounded text and file-URL drop API', _testDropDestinationApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(
