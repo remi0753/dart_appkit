@@ -2694,7 +2694,7 @@ Future<void> _testQuickLookApi() async {
   view.quickLookRequestsEnabled = false;
 
   final DefinitionPresentation definition = DefinitionPresentation(
-    text: 'terminal—日本語',
+    text: 'editor—日本語',
     baselineX: 15.5,
     baselineY: 28.25,
     font: TextViewFont.named('Test Mono', size: 14),

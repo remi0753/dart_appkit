@@ -118,7 +118,7 @@ struct FixtureShortcuts: AppShortcutsProvider {
       intent: FixtureIntent(),
       phrases: ["Open fixture in \\(.applicationName)"],
       shortTitle: "Open Fixture",
-      systemImageName: "terminal"
+      systemImageName: "doc.text"
     )
   }
 }
@@ -300,7 +300,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
           'fake capability image',
         );
         _write(
-          '$output/bundle/lib/libdart_pty_macos.dylib',
+          '$output/bundle/lib/libexample_native_asset.dylib',
           'fake native asset',
         );
       }
@@ -909,18 +909,18 @@ Future<void> main() async {
             '"nativeCapabilities": []',
             '''"nativeAssets": [
       {
-        "id": "dart_pty_macos",
-        "package": "dart_pty_macos",
-        "library": "libdart_pty_macos.dylib",
+        "id": "example_native_asset",
+        "package": "example_native_asset",
+        "library": "libexample_native_asset.dylib",
         "abiVersion": 1,
-        "abiVersionSymbol": "dpty_abi_version"
+        "abiVersionSymbol": "example_native_asset_abi_version"
       }
     ],
     "nativeCapabilities": []''',
           ),
         );
     _expect(
-      nativeAssetManifest.nativeAssets.single.id == 'dart_pty_macos',
+      nativeAssetManifest.nativeAssets.single.id == 'example_native_asset',
       'plain native asset declaration',
     );
     final MacosApplicationManifest helperManifest =
@@ -1747,11 +1747,11 @@ Future<void> main() async {
           '"nativeCapabilities": []',
           '''"nativeAssets": [
       {
-        "id": "dart_pty_macos",
-        "package": "dart_pty_macos",
-        "library": "libdart_pty_macos.dylib",
+        "id": "example_native_asset",
+        "package": "example_native_asset",
+        "library": "libexample_native_asset.dylib",
         "abiVersion": 1,
-        "abiVersionSymbol": "dpty_abi_version"
+        "abiVersionSymbol": "example_native_asset_abi_version"
       }
     ],
     "nativeCapabilities": []''',
@@ -1770,7 +1770,7 @@ Future<void> main() async {
       final String contents =
           '${fixture.root.path}/build-native-asset/HelloWindow.app/Contents';
       _expect(
-        File('$contents/Frameworks/libdart_pty_macos.dylib').existsSync(),
+        File('$contents/Frameworks/libexample_native_asset.dylib').existsSync(),
         'plain native asset image is staged',
       );
       final Map<String, Object?> buildManifest = jsonDecode(

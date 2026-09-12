@@ -25,8 +25,6 @@ Dart application + macos_application.json
 ├─ imports dart_appkit for reusable UI primitives
 ├─ uses dart_macos_runtime for host services and packaging
 └─ optionally imports native capability Dart facades
-   ├─ dart_terminal_renderer_macos owns TerminalMetalView
-   └─ dart_pty_macos owns PTY/process I/O
 
 dart_macos_runtime
 ├─ generic Developer JIT and Release AOT hosts
@@ -37,9 +35,9 @@ dart_appkit
 └─ AppKit object/event C ABI and Dart facade
 ```
 
-Terminal workers, PTY behavior, rendering, and product recovery policy do not
-enter either generic host. The terminal renderer shell is a separate native
-capability; PTY and application policy retain their independent owners.
+Domain workers, specialized rendering, device/process behavior, and product
+recovery policy do not enter either generic host. Native capabilities, plain
+native assets, and application policy retain independent owners.
 
 ## Startup sequence
 
@@ -352,27 +350,10 @@ same package graph and target, selects only those declared output images, stages
 them in Frameworks, and records the exact declarations in the runtime build
 manifest. Capability source never enters the generic host compile source list.
 
-`dart_terminal_renderer_macos` applies this boundary to the accepted terminal
-view shell. Its `dtr_*` ABI registers the existing
-`dart_terminal.TerminalMetalView` provider name, while its Dart facade owns
-capability initialization and view creation. The implementation is a paused,
-on-demand, framebuffer-only, top-left-coordinate `MTKView`; future terminal
-grid, CoreText, atlas, and shader behavior stays in that capability rather than
-moving into `dart_appkit` or `dart_macos_runtime`. It also owns the platform
-accessibility boundary for terminal content: the application projects its
-visible terminal state into a bounded immutable UTF-16 snapshot, and one custom
-view operation copies and validates that complete snapshot on the AppKit main
-thread. `NSAccessibility` text, selection, cursor, navigation, and screen-frame
-selectors then read only the native copy. No accessibility query synchronously
-calls Dart, and generic `dart_appkit` views remain unaware of terminal semantics.
-
 Plain `nativeAssets` use the same hook and Frameworks staging path but do not
-receive the AppKit extension service table. `dart_pty_macos` uses this path: its
-independent `dpty_*` ABI owns copied spawn inputs, an audited C child exec
-object, one kqueue reactor per generation-checked session, ACK-credit read
-watermarks, bounded write admission, foreground signals, resize, close
-escalation, and `waitpid`. Its listener callback only enqueues immutable byte
-copies for Dart; no reactor thread waits for or enters the UI isolate.
+receive the AppKit extension service table. Their implementations, product ABI,
+threading model, data interpretation, and lifecycle policy stay in the owning
+dependency; the generic builder only discovers and stages the declared image.
 
 Optional `dartHelpers` keep application-specific worker code out of the native
 host. Each declaration supplies a safe bundle name and project-relative Dart
@@ -408,5 +389,5 @@ not a supported feature of the pinned stock Engine host. A consuming product is
 responsible for any official-Dart worker processes, IPC, recovery, and
 packaging; workers must send results back to the UI process for AppKit changes.
 The runtime does not implement widgets, layout, Metal, VM Service, hot reload,
-production signing/notarization, sandbox entitlements, or terminal-specific
+production signing/notarization, sandbox entitlements, or domain-specific
 input/rendering.

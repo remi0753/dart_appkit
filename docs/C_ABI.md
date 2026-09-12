@@ -4,56 +4,9 @@ The public contract is `native/bridge/include/dart_appkit.h`. It contains plain 
 types only and compiles as both C11 and C++20. Objective-C/Swift object layouts
 never cross the boundary.
 
-Dependency-owned platform packages version their ABIs independently. The
-terminal renderer uses `dtr_*`; the AppKit-independent PTY package publishes
-`packages/dart_pty_macos/native/dart_pty_macos.h` and `dpty_*`. A change to one
-does not consume or renumber the `da_*` ABI.
-
-## PTY capability ABI
-
-`DptySessionConfigV1` is size/version prefixed and all argv, environment, and
-working-directory strings are copied before `dpty_session_create` returns.
-Opaque handles encode a slot generation and zero is invalid. `start`, `write`,
-`resize`, `send_signal`, `close`, and `force_close` only enqueue bounded work;
-FD readiness and `waitpid` remain on the session reactor. PTY ABI version 5
-retains the idempotent `force_close` operation and adds the size-prefixed
-`DptyProcessSnapshotV1`. `dpty_session_get_process_snapshot` copies only child,
-owning-process-group, and foreground-process-group IDs, per-field syscall
-errors, and exit state. It serializes the same-call `getpgid`/`tcgetpgrp`
-observation against master-FD closure and never inspects process names,
-arguments, environment, paths, or terminal content. The size-prefixed V1
-diagnostic configuration introduced in v3 remains unchanged.
-`dpty_session_write_tracked` returns an
-opaque request ID for correlating queue admission, reactor dequeue, and native
-write completion. Diagnostic callbacks contain only fixed scalar counters,
-state flags, process-group/signal results, termios flags/VEOF identity, and
-`waitpid`/exit results; they never contain terminal bytes or process launch
-strings. The process filter requests `NOTE_EXIT | NOTE_EXITSTATUS`. A successful
-PID-specific `waitpid` remains authoritative. If a matching kernel exit event
-with valid status is followed by `ECHILD`, the session classifies an external
-reap, retains that status, clears pending writes, drains output, and publishes
-exactly one exit. A bare `ECHILD` without the matching status is never promoted
-to success.
-
-An OUTPUT callback carries at most 64 KiB and borrows its byte pointer until the
-exact sequence/length pair is acknowledged in order. The high watermark
-disables the kqueue read filter and the low watermark re-enables it. Writes are
-copied only when the configured capacity admits the entire call; saturation
-returns `DPTY_STATUS_BACKPRESSURED` without waiting. EXIT reports either the
-child status or `128 + signal`, after the owning reactor has reaped the PID or
-verified that another process-wide waiter reaped it after `NOTE_EXITSTATUS`.
-Destroy requires a finished session with no unacknowledged output and retires
-that handle generation.
-
-Read and write draining use fixed per-reactor-turn budgets. If work remains,
-the reactor explicitly wakes itself before returning to control processing.
-This preserves delivery and backpressure while preventing a continuously ready
-master FD from indefinitely delaying queued writes, force-close escalation, or
-child reaping.
-
-The post-`forkpty` project child branch is a separate C object. It calls only
-`close`, optional `chdir`, `execve`, error-pipe `write`, errno access, and
-`_exit`; an object-symbol allowlist enforces this on every test run.
+Dependency-owned platform packages version their ABIs independently. Their
+headers, symbols, and implementation contracts remain outside this repository;
+a change to one does not consume or renumber the `da_*` ABI.
 
 ## Calls and errors
 
@@ -197,19 +150,6 @@ handles, missing operations, and malformed payloads fail closed.
 The public Dart `View.performCustomOperation` API copies a `Uint8List` into
 temporary native storage for this synchronous call; it exposes neither the
 view handle nor the borrowed native pointer.
-
-The terminal renderer capability uses that operation for complete, versioned
-accessibility snapshots. ABI version 11 and snapshot version 2 bound the packet,
-UTF-8 and UTF-16 text lengths, physical lines, per-line terminal-column
-boundaries, and finite nonnegative logical content origin. The provider
-validates canonical offsets, exact newline topology, UTF-8/UTF-16 agreement,
-surrogate-safe ranges, terminal-boundary selection and cursor positions,
-content origin at most 4096 logical points per axis, and a strictly increasing
-generation before atomically replacing its native copy. Point lookup subtracts
-the origin and rejects padding/out-of-grid points; range frames add the origin
-once. Malformed, unsupported-version, or stale packets leave the previous
-accessible state intact. AppKit selectors and notifications are implemented by
-the provider-owned `NSView`; the bridge never interprets terminal text.
 
 ## Event envelope
 
@@ -400,8 +340,8 @@ reference on resignation and reacquire it on activation. Repeated desired
 states are idempotent; explicit, finalizer, and shutdown release balance only a
 reference successfully acquired by this owner.
 
-`DaSecureEventInputSnapshot` is size-prefixed and contains no input or terminal
-content. It separates desired state, owned-reference state, the observational
+`DaSecureEventInputSnapshot` is size-prefixed and contains no input or
+application content. It separates desired state, owned-reference state, the observational
 global system state, and the last `OSStatus`. The global state is never used as
 proof of ownership, so the bridge cannot disable a reference held by another
 process. Carbon failures return `DA_STATUS_SECURE_EVENT_INPUT_FAILED` with the
@@ -514,7 +454,7 @@ rejects control and invisible display scalars, and validates a size-prefixed
 system/monospaced/named font kinds and weights, bounds font size and named font
 bytes as text views do, and requires finite View-local baseline coordinates.
 Presentation uses AppKit's attributed-string definition API. Word selection,
-terminal grid lookup, and whether a request is actionable remain application
+content-model lookup, and whether a request is actionable remain application
 policy; no native callback synchronously enters Dart.
 
 `da_view_set_services_text_requestor` installs or replaces a size-prefixed

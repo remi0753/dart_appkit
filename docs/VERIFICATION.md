@@ -57,9 +57,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Closed folder Services declarations | Strict generic action/menu/duplicate/unknown-key validation, exact escaped JIT/AOT `NSServices`, legacy omission, build-manifest audit, and pre-signing plist lint | Verified |
 | Versioned native extension services | Size/version C ABI, main-thread registration, invalid UTF-8, duplicate/conflict, and factory failure tests | Verified |
 | Dependency-owned native capability | Dart 3.13 build-hook asset test plus dynamic image ABI/init/create/release/shutdown/lifetime native test | Verified |
-| Terminal renderer capability | C11/C++20 ABI 11/snapshot v2 checks, build-hook asset, dynamic `dtr_*` initialization, zero/nonzero accessibility content-origin geometry with padding/out-of-grid hit rejection, 1x/2x alpha/CJK/color logical-ink parity, Metal view invariants, window attachment, stale handle, teardown, and image lifetime | Verified |
-| Terminal AppleScript capability | DTD-valid SDEF and generated ScriptingBridge header; C11/C++20 ABI checks; main-thread atomic hierarchy cache; bounded command queue, suspension, timeout, disable, exact-once completion, and shutdown tests; Dart facade/fake and build-hook asset tests | Verified |
-| macOS PTY capability | Child symbol audit, interactive/login TTY, cwd/env, resize, foreground SIGINT, split UTF-8, bounded 10 MiB burst, write backpressure, exit/reap, graceful HUP, forced kill, stale handles, fake backend, and real Dart listener callback | Verified |
+| Generic repository ownership audit | Tracked/untracked path and UTF-8 source scan, historical-worklog-only content exemption, positive clean-tree run, and temporary forbidden-content rejection probe | Verified |
 | Capability-enabled JIT/AOT GUI | Same Dart facade and manifest create the dependency view in both real generic hosts; bundles pass deep signature verification | Verified |
 | Dart FFI crosses the real Mach-O bridge | Struct/error/ABI FFI smoke | Verified |
 | Runner startup matches Dart 3.13.2 | Strict compile plus exact source revision check | Verified |
@@ -127,7 +125,7 @@ Clean shutdown requested; native handles released.
 
 The 2026-09-05 regression additionally verifies manifest-declared Dart helper
 compilation/staging/lookup, both `void` and Future-returning application mains,
-explicit bundle-path PTY loading, gated generic host-start failure, and final
+explicit bundle-path native-asset loading, gated generic host-start failure, and final
 Release diagnostics. Full `make test` and native-capability hello-window GUI
 smokes pass in Developer JIT and Release AOT.
 
@@ -144,13 +142,6 @@ platform setter would return false. `make runner-configuration-test` covers the
 native branch without changing the public ABI or manifest contract. The
 complete `make test` regression matrix also passes after the correction.
 
-The 2026-09-11 terminal-renderer regression corrects Retina rasterization so
-CoreText point-space glyphs are drawn into the device-scaled bitmap rather than
-remaining at 1x inside a larger 2x record. Native and Dart tests measure actual
-nonzero alpha bounds and coverage for Latin, CJK, and color emoji instead of
-accepting larger storage alone. The warning-clean focused renderer suites and
-complete `make test` matrix pass after the correction.
-
 The 2026-09-11 attributed-editor regression adds an optional full-width
 logical-line background whose checked UTF-16 location and color remain
 independent from syntax foreground, underline, selection, caret, and editable
@@ -164,17 +155,9 @@ ordering, and verifies syntax-colored glyph pixels in the initial cached
 display. The assertion fails against the former background-draw layout order;
 focused and complete verification pass with the corrected prepaint order.
 
-The 2026-09-12 terminal accessibility geometry update advances the renderer
-capability to ABI 11 and the copied snapshot to version 2. Dart and native
-validation bound a logical content origin to 0...4096 points per axis. Native
-selectors subtract it for point lookup, reject padding and out-of-grid points,
-and add it exactly once to single-line, multi-line, selection, and cursor
-frames. Origin-only updates emit a value/geometry notification but no selection
-notification; malformed and unsupported packets preserve the prior snapshot.
-
 - Add VM Service and restart only after deciding the desired debugging model.
 - Treat AOT, signing, hardened runtime, sandboxing, accessibility, IME,
-  clipboard, PTY, and distribution as separate milestones.
+  clipboard, native assets, and distribution as separate milestones.
 - Consider a smaller prebuilt Engine cache for contributors who should not
   carry the approximately 10 GiB source/build workspace.
 - Keep product worker IPC, supervision, recovery, and packaging in the

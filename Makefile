@@ -155,11 +155,12 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate generic-repository-audit contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
 	@echo "  make validate       Validate layout, scripts, and C/C++ ABI headers"
+	@echo "  make generic-repository-audit  Reject product ownership leaks"
 	@echo "  make engine         Fetch, build, and validate the pinned Dart Engine"
 	@echo "  make engine-check   Validate DART_SDK/DART_ENGINE_* inputs"
 	@echo "  make bridge         Build the standalone AppKit bridge dylib"
@@ -183,8 +184,11 @@ help:
 	@echo "  make public-dart-api-host-probe  Test the stock public VM host boundary"
 	@echo "  make test           Run all locally available checks"
 
-validate: contract-check
+validate: contract-check generic-repository-audit
 	@$(PROJECT_ROOT)/scripts/validate_scaffold.sh
+
+generic-repository-audit:
+	@cd $(PROJECT_ROOT) && $(DART_EXECUTABLE) run tool/generic_repository_audit.dart
 
 contract-check:
 	@mkdir -p $(NATIVE_BUILD_DIR)

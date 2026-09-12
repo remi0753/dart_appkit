@@ -3612,3 +3612,32 @@ with a bounded generic application-configured badge.
 The generic badge subtask is complete. The parent remains open, and the next
 ordered subtask is removing product fixtures/build descriptions/current docs
 and adding a regression source audit.
+
+## 2026-09-13 — Generic repository source closure
+
+- The post-move audit found no tracked product-named path. Outside this
+  chronological worklog, remaining content was limited to two definition-text
+  fixtures, one App Intents image name, two runtime native-asset fixture blocks,
+  and current README, roadmap, architecture, ABI, and verification claims that
+  still described the former consumer packages.
+- Definition tests now use an editor sample. Runtime tests use a neutral example
+  native asset and `doc.text` image. Current documentation describes only
+  generic capability/native-asset ownership and removes the completed consumer
+  feature track, package ABI detail, verification rows, and roadmap backlog.
+  Historical entries remain unchanged so prior decisions are reproducible.
+- `tool/generic_repository_audit.dart` enumerates tracked and non-ignored
+  untracked paths, rejects English and Japanese product words plus the old
+  package symbol prefix in paths and decodable UTF-8 content, and exempts only
+  this historical worklog's content. `make validate` now owns that gate.
+- Positive audit passes with 131 paths and 130 UTF-8 files. A temporary
+  untracked probe containing a forbidden word was rejected with an exact
+  content path; after deleting the probe the audit passed again. `make validate
+  native-test dart-test runtime-dart-test` passed, covering scaffold/header
+  checks, the native definition fixture, public Dart fixture, and strict
+  runtime manifest/build assembly fixtures.
+
+### Roadmap checkpoint
+
+Generic source closure is complete. The parent remains open, and the final
+ordered subtask is running both repositories' exact full gates plus consumer
+Developer JIT and Release AOT bundle, audit, and integration acceptance.

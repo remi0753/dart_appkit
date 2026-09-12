@@ -83,18 +83,9 @@ and records the exact resource declaration without adding scripting classes to
 the generic host.
 The application does not compile a runner or depend on native implementation
 paths. `dart_appkit:run` remains available as the compatible lightweight JIT
-developer command. `dart_terminal_renderer_macos` demonstrates the production
-package boundary for a terminal-specific `MTKView`: its build hook, native ABI,
-and implementation remain outside both the application and generic hosts. Its
-copied read-only accessibility snapshot includes cell metrics and a bounded
-logical content origin so range frames and point lookup remain aligned with a
-padded terminal without synchronous Dart reentry.
-`dart_terminal_applescript_macos` provides the same dependency-owned boundary
-for a process-global Cocoa Scripting dictionary: a bounded immutable hierarchy
-is published from Dart, while suspended native commands are polled and
-completed by Dart without native-to-Dart callbacks.
-`dart_pty_macos` applies the same dependency-owned model to an AppKit-free,
-bounded asynchronous PTY/process reactor and a deterministic Dart fake backend.
+developer command. Application-specific native capabilities and plain native
+assets remain dependency-owned packages outside both the application and
+generic hosts; the manifest declares only their bounded load contract.
 Application-owned Dart worker entrypoints can be declared as `dartHelpers`;
 the generic builder produces self-contained executables under
 `Contents/Helpers`, while protocol and supervision policy remain in Dart.
@@ -366,16 +357,13 @@ native/bridge/          Stable C ABI and AppKit object implementation
 packages/dart_appkit/   Dart FFI/API and dart_appkit:run executable
 packages/dart_macos_runtime/ Manifest, host facade, and application builder
 packages/dart_appkit_example_view/ Build-hook native capability proof
-packages/dart_terminal_renderer_macos/ Terminal MTKView native capability
-packages/dart_terminal_applescript_macos/ Cocoa Scripting native capability
-packages/dart_pty_macos/ AppKit-independent PTY/process capability
 examples/hello_window/  Timer, events, close, and shutdown proof
 scripts/                SDK/Engine validation and Engine build helper
 docs/                   Architecture, ABI, verification, and work log
 ```
 
 Production identity signing/notarization, sandboxing, VM Service, hot reload,
-widgets, and terminal capabilities remain outside this repository layer.
+widgets, and product capabilities remain outside this repository layer.
 
 ## License
 

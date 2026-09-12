@@ -2045,15 +2045,15 @@ void TestQuickLookRequestsAndDefinitions() {
       15.5,
       28.25,
   };
-  const std::string term = "terminal—日本語";
+  const std::string sample = "editor—日本語";
   EXPECT_EQ(da_view_show_definition(
-                view, term.data(), term.size(), &configuration, nullptr, 0),
+                view, sample.data(), sample.size(), &configuration, nullptr, 0),
             DA_STATUS_OK);
   EXPECT_EQ(g_definition_presentations.size(), static_cast<size_t>(1));
   const dart_appkit::DefinitionPresentationSnapshot& presented =
       g_definition_presentations[0];
   EXPECT_EQ(presented.view, view);
-  EXPECT_EQ(presented.text, term);
+  EXPECT_EQ(presented.text, sample);
   EXPECT_EQ(presented.font_kind,
             static_cast<int32_t>(DA_TEXT_VIEW_FONT_MONOSPACED_SYSTEM));
   EXPECT_EQ(presented.font_weight,
