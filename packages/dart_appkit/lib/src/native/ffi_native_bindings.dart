@@ -26,6 +26,35 @@ final class _DaWindowConfigurationNative extends Struct {
   external int styleMask;
 }
 
+final class _DaScreenSnapshotNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int displayId;
+
+  external _DaRectNative frame;
+
+  external _DaRectNative visibleFrame;
+
+  @Double()
+  external double backingScaleFactor;
+}
+
+final class _DaWindowPresentationConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Int32()
+  external int level;
+
+  @Int32()
+  external int reserved;
+
+  @Uint64()
+  external int collectionBehaviorMask;
+}
+
 final class _DaWindowTabAccessoryConfigurationNative extends Struct {
   @Uint64()
   external int structSize;
@@ -347,6 +376,38 @@ typedef _WindowCreateConfiguredDart = int Function(
   Pointer<_DaWindowConfigurationNative>,
   Pointer<Uint64>,
 );
+typedef _ScreenResolveNative = Int32 Function(
+  Int32,
+  Pointer<_DaScreenSnapshotNative>,
+);
+typedef _ScreenResolveDart = int Function(
+  int,
+  Pointer<_DaScreenSnapshotNative>,
+);
+typedef _WindowSetPresentationConfigurationNative = Int32 Function(
+  Uint64,
+  Pointer<_DaWindowPresentationConfigurationNative>,
+);
+typedef _WindowSetPresentationConfigurationDart = int Function(
+  int,
+  Pointer<_DaWindowPresentationConfigurationNative>,
+);
+typedef _WindowPresentNative = Int32 Function(
+  Uint64,
+  _DaRectNative,
+  _DaRectNative,
+  Double,
+  Int32,
+);
+typedef _WindowPresentDart = int Function(
+  int,
+  _DaRectNative,
+  _DaRectNative,
+  double,
+  int,
+);
+typedef _WindowHideNative = Int32 Function(Uint64, _DaRectNative, Double);
+typedef _WindowHideDart = int Function(int, _DaRectNative, double);
 typedef _HandleRectNative = Int32 Function(Uint64, _DaRectNative);
 typedef _HandleRectDart = int Function(int, _DaRectNative);
 typedef _HandleRectOutputNative = Int32 Function(
@@ -1157,12 +1218,55 @@ _GlobalHotKeyRegisterDart? _lookupGlobalHotKeyRegister(DynamicLibrary library) {
   }
 }
 
+_ScreenResolveDart? _lookupScreenResolve(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_ScreenResolveNative, _ScreenResolveDart>(
+      'da_application_resolve_screen',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_WindowSetPresentationConfigurationDart?
+_lookupWindowSetPresentationConfiguration(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<
+      _WindowSetPresentationConfigurationNative,
+      _WindowSetPresentationConfigurationDart
+    >('da_window_set_presentation_configuration');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_WindowPresentDart? _lookupWindowPresent(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_WindowPresentNative, _WindowPresentDart>(
+      'da_window_present',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_WindowHideDart? _lookupWindowHide(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_WindowHideNative, _WindowHideDart>(
+      'da_window_hide',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings
     implements
         NativeBindings,
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
-        NativeGlobalHotKeyBindings {
+        NativeGlobalHotKeyBindings,
+        NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
         'da_abi_version',
@@ -1202,6 +1306,7 @@ final class FfiNativeBindings
         'da_application_set_dock_badge_label',
       ),
       _globalHotKeyRegister = _lookupGlobalHotKeyRegister(library),
+      _applicationResolveScreen = _lookupScreenResolve(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
@@ -1237,6 +1342,10 @@ final class FfiNativeBindings
         library,
         'da_window_set_fullscreen',
       ),
+      _windowSetPresentationConfiguration =
+          _lookupWindowSetPresentationConfiguration(library),
+      _windowPresent = _lookupWindowPresent(library),
+      _windowHide = _lookupWindowHide(library),
       _windowRequestClose = _lookupWindowRequestClose(library),
       _windowCloseDeferral = _lookupWindowCloseDeferral(library),
       _windowKeyEventRouting = _lookupWindowKeyEventRouting(library),
@@ -1367,6 +1476,7 @@ final class FfiNativeBindings
   final _StringStatusDart? _applicationRemoveUserNotification;
   final _StringStatusDart? _applicationSetDockBadgeLabel;
   final _GlobalHotKeyRegisterDart? _globalHotKeyRegister;
+  final _ScreenResolveDart? _applicationResolveScreen;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
@@ -1387,6 +1497,10 @@ final class FfiNativeBindings
   final _HandleRectDart? _windowSetFrame;
   final _HandleRectOutputDart? _windowGetContentLayoutRect;
   final _HandleBoolStatusDart? _windowSetFullscreen;
+  final _WindowSetPresentationConfigurationDart?
+  _windowSetPresentationConfiguration;
+  final _WindowPresentDart? _windowPresent;
+  final _WindowHideDart? _windowHide;
   final _HandleStatusDart? _windowRequestClose;
   final _HandleBoolStatusDart? _windowCloseDeferral;
   final _HandleBoolStatusDart? _windowKeyEventRouting;
@@ -1769,6 +1883,44 @@ final class FfiNativeBindings
       return _valueResult<int>(
         function(keyCode, modifiers, output),
         output.value,
+      );
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<NativeScreenSnapshot> applicationResolveScreen(
+    int selection,
+  ) {
+    final _ScreenResolveDart? function = _applicationResolveScreen;
+    if (function == null) {
+      return const NativeValueResult<NativeScreenSnapshot>.failure(
+        8,
+        'legacy native bridge does not support current screen resolution',
+      );
+    }
+    final Pointer<_DaScreenSnapshotNative> output = _allocate(
+      sizeOf<_DaScreenSnapshotNative>(),
+    ).cast<_DaScreenSnapshotNative>();
+    try {
+      output.ref.structSize = sizeOf<_DaScreenSnapshotNative>();
+      final int status = function(selection, output);
+      final _DaScreenSnapshotNative value = output.ref;
+      NativeRect rect(_DaRectNative native) => NativeRect(
+        x: native.x,
+        y: native.y,
+        width: native.width,
+        height: native.height,
+      );
+      return _valueResult<NativeScreenSnapshot>(
+        status,
+        NativeScreenSnapshot(
+          displayId: value.displayId,
+          frame: rect(value.frame),
+          visibleFrame: rect(value.visibleFrame),
+          backingScaleFactor: value.backingScaleFactor,
+        ),
       );
     } finally {
       _free(output.cast<Void>());
@@ -2200,6 +2352,107 @@ final class FfiNativeBindings
       );
     }
     return _callResult(function(handle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult windowSetPresentationConfiguration({
+    required int handle,
+    required int level,
+    required int collectionBehaviorMask,
+  }) {
+    final _WindowSetPresentationConfigurationDart? function =
+        _windowSetPresentationConfiguration;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support window presentation policy',
+      );
+    }
+    final Pointer<_DaWindowPresentationConfigurationNative> configuration =
+        _allocate(sizeOf<_DaWindowPresentationConfigurationNative>())
+            .cast<_DaWindowPresentationConfigurationNative>();
+    try {
+      configuration.ref
+        ..structSize = sizeOf<_DaWindowPresentationConfigurationNative>()
+        ..level = level
+        ..reserved = 0
+        ..collectionBehaviorMask = collectionBehaviorMask;
+      return _callResult(function(handle, configuration));
+    } finally {
+      _free(configuration.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult windowPresent({
+    required int handle,
+    required NativeRect startFrame,
+    required NativeRect targetFrame,
+    required double durationSeconds,
+    required bool makeKey,
+  }) {
+    final _WindowPresentDart? function = _windowPresent;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support animated window presentation',
+      );
+    }
+    final Pointer<_DaRectNative> start = _allocate(sizeOf<_DaRectNative>())
+        .cast<_DaRectNative>();
+    final Pointer<_DaRectNative> target = _allocate(sizeOf<_DaRectNative>())
+        .cast<_DaRectNative>();
+    try {
+      start.ref
+        ..x = startFrame.x
+        ..y = startFrame.y
+        ..width = startFrame.width
+        ..height = startFrame.height;
+      target.ref
+        ..x = targetFrame.x
+        ..y = targetFrame.y
+        ..width = targetFrame.width
+        ..height = targetFrame.height;
+      return _callResult(
+        function(
+          handle,
+          start.ref,
+          target.ref,
+          durationSeconds,
+          makeKey ? 1 : 0,
+        ),
+      );
+    } finally {
+      _free(target.cast<Void>());
+      _free(start.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult windowHide({
+    required int handle,
+    required NativeRect targetFrame,
+    required double durationSeconds,
+  }) {
+    final _WindowHideDart? function = _windowHide;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support animated window presentation',
+      );
+    }
+    final Pointer<_DaRectNative> target = _allocate(sizeOf<_DaRectNative>())
+        .cast<_DaRectNative>();
+    try {
+      target.ref
+        ..x = targetFrame.x
+        ..y = targetFrame.y
+        ..width = targetFrame.width
+        ..height = targetFrame.height;
+      return _callResult(function(handle, target.ref, durationSeconds));
+    } finally {
+      _free(target.cast<Void>());
+    }
   }
 
   @override

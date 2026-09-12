@@ -29,6 +29,17 @@ const int dartAppKitDefaultWindowStyleMask =
 const double dartAppKitWindowTabAccessoryMaximumExtent = 256;
 const int dartAppKitWindowTabAccessoryShapeRectangle = 0;
 const int dartAppKitWindowTabAccessoryShapeEllipse = 1;
+const int dartAppKitScreenSelectionMain = 0;
+const int dartAppKitScreenSelectionMouse = 1;
+const int dartAppKitScreenSelectionMenuBar = 2;
+const int dartAppKitWindowLevelNormal = 0;
+const int dartAppKitWindowLevelFloating = 1;
+const int dartAppKitWindowLevelStatus = 2;
+const int dartAppKitWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0;
+const int dartAppKitWindowCollectionBehaviorFullScreenAuxiliary = 1 << 1;
+const int dartAppKitWindowCollectionBehaviorStationary = 1 << 2;
+const int dartAppKitWindowCollectionBehaviorTransient = 1 << 3;
+const double dartAppKitWindowPresentationAnimationMaximumSeconds = 5;
 const int dartAppKitViewAutoresizingWidth = 1 << 0;
 const int dartAppKitViewAutoresizingHeight = 1 << 1;
 const int dartAppKitDefaultViewAutoresizingMask =
@@ -279,6 +290,20 @@ final class NativeRect {
   final double height;
 }
 
+final class NativeScreenSnapshot {
+  const NativeScreenSnapshot({
+    required this.displayId,
+    required this.frame,
+    required this.visibleFrame,
+    required this.backingScaleFactor,
+  });
+
+  final int displayId;
+  final NativeRect frame;
+  final NativeRect visibleFrame;
+  final double backingScaleFactor;
+}
+
 abstract interface class NativeBindings {
   int abiVersion();
 
@@ -443,5 +468,32 @@ abstract interface class NativeGlobalHotKeyBindings {
   NativeValueResult<int> globalHotKeyRegister({
     required int keyCode,
     required int modifiers,
+  });
+}
+
+/// Optional current-screen and animated window-presentation surface.
+abstract interface class NativeWindowPresentationBindings {
+  NativeValueResult<NativeScreenSnapshot> applicationResolveScreen(
+    int selection,
+  );
+
+  NativeCallResult windowSetPresentationConfiguration({
+    required int handle,
+    required int level,
+    required int collectionBehaviorMask,
+  });
+
+  NativeCallResult windowPresent({
+    required int handle,
+    required NativeRect startFrame,
+    required NativeRect targetFrame,
+    required double durationSeconds,
+    required bool makeKey,
+  });
+
+  NativeCallResult windowHide({
+    required int handle,
+    required NativeRect targetFrame,
+    required double durationSeconds,
   });
 }

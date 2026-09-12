@@ -5,9 +5,17 @@ import 'dart:typed_data';
 import 'package:dart_appkit/dart_appkit.dart';
 import 'package:dart_appkit/src/native/native_bindings.dart'
     show
+        NativeRect,
+        NativeScreenSnapshot,
+        dartAppKitScreenSelectionMain,
         dartAppKitExternalUrlPolicyForbidCredentials,
         dartAppKitExternalUrlPolicyRequireAuthority,
         dartAppKitExternalUrlPolicyRequireHost,
+        dartAppKitWindowCollectionBehaviorCanJoinAllSpaces,
+        dartAppKitWindowCollectionBehaviorFullScreenAuxiliary,
+        dartAppKitWindowCollectionBehaviorStationary,
+        dartAppKitWindowCollectionBehaviorTransient,
+        dartAppKitWindowLevelStatus,
         dartAppKitViewAutoresizingWidth;
 import 'package:dart_appkit/testing.dart' as testing;
 
@@ -626,6 +634,162 @@ Future<void> _testWindowConfigurationApi() async {
   defaultWindow.dispose();
   borderlessWindow.dispose();
   documentWindow.dispose();
+  await app.terminate();
+  await raw.close();
+}
+
+Future<void> _testScreenAndWindowPresentationApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+
+  final AppKitResolvedScreen main = app.resolveScreen(
+    AppKitScreenSelection.main,
+  );
+  final AppKitResolvedScreen mouse = app.resolveScreen(
+    AppKitScreenSelection.mouse,
+  );
+  final AppKitResolvedScreen menuBar = app.resolveScreen(
+    AppKitScreenSelection.menuBar,
+  );
+  _expect(
+    main.screen.displayId == 1 &&
+        main.screen.visibleFrame == const Rect.fromLTWH(0, 25, 1440, 875) &&
+        main.backingScaleFactor == 2,
+    'main screen geometry and backing scale are projected',
+  );
+  _expect(
+    mouse.screen.displayId == 2 &&
+        mouse.screen.frame == const Rect.fromLTWH(-1920, 0, 1920, 1080) &&
+        mouse.backingScaleFactor == 1,
+    'mouse screen preserves negative global coordinates',
+  );
+  _expect(
+    menuBar.screen.displayId == 3 &&
+        menuBar.screen.frame == const Rect.fromLTWH(1440, -200, 2560, 1440),
+    'menu-bar screen preserves independent global coordinates',
+  );
+  bindings.failNextOperation = 'applicationResolveScreen';
+  await _expectThrows<AppKitNativeException>(
+    () => app.resolveScreen(AppKitScreenSelection.main),
+  );
+  bindings.resolvedScreens[dartAppKitScreenSelectionMain] =
+      const NativeScreenSnapshot(
+        displayId: 0,
+        frame: NativeRect(x: 0, y: 0, width: 1, height: 1),
+        visibleFrame: NativeRect(x: 0, y: 0, width: 1, height: 1),
+        backingScaleFactor: 1,
+      );
+  await _expectThrows<StateError>(
+    () => app.resolveScreen(AppKitScreenSelection.main),
+  );
+
+  final Window window = Window(
+    frame: const Rect.fromLTWH(0, 700, 800, 1),
+    title: 'Presentation',
+    configuration: const WindowConfiguration(
+      titled: false,
+      closable: false,
+      miniaturizable: false,
+      resizable: false,
+    ),
+  );
+  const WindowPresentationConfiguration overlay =
+      WindowPresentationConfiguration(
+        level: WindowPresentationLevel.status,
+        canJoinAllSpaces: true,
+        fullScreenAuxiliary: true,
+        stationary: true,
+        transient: true,
+      );
+  window.presentationConfiguration = overlay;
+  final int handle = bindings.objects.keys.single;
+  final ({int level, int collectionBehaviorMask}) nativeConfiguration =
+      bindings.windowPresentationConfigurations[handle]!;
+  _expect(
+    window.presentationConfiguration == overlay &&
+        nativeConfiguration.level == dartAppKitWindowLevelStatus &&
+        nativeConfiguration.collectionBehaviorMask ==
+            dartAppKitWindowCollectionBehaviorCanJoinAllSpaces |
+                dartAppKitWindowCollectionBehaviorFullScreenAuxiliary |
+                dartAppKitWindowCollectionBehaviorStationary |
+                dartAppKitWindowCollectionBehaviorTransient,
+    'window level and Spaces behavior are projected exactly',
+  );
+  final int operationsAfterConfiguration = bindings.operations.length;
+  window.presentationConfiguration = overlay;
+  _expect(
+    bindings.operations.length == operationsAfterConfiguration,
+    'equivalent presentation configuration is deduplicated',
+  );
+
+  const Rect shown = Rect.fromLTWH(0, 200, 800, 500);
+  window.present(
+    startFrame: const Rect.fromLTWH(0, 700, 800, 1),
+    targetFrame: shown,
+    duration: const Duration(milliseconds: 200),
+    makeKey: false,
+  );
+  final presentation = bindings.windowPresentations.single;
+  _expect(
+    window.frame == shown &&
+        presentation.targetFrame.y == 200 &&
+        presentation.durationSeconds == 0.2 &&
+        !presentation.makeKey,
+    'bounded presentation retains the target frame and focus choice',
+  );
+  const Rect hidden = Rect.fromLTWH(0, 699, 800, 1);
+  window.hide(targetFrame: hidden);
+  _expect(
+    window.frame == hidden && bindings.windowHides.single.durationSeconds == 0,
+    'zero-duration hide retains the window and applies its endpoint',
+  );
+
+  await _expectThrows<RangeError>(
+    () => window.present(
+      startFrame: hidden,
+      targetFrame: shown,
+      duration: const Duration(microseconds: -1),
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () =>
+        window.hide(targetFrame: hidden, duration: const Duration(seconds: 6)),
+  );
+  await _expectThrows<ArgumentError>(
+    () => window.present(
+      startFrame: const Rect.fromLTWH(0, 0, 0, 1),
+      targetFrame: shown,
+    ),
+  );
+  final Rect beforeFailedPresentation = window.frame;
+  bindings.failNextOperation = 'windowPresent';
+  await _expectThrows<AppKitNativeException>(
+    () => window.present(startFrame: hidden, targetFrame: shown),
+  );
+  _expect(
+    window.frame == beforeFailedPresentation,
+    'failed presentation does not invent a target frame',
+  );
+  bindings.failNextOperation = 'windowSetPresentationConfiguration';
+  await _expectThrows<AppKitNativeException>(
+    () => window.presentationConfiguration =
+        const WindowPresentationConfiguration(
+          level: WindowPresentationLevel.floating,
+        ),
+  );
+  _expect(
+    window.presentationConfiguration == overlay,
+    'failed presentation policy does not change the Dart cache',
+  );
+
+  window.dispose();
+  _expect(
+    bindings.windowPresentationConfigurations.isEmpty,
+    'window release clears presentation ownership',
+  );
   await app.terminate();
   await raw.close();
 }
@@ -2313,6 +2477,10 @@ Future<void> main() async {
   );
   await _test('attributed multiline text editor', _testAttributedTextEditorApi);
   await _test('immutable window configuration', _testWindowConfigurationApi);
+  await _test(
+    'current screen and animated window presentation',
+    _testScreenAndWindowPresentationApi,
+  );
   await _test(
     'native tabs, split views, and explicit focus',
     _testNativeTabsSplitViewAndFocusApi,

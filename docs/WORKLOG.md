@@ -3144,3 +3144,34 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - `git diff --check` は clean。ABI version を変えず additive symbol と event protocol v8 に限定し、
   broad keyboard monitor、Accessibility permission、product shortcut policy、生成物、秘密情報、
   無関係な変更を差分へ含めていないことを確認した。
+
+## 2026-09-12 — Current-screen and interruptible window presentation
+
+- Quick Terminal の product integration 前提として、毎回の show 時に keyboard-focus、global
+  mouse、menu-bar screen のいずれかを現在の AppKit state から解決する必要がある。bridge は
+  `NSScreen` を所有／公開せず、display ID、full/visible global frame、backing scale の immutable
+  copy を返す。mouse がどの frame にも無い場合や main が無い場合は先頭の valid screen へ
+  fallback する。
+- Window mechanism は normal/floating/status level、join-all-Spaces、fullscreen auxiliary、
+  stationary、transient の closed set と、0..5秒の show/hide frame animation に限定する。
+  terminal の位置・サイズ、singleton、session、autohide、Reduce Motion policy は consumer が
+  所有し、bridge には追加しない。
+- Hide は close と異なり NSWindow/content/handle を保持する。各 owner の presentation generation
+  を present、hide、direct frame、ordinary show、close、release で進め、古い hide completion が
+  新しい show 後に window を order-out しないようにする。duration 0 は同期 endpoint とし、
+  make-key show は macOS 14 の `NSApplication.activate` 後に content first responder を復元する。
+- Native coverage は負の原点を含む2 screen 選択、mouse miss/main miss fallback、real current
+  screen snapshot、level/Spaces mask、zero/bounded animation、show↔hide interruption、invalid
+  struct/enum/mask/frame/duration/type/thread、release cleanup を検証する。Dart fake は3 selector、
+  scale、negative coordinates、deduplication、focus choice、cache-on-success と typed failure を、
+  current/legacy FFI は additive symbols と main-thread/unsupported guard を検証する。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make validate native-test
+  dart-test ffi-smoke` は C11/C++20 headers、warning-clean AppKit implementation、native selection
+  and interruption contracts、Dart analyzer/API、launcher、current/legacy FFI を通過した。最初の
+  Dart analyze は `Duration` を直接 `RangeError.value` に渡した型誤り、public extension の export
+  漏れ、test-only native constant import 漏れを検出し、microsecond range、named extension export、
+  explicit import に修正後PASSした。
+- Complete `CI=true DART_SUPPRESS_ANALYTICS=true make test` も Runner、scheduler/events、runtime
+  lifecycle/diagnostics、capabilities、renderer、PTY、全 Dart packages、Kernel、FFI まで回帰なく
+  通過した。`make runtime-jit-runner runtime-aot-runner` では同じ追加 ABI を Developer JIT と
+  Release AOT の両 generic host に warning-as-error でリンクできた。

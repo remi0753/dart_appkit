@@ -111,6 +111,7 @@
   BOOL _pendingFullscreenTarget;
   BOOL _defersCloseRequests;
   int64_t _pendingCloseOperationId;
+  uint64_t _presentationGeneration;
 }
 
 @property(nonatomic, strong, readonly) DaWindow* window;
@@ -130,6 +131,13 @@
 - (int64_t)daPendingCloseOperationId;
 - (BOOL)daReplyToCloseRequest:(int64_t)operationId allow:(BOOL)allow;
 - (void)daCloseProgrammatically;
+- (void)daInvalidatePresentation;
+- (void)daPresentFromFrame:(NSRect)startFrame
+                   toFrame:(NSRect)targetFrame
+                  duration:(NSTimeInterval)duration
+                   makeKey:(BOOL)makeKey;
+- (void)daHideToFrame:(NSRect)targetFrame
+              duration:(NSTimeInterval)duration;
 
 @end
 

@@ -81,6 +81,55 @@ typedef struct DaWindowConfiguration {
   ((uint64_t)(DA_WINDOW_STYLE_TITLED | DA_WINDOW_STYLE_CLOSABLE |         \
               DA_WINDOW_STYLE_MINIATURIZABLE | DA_WINDOW_STYLE_RESIZABLE))
 
+/** Current-screen selectors resolved afresh by the application. */
+typedef enum DaScreenSelection {
+  /** Screen containing the keyboard-focus window; falls back to the first. */
+  DA_SCREEN_SELECTION_MAIN = 0,
+  /** Screen containing the global mouse location; falls back to main. */
+  DA_SCREEN_SELECTION_MOUSE = 1,
+  /** First AppKit screen, which owns the menu bar; falls back to main. */
+  DA_SCREEN_SELECTION_MENU_BAR = 2
+} DaScreenSelection;
+
+/** Size-prefixed immutable current screen geometry and backing scale. */
+typedef struct DaScreenSnapshot {
+  uint64_t struct_size;
+  uint64_t display_id;
+  DaRect frame;
+  DaRect visible_frame;
+  double backing_scale_factor;
+} DaScreenSnapshot;
+
+#define DA_SCREEN_SNAPSHOT_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaScreenSnapshot))
+
+/** Stable native window levels for reusable presentation policy. */
+typedef enum DaWindowLevel {
+  DA_WINDOW_LEVEL_NORMAL = 0,
+  DA_WINDOW_LEVEL_FLOATING = 1,
+  DA_WINDOW_LEVEL_STATUS = 2
+} DaWindowLevel;
+
+/** Stable bits projected to NSWindowCollectionBehavior. */
+typedef enum DaWindowCollectionBehavior {
+  DA_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES = 1u << 0,
+  DA_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY = 1u << 1,
+  DA_WINDOW_COLLECTION_BEHAVIOR_STATIONARY = 1u << 2,
+  DA_WINDOW_COLLECTION_BEHAVIOR_TRANSIENT = 1u << 3
+} DaWindowCollectionBehavior;
+
+/** Size-prefixed generic window level and Spaces presentation policy. */
+typedef struct DaWindowPresentationConfiguration {
+  uint64_t struct_size;
+  int32_t level;
+  int32_t reserved;
+  uint64_t collection_behavior_mask;
+} DaWindowPresentationConfiguration;
+
+#define DA_WINDOW_PRESENTATION_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaWindowPresentationConfiguration))
+#define DA_WINDOW_PRESENTATION_ANIMATION_MAX_SECONDS 5.0
+
 /** Hard logical-point bound for one native-tab accessory dimension. */
 #define DA_WINDOW_TAB_ACCESSORY_MAX_EXTENT 256.0
 
@@ -524,6 +573,15 @@ DA_EXPORT int32_t da_window_create_configured(
     DaRect frame, const char* title, size_t title_length,
     const DaWindowConfiguration* configuration, DaHandle* out_window);
 
+/**
+ * Main thread only. Resolves current screen geometry without caching it.
+ *
+ * selection must be a DaScreenSelection. out_snapshot must provide at least
+ * DA_SCREEN_SNAPSHOT_VERSION_1_SIZE bytes in struct_size.
+ */
+DA_EXPORT int32_t da_application_resolve_screen(
+    int32_t selection, DaScreenSnapshot* out_snapshot);
+
 /** Main thread only. Replaces the finite positive outer window frame. */
 DA_EXPORT int32_t da_window_set_frame(DaHandle window, DaRect frame);
 
@@ -538,6 +596,29 @@ DA_EXPORT int32_t da_window_get_content_layout_rect(DaHandle window,
  * DA_EVENT_WINDOW_FULLSCREEN_CHANGED under event protocol version 6.
  */
 DA_EXPORT int32_t da_window_set_fullscreen(DaHandle window, int32_t enabled);
+
+/** Main thread only. Replaces generic window level and Spaces behavior. */
+DA_EXPORT int32_t da_window_set_presentation_configuration(
+    DaHandle window,
+    const DaWindowPresentationConfiguration* configuration);
+
+/**
+ * Main thread only. Shows a window from start_frame toward target_frame.
+ *
+ * duration_seconds must be finite and in [0, 5]. make_key must be 0 or 1.
+ * A zero duration applies the target atomically.
+ */
+DA_EXPORT int32_t da_window_present(DaHandle window, DaRect start_frame,
+                                    DaRect target_frame,
+                                    double duration_seconds,
+                                    int32_t make_key);
+
+/**
+ * Main thread only. Hides a window toward target_frame without closing it.
+ * duration_seconds must be finite and in [0, 5].
+ */
+DA_EXPORT int32_t da_window_hide(DaHandle window, DaRect target_frame,
+                                 double duration_seconds);
 
 /** Main thread only. */
 DA_EXPORT int32_t da_window_show(DaHandle window);

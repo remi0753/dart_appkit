@@ -101,6 +101,41 @@ void main(List<String> arguments) {
       globalHotKey.message.isEmpty) {
     _fail('global hot-key symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<NativeScreenSnapshot> screen = bindings
+      .applicationResolveScreen(dartAppKitScreenSelectionMain);
+  final NativeCallResult presentationConfiguration = bindings
+      .windowSetPresentationConfiguration(
+        handle: 1,
+        level: dartAppKitWindowLevelStatus,
+        collectionBehaviorMask:
+            dartAppKitWindowCollectionBehaviorCanJoinAllSpaces,
+      );
+  final NativeCallResult present = bindings.windowPresent(
+    handle: 1,
+    startFrame: const NativeRect(x: 0, y: 0, width: 100, height: 1),
+    targetFrame: const NativeRect(x: 0, y: 0, width: 100, height: 100),
+    durationSeconds: 0,
+    makeKey: false,
+  );
+  final NativeCallResult hide = bindings.windowHide(
+    handle: 1,
+    targetFrame: const NativeRect(x: 0, y: 0, width: 100, height: 1),
+    durationSeconds: 0,
+  );
+  if (screen.isSuccess ||
+      screen.status != 5 ||
+      screen.message.isEmpty ||
+      presentationConfiguration.isSuccess ||
+      presentationConfiguration.status != 5 ||
+      presentationConfiguration.message.isEmpty ||
+      present.isSuccess ||
+      present.status != 5 ||
+      present.message.isEmpty ||
+      hide.isSuccess ||
+      hide.status != 5 ||
+      hide.message.isEmpty) {
+    _fail('window presentation symbols did not preserve main-thread guards');
+  }
   final NativeValueResult<int> menu = bindings.menuCreate(
     'FFI smoke',
     autoEnablesItems: true,

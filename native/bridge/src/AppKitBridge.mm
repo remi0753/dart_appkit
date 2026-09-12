@@ -583,6 +583,110 @@ int32_t ValidateRect(DaRect frame) {
   return DA_STATUS_OK;
 }
 
+bool PopulateScreenSnapshot(NSScreen* screen, DaScreenSnapshot* out_snapshot) {
+  if (screen == nil || out_snapshot == nullptr) {
+    return false;
+  }
+  NSNumber* screen_number =
+      screen.deviceDescription[(NSDeviceDescriptionKey)@"NSScreenNumber"];
+  const unsigned long long display_id = screen_number.unsignedLongLongValue;
+  const NSRect frame = screen.frame;
+  const NSRect visible_frame = screen.visibleFrame;
+  const double scale = screen.backingScaleFactor;
+  const bool valid = screen_number != nil && display_id > 0 &&
+                     display_id <= std::numeric_limits<uint32_t>::max() &&
+                     std::isfinite(frame.origin.x) &&
+                     std::isfinite(frame.origin.y) &&
+                     std::isfinite(frame.size.width) &&
+                     std::isfinite(frame.size.height) &&
+                     frame.size.width > 0.0 && frame.size.height > 0.0 &&
+                     std::isfinite(visible_frame.origin.x) &&
+                     std::isfinite(visible_frame.origin.y) &&
+                     std::isfinite(visible_frame.size.width) &&
+                     std::isfinite(visible_frame.size.height) &&
+                     visible_frame.size.width > 0.0 &&
+                     visible_frame.size.height > 0.0 &&
+                     std::isfinite(scale) && scale > 0.0;
+  if (!valid) {
+    return false;
+  }
+  *out_snapshot = {
+      DA_SCREEN_SNAPSHOT_VERSION_1_SIZE,
+      static_cast<uint64_t>(display_id),
+      {frame.origin.x, frame.origin.y, frame.size.width, frame.size.height},
+      {visible_frame.origin.x, visible_frame.origin.y,
+       visible_frame.size.width, visible_frame.size.height},
+      scale,
+  };
+  return true;
+}
+
+int32_t ValidateAnimationDuration(double duration_seconds) {
+  if (!std::isfinite(duration_seconds) || duration_seconds < 0.0 ||
+      duration_seconds > DA_WINDOW_PRESENTATION_ANIMATION_MAX_SECONDS) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "window presentation duration must be finite and between 0 and 5");
+  }
+  return DA_STATUS_OK;
+}
+
+int32_t ValidateWindowPresentationConfiguration(
+    const DaWindowPresentationConfiguration* configuration) {
+  if (configuration == nullptr ||
+      configuration->struct_size <
+          DA_WINDOW_PRESENTATION_CONFIGURATION_VERSION_1_SIZE) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "window presentation configuration is missing or too small");
+  }
+  constexpr uint64_t kSupportedCollectionBehavior =
+      DA_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES |
+      DA_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY |
+      DA_WINDOW_COLLECTION_BEHAVIOR_STATIONARY |
+      DA_WINDOW_COLLECTION_BEHAVIOR_TRANSIENT;
+  if (configuration->level < DA_WINDOW_LEVEL_NORMAL ||
+      configuration->level > DA_WINDOW_LEVEL_STATUS ||
+      configuration->reserved != 0 ||
+      (configuration->collection_behavior_mask &
+       ~kSupportedCollectionBehavior) != 0) {
+    return SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "window presentation level, reserved field, or collection behavior "
+        "is invalid");
+  }
+  return DA_STATUS_OK;
+}
+
+NSWindowLevel WindowLevel(int32_t level) {
+  switch (level) {
+    case DA_WINDOW_LEVEL_NORMAL:
+      return NSNormalWindowLevel;
+    case DA_WINDOW_LEVEL_FLOATING:
+      return NSFloatingWindowLevel;
+    case DA_WINDOW_LEVEL_STATUS:
+      return NSStatusWindowLevel;
+  }
+  return NSNormalWindowLevel;
+}
+
+NSWindowCollectionBehavior WindowCollectionBehavior(uint64_t mask) {
+  NSWindowCollectionBehavior result = NSWindowCollectionBehaviorDefault;
+  if ((mask & DA_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES) != 0) {
+    result |= NSWindowCollectionBehaviorCanJoinAllSpaces;
+  }
+  if ((mask & DA_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY) != 0) {
+    result |= NSWindowCollectionBehaviorFullScreenAuxiliary;
+  }
+  if ((mask & DA_WINDOW_COLLECTION_BEHAVIOR_STATIONARY) != 0) {
+    result |= NSWindowCollectionBehaviorStationary;
+  }
+  if ((mask & DA_WINDOW_COLLECTION_BEHAVIOR_TRANSIENT) != 0) {
+    result |= NSWindowCollectionBehaviorTransient;
+  }
+  return result;
+}
+
 int32_t ValidateViewConfiguration(const DaViewConfiguration* configuration) {
   if (configuration == nullptr ||
       configuration->struct_size < DA_VIEW_CONFIGURATION_VERSION_1_SIZE) {
@@ -979,6 +1083,7 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
   if (owner == nil) {
     return;
   }
+  [owner daInvalidatePresentation];
   owner.daHandle = 0;
   owner.window.daHandle = 0;
   owner.window.delegate = nil;
@@ -1042,6 +1147,34 @@ int32_t EnqueueAsyncRelease(DaHandle handle) {
 }
 
 }  // namespace
+
+int ResolveScreenSelectionIndex(
+    int32_t selection, const std::vector<ScreenSelectionCandidate>& candidates,
+    double mouse_x, double mouse_y) {
+  if (candidates.empty()) {
+    return -1;
+  }
+  int main_index = 0;
+  for (size_t index = 0; index < candidates.size(); ++index) {
+    if (candidates[index].is_main) {
+      main_index = static_cast<int>(index);
+      break;
+    }
+  }
+  if (selection == DA_SCREEN_SELECTION_MENU_BAR) {
+    return 0;
+  }
+  if (selection == DA_SCREEN_SELECTION_MOUSE) {
+    for (size_t index = 0; index < candidates.size(); ++index) {
+      const DaRect frame = candidates[index].snapshot.frame;
+      if (mouse_x >= frame.x && mouse_x < frame.x + frame.width &&
+          mouse_y >= frame.y && mouse_y < frame.y + frame.height) {
+        return static_cast<int>(index);
+      }
+    }
+  }
+  return main_index;
+}
 
 void ClearLastError() {
   g_last_error.code = DA_STATUS_OK;
@@ -2302,6 +2435,53 @@ int32_t da_window_create(DaRect frame, const char* title, size_t title_length,
                                      &configuration, out_window);
 }
 
+int32_t da_application_resolve_screen(int32_t selection,
+                                      DaScreenSnapshot* out_snapshot) {
+  dart_appkit::ClearLastError();
+  if (out_snapshot == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_snapshot must not be null");
+  }
+  const uint64_t struct_size = out_snapshot->struct_size;
+  *out_snapshot = {};
+  if (struct_size < DA_SCREEN_SNAPSHOT_VERSION_1_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "screen snapshot output is smaller than version 1");
+  }
+  out_snapshot->struct_size = DA_SCREEN_SNAPSHOT_VERSION_1_SIZE;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (selection < DA_SCREEN_SELECTION_MAIN ||
+      selection > DA_SCREEN_SELECTION_MENU_BAR) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "screen selection is invalid");
+  }
+  NSArray<NSScreen*>* screens = NSScreen.screens;
+  NSScreen* main_screen = NSScreen.mainScreen;
+  std::vector<dart_appkit::ScreenSelectionCandidate> candidates;
+  candidates.reserve(screens.count);
+  for (NSScreen* screen in screens) {
+    DaScreenSnapshot snapshot{};
+    if (!dart_appkit::PopulateScreenSnapshot(screen, &snapshot)) {
+      continue;
+    }
+    candidates.push_back({snapshot, screen == main_screen});
+  }
+  const NSPoint mouse = NSEvent.mouseLocation;
+  const int selected_index = dart_appkit::ResolveScreenSelectionIndex(
+      selection, candidates, mouse.x, mouse.y);
+  if (selected_index < 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        "no valid AppKit screen is available for presentation");
+  }
+  *out_snapshot = candidates[static_cast<size_t>(selected_index)].snapshot;
+  return DA_STATUS_OK;
+}
+
 int32_t da_window_set_frame(DaHandle window, DaRect frame) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
@@ -2317,6 +2497,7 @@ int32_t da_window_set_frame(DaHandle window, DaRect frame) {
   if (owner == nil) {
     return status;
   }
+  [owner daInvalidatePresentation];
   [owner.window setFrame:NSMakeRect(frame.x, frame.y, frame.width, frame.height)
                  display:YES];
   [owner daPostFrame:owner.window.frame];
@@ -2371,6 +2552,93 @@ int32_t da_window_set_fullscreen(DaHandle window, int32_t enabled) {
   return DA_STATUS_OK;
 }
 
+int32_t da_window_set_presentation_configuration(
+    DaHandle window,
+    const DaWindowPresentationConfiguration* configuration) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  const int32_t configuration_status =
+      dart_appkit::ValidateWindowPresentationConfiguration(configuration);
+  if (configuration_status != DA_STATUS_OK) {
+    return configuration_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  owner.window.level = dart_appkit::WindowLevel(configuration->level);
+  owner.window.collectionBehavior = dart_appkit::WindowCollectionBehavior(
+      configuration->collection_behavior_mask);
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_present(DaHandle window, DaRect start_frame,
+                          DaRect target_frame, double duration_seconds,
+                          int32_t make_key) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (make_key != 0 && make_key != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "make_key must be 0 or 1");
+  }
+  int32_t status = dart_appkit::ValidateRect(start_frame);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  status = dart_appkit::ValidateRect(target_frame);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  status = dart_appkit::ValidateAnimationDuration(duration_seconds);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  [owner daPresentFromFrame:NSMakeRect(start_frame.x, start_frame.y,
+                                       start_frame.width, start_frame.height)
+                    toFrame:NSMakeRect(target_frame.x, target_frame.y,
+                                       target_frame.width,
+                                       target_frame.height)
+                   duration:duration_seconds
+                    makeKey:make_key == 1];
+  return DA_STATUS_OK;
+}
+
+int32_t da_window_hide(DaHandle window, DaRect target_frame,
+                       double duration_seconds) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = dart_appkit::ValidateRect(target_frame);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  status = dart_appkit::ValidateAnimationDuration(duration_seconds);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  DaWindowOwner* owner = dart_appkit::WindowOwner(window, &status);
+  if (owner == nil) {
+    return status;
+  }
+  [owner daHideToFrame:NSMakeRect(target_frame.x, target_frame.y,
+                                  target_frame.width, target_frame.height)
+               duration:duration_seconds];
+  return DA_STATUS_OK;
+}
+
 int32_t da_window_show(DaHandle window) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
@@ -2382,6 +2650,7 @@ int32_t da_window_show(DaHandle window) {
   if (owner == nil) {
     return status;
   }
+  [owner daInvalidatePresentation];
   [owner.window makeKeyAndOrderFront:nil];
   if (owner.window.contentView != nil) {
     [owner.window makeFirstResponder:owner.window.contentView];

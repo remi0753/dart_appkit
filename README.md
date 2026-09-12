@@ -13,9 +13,10 @@ appearance, exclusive owned system-wide physical-key registrations,
 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
-per-window key-event routing, mutable outer frames, asynchronous native
-fullscreen state, a bounded attributed multiline text editor, and a
-restart-based developer command.
+per-window key-event routing, mutable outer frames, current-screen resolution,
+interruptible overlay presentation, asynchronous native fullscreen state, a
+bounded attributed multiline text editor, and a restart-based developer
+command.
 
 Native events use a protocol version independent from the C ABI version. The
 legacy port-registration API continues to emit version 1; version 2 retains
@@ -154,6 +155,16 @@ styles independently at creation. Its const default preserves the historical
 four-style window; setting all four flags false creates a borderless window.
 The configured ABI is additive, and current Dart bindings use an older native
 image only for the compatibility default.
+
+`AppKitApplication.resolveScreen` resolves the keyboard-focus (`main`), global
+mouse, or menu-bar display from current AppKit state and returns its full frame,
+visible frame, display identity, and backing scale. It never caches `NSScreen`
+objects. `Window.presentationConfiguration` independently selects a normal,
+floating, or status level and typed Spaces behaviors. `Window.present` and
+`Window.hide` retain the window/content owner while applying a finite positive
+start/target frame and an animation from zero through five seconds. A zero
+duration is atomic; a later operation invalidates an older completion so an
+interrupted hide cannot order out a newly presented window.
 
 `ViewConfiguration` selects whether a package-created base view accepts first
 responder and whether it follows superview width and height independently.

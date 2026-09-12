@@ -142,6 +142,21 @@ delegate request is coalesced, a stale reply is rejected, and posting failure
 allows the OS action. Programmatic close/termination bypass this deferral so
 the ordinary disposal and shutdown path remains one-way.
 
+Current-screen resolution is a copied query rather than retained native state.
+The bridge snapshots every valid `NSScreen`, selects keyboard-focus, global-
+mouse, or menu-bar roles with a deterministic first-screen fallback, and
+returns full/visible global coordinates plus backing scale. Product geometry
+therefore resolves at show time and can project the scale before presenting a
+window without giving Dart an `NSScreen` pointer.
+
+Generic window presentation is owned by `DaWindowOwner`. Window level and
+Spaces behavior are separate from frame animation. Each present/hide/direct-
+mutation/close operation advances a generation; animation completions compare
+their captured generation before posting state or ordering out. Hide preserves
+the `NSWindow`, content view, and registry handle, while close and release
+invalidate outstanding completions before teardown. AppKit remains the sole UI
+thread and completion blocks only enqueue ordinary immutable state records.
+
 Key routing is configured per window before event dispatch. The compatibility
 default posts key events to Dart and then continues through `NSWindow`'s normal
 responder path. `KeyEventRouting.dartOnly` first gives the native main menu a

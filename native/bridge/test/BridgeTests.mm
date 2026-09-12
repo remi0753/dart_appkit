@@ -643,6 +643,177 @@ void TestWindowConfiguration() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestScreenResolutionAndWindowPresentation() {
+  std::vector<dart_appkit::ScreenSelectionCandidate> candidates(2);
+  candidates[0].snapshot.frame = {-1920.0, 0.0, 1920.0, 1080.0};
+  candidates[1].snapshot.frame = {0.0, -200.0, 1440.0, 900.0};
+  candidates[1].is_main = true;
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MAIN, candidates, -1000.0, 500.0),
+            1);
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MENU_BAR, candidates, -1000.0, 500.0),
+            0);
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MOUSE, candidates, -1000.0, 500.0),
+            0);
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MOUSE, candidates, 500.0, 500.0),
+            1);
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MOUSE, candidates, 5000.0, 5000.0),
+            1);
+  candidates[1].is_main = false;
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MAIN, candidates, 0.0, 0.0),
+            0);
+  EXPECT_EQ(dart_appkit::ResolveScreenSelectionIndex(
+                DA_SCREEN_SELECTION_MAIN, {}, 0.0, 0.0),
+            -1);
+
+  dart_appkit::ResetBridgeForTesting();
+  for (const int32_t selection : {DA_SCREEN_SELECTION_MAIN,
+                                  DA_SCREEN_SELECTION_MOUSE,
+                                  DA_SCREEN_SELECTION_MENU_BAR}) {
+    DaScreenSnapshot snapshot{};
+    snapshot.struct_size = DA_SCREEN_SNAPSHOT_VERSION_1_SIZE;
+    EXPECT_EQ(da_application_resolve_screen(selection, &snapshot),
+              DA_STATUS_OK);
+    EXPECT_EQ(snapshot.struct_size, DA_SCREEN_SNAPSHOT_VERSION_1_SIZE);
+    EXPECT_TRUE(snapshot.display_id > 0);
+    EXPECT_TRUE(snapshot.frame.width > 0.0 && snapshot.frame.height > 0.0);
+    EXPECT_TRUE(snapshot.visible_frame.width > 0.0 &&
+                snapshot.visible_frame.height > 0.0);
+    EXPECT_TRUE(snapshot.backing_scale_factor > 0.0);
+  }
+  DaScreenSnapshot invalid_snapshot{};
+  invalid_snapshot.struct_size = DA_SCREEN_SNAPSHOT_VERSION_1_SIZE;
+  EXPECT_EQ(da_application_resolve_screen(99, &invalid_snapshot),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_snapshot.struct_size = 0;
+  EXPECT_EQ(da_application_resolve_screen(DA_SCREEN_SELECTION_MAIN,
+                                          &invalid_snapshot),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_resolve_screen(DA_SCREEN_SELECTION_MAIN, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const DaHandle window = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window);
+  DaWindowPresentationConfiguration configuration = {
+      DA_WINDOW_PRESENTATION_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_LEVEL_STATUS,
+      0,
+      DA_WINDOW_COLLECTION_BEHAVIOR_CAN_JOIN_ALL_SPACES |
+          DA_WINDOW_COLLECTION_BEHAVIOR_FULL_SCREEN_AUXILIARY |
+          DA_WINDOW_COLLECTION_BEHAVIOR_STATIONARY |
+          DA_WINDOW_COLLECTION_BEHAVIOR_TRANSIENT,
+  };
+  EXPECT_EQ(da_window_set_presentation_configuration(window, &configuration),
+            DA_STATUS_OK);
+  EXPECT_EQ(owner.window.level, NSStatusWindowLevel);
+  EXPECT_TRUE((owner.window.collectionBehavior &
+               NSWindowCollectionBehaviorCanJoinAllSpaces) != 0);
+  EXPECT_TRUE((owner.window.collectionBehavior &
+               NSWindowCollectionBehaviorFullScreenAuxiliary) != 0);
+  EXPECT_TRUE((owner.window.collectionBehavior &
+               NSWindowCollectionBehaviorStationary) != 0);
+  EXPECT_TRUE((owner.window.collectionBehavior &
+               NSWindowCollectionBehaviorTransient) != 0);
+
+  const DaRect start = {0.0, 700.0, 800.0, 1.0};
+  const DaRect target = {0.0, 200.0, 800.0, 500.0};
+  const DaRect hidden = {0.0, 699.0, 800.0, 1.0};
+  EXPECT_EQ(da_window_present(window, start, target, 0.0, 0), DA_STATUS_OK);
+  EXPECT_TRUE(owner.window.isVisible);
+  EXPECT_TRUE(NSEqualRects(owner.window.frame, NSMakeRect(0, 200, 800, 500)));
+  EXPECT_TRUE(std::abs(owner.window.alphaValue - 1.0) < 0.001);
+  EXPECT_EQ(da_window_hide(window, hidden, 0.0), DA_STATUS_OK);
+  EXPECT_TRUE(!owner.window.isVisible);
+  EXPECT_TRUE(NSEqualRects(owner.window.frame, NSMakeRect(0, 699, 800, 1)));
+
+  EXPECT_EQ(da_window_present(window, start, target, 0.0, 0), DA_STATUS_OK);
+  EXPECT_EQ(da_window_hide(window, hidden, 0.01), DA_STATUS_OK);
+  EXPECT_EQ(da_window_present(window, start, target, 0.0, 0), DA_STATUS_OK);
+  [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode
+                        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+  EXPECT_TRUE(owner.window.isVisible);
+  EXPECT_EQ(da_window_present(window, start, target, 0.01, 0), DA_STATUS_OK);
+  EXPECT_EQ(da_window_hide(window, hidden, 0.0), DA_STATUS_OK);
+  [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode
+                        beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.03]];
+  EXPECT_TRUE(!owner.window.isVisible);
+
+  configuration.struct_size = 0;
+  EXPECT_EQ(da_window_set_presentation_configuration(window, &configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.struct_size =
+      DA_WINDOW_PRESENTATION_CONFIGURATION_VERSION_1_SIZE;
+  configuration.level = 99;
+  EXPECT_EQ(da_window_set_presentation_configuration(window, &configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.level = DA_WINDOW_LEVEL_NORMAL;
+  configuration.reserved = 1;
+  EXPECT_EQ(da_window_set_presentation_configuration(window, &configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.reserved = 0;
+  configuration.collection_behavior_mask = uint64_t{1} << 63;
+  EXPECT_EQ(da_window_set_presentation_configuration(window, &configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_set_presentation_configuration(window, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_present(window, start, target, 0.0, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_present(window, start, target, -0.1, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_present(window, start, target, 5.01, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_hide(window, {0.0, 0.0, 0.0, 1.0}, 0.0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_window_hide(window, hidden,
+                           std::numeric_limits<double>::quiet_NaN()),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  const DaHandle wrong_kind = CreateView();
+  configuration = {
+      DA_WINDOW_PRESENTATION_CONFIGURATION_VERSION_1_SIZE,
+      DA_WINDOW_LEVEL_NORMAL,
+      0,
+      0,
+  };
+  EXPECT_EQ(
+      da_window_set_presentation_configuration(wrong_kind, &configuration),
+      DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_present(wrong_kind, start, target, 0.0, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_window_hide(wrong_kind, hidden, 0.0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> screen_worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> configuration_worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> present_worker_status{DA_STATUS_OK};
+  std::atomic<int32_t> hide_worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    DaScreenSnapshot worker_snapshot{};
+    worker_snapshot.struct_size = DA_SCREEN_SNAPSHOT_VERSION_1_SIZE;
+    screen_worker_status.store(da_application_resolve_screen(
+        DA_SCREEN_SELECTION_MAIN, &worker_snapshot));
+    configuration_worker_status.store(
+        da_window_set_presentation_configuration(window, &configuration));
+    present_worker_status.store(
+        da_window_present(window, start, target, 0.0, 0));
+    hide_worker_status.store(da_window_hide(window, hidden, 0.0));
+  });
+  worker.join();
+  EXPECT_EQ(screen_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(configuration_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(present_worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(hide_worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
+  EXPECT_EQ(da_release(window), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestEventProtocolNegotiation() {
   Capture capture;
   dart_appkit::ResetBridgeForTesting();
@@ -3248,6 +3419,7 @@ int main() {
     [NSApplication sharedApplication];
     TestContractAndErrors();
     TestWindowConfiguration();
+    TestScreenResolutionAndWindowPresentation();
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
     TestApplicationAppearanceObservation();

@@ -282,6 +282,34 @@ during the transition.
 Both functions are additive symbols; a current Dart client loaded against a
 legacy image returns `DA_STATUS_UNSUPPORTED_VERSION`.
 
+## Screen resolution and window presentation
+
+`da_application_resolve_screen` resolves current AppKit display state on the
+main thread. `DA_SCREEN_SELECTION_MAIN` means the display containing the
+keyboard-focus window, `MOUSE` tests the global mouse point against every
+display frame, and `MENU_BAR` selects the first AppKit screen. A missing main
+screen or mouse hit falls back deterministically to the first valid screen.
+The size-prefixed `DaScreenSnapshot` copies the display identifier, full frame,
+visible frame, and finite positive backing scale; callers must not cache it
+across a later presentation.
+
+`da_window_set_presentation_configuration` maps a closed level enum and typed
+collection-behavior mask to `NSWindow`. The current mask supports join-all-
+Spaces, fullscreen auxiliary, stationary, and transient behavior only.
+`da_window_present` orders an existing window front, optionally activates the
+application and restores its content first responder, and animates from one
+validated frame to another. `da_window_hide` animates toward a target then
+orders the window out without closing or releasing it. Durations are finite and
+bounded to 0 through 5 seconds; zero applies the endpoint synchronously.
+
+Each window owns a monotonically changing presentation generation. Present,
+hide, direct frame mutation, ordinary show, close, and release invalidate an
+older completion. In particular, a stale hide completion cannot hide a window
+shown by a newer request. These additive APIs do not change the event protocol;
+ordinary focus, visibility, screen, backing-scale, resize, and frame records
+remain the observed-state path. A legacy image returns
+`DA_STATUS_UNSUPPORTED_VERSION` through the optional Dart binding.
+
 The event poster is injected internally by the Runner. No AppKit delegate enters
 an isolate or invokes a Dart closure synchronously. A post that cannot be queued
 is dropped; it never blocks AppKit waiting for Dart.

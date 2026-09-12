@@ -4,6 +4,7 @@ library;
 export 'src/api.dart'
     show
         AppKitApplication,
+        AppKitApplicationScreenResolution,
         AppKitAppearance,
         AppKitEvent,
         ApplicationActiveChangedEvent,
@@ -21,7 +22,9 @@ export 'src/api.dart'
         AppKitScrollEvent,
         AppKitScrollPhase,
         AppKitNativeException,
+        AppKitResolvedScreen,
         AppKitScreen,
+        AppKitScreenSelection,
         ExternalUrlPolicy,
         ExternalUrlSchemePolicy,
         GlobalHotKey,
@@ -70,6 +73,8 @@ export 'src/api.dart'
         WindowFrameChangedEvent,
         WindowFullscreenChangedEvent,
         WindowOcclusionChangedEvent,
+        WindowPresentationConfiguration,
+        WindowPresentationLevel,
         WindowResizedEvent,
         WindowScreenChangedEvent,
         WindowTabAccessory,

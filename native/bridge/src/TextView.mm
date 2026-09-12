@@ -628,7 +628,80 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 - (void)daCloseProgrammatically {
   _pendingCloseOperationId = 0;
+  [self daInvalidatePresentation];
   [self.window close];
+}
+
+- (void)daInvalidatePresentation {
+  ++_presentationGeneration;
+  self.window.alphaValue = 1.0;
+}
+
+- (void)daPresentFromFrame:(NSRect)startFrame
+                   toFrame:(NSRect)targetFrame
+                  duration:(NSTimeInterval)duration
+                   makeKey:(BOOL)makeKey {
+  const uint64_t generation = ++_presentationGeneration;
+  [self.window setFrame:startFrame display:YES];
+  self.window.alphaValue = duration > 0.0 ? 0.0 : 1.0;
+  if (makeKey) {
+    [NSApp activate];
+    [self.window makeKeyAndOrderFront:nil];
+    if (self.window.contentView != nil) {
+      [self.window makeFirstResponder:self.window.contentView];
+    }
+  } else {
+    [self.window orderFront:nil];
+  }
+  if (duration == 0.0) {
+    [self.window setFrame:targetFrame display:YES];
+    [self daPostCurrentWindowState];
+    return;
+  }
+  __weak DaWindowOwner* weak_self = self;
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = duration;
+        [[weak_self.window animator] setFrame:targetFrame display:YES];
+        [[weak_self.window animator] setAlphaValue:1.0];
+      }
+      completionHandler:^{
+        DaWindowOwner* strong_self = weak_self;
+        if (strong_self == nil ||
+            strong_self->_presentationGeneration != generation) {
+          return;
+        }
+        [strong_self daPostCurrentWindowState];
+      }];
+}
+
+- (void)daHideToFrame:(NSRect)targetFrame
+              duration:(NSTimeInterval)duration {
+  const uint64_t generation = ++_presentationGeneration;
+  if (duration == 0.0) {
+    [self.window setFrame:targetFrame display:YES];
+    [self.window orderOut:nil];
+    self.window.alphaValue = 1.0;
+    [self daPostCurrentWindowState];
+    return;
+  }
+  __weak DaWindowOwner* weak_self = self;
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = duration;
+        [[weak_self.window animator] setFrame:targetFrame display:YES];
+        [[weak_self.window animator] setAlphaValue:0.0];
+      }
+      completionHandler:^{
+        DaWindowOwner* strong_self = weak_self;
+        if (strong_self == nil ||
+            strong_self->_presentationGeneration != generation) {
+          return;
+        }
+        [strong_self.window orderOut:nil];
+        strong_self.window.alphaValue = 1.0;
+        [strong_self daPostCurrentWindowState];
+      }];
 }
 
 - (BOOL)windowShouldClose:(NSWindow*)sender {

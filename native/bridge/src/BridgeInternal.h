@@ -2,6 +2,7 @@
 #define DART_APPKIT_BRIDGE_SRC_BRIDGE_INTERNAL_H_
 
 #include <cstdint>
+#include <vector>
 #include <string>
 #include <string_view>
 
@@ -57,6 +58,16 @@ enum class UserNotificationOperation { kPost, kRemove };
 using UserNotificationHandler = bool (*)(
     UserNotificationOperation operation, std::string_view identifier,
     std::string_view title, std::string_view body, void* context);
+
+struct ScreenSelectionCandidate {
+  DaScreenSnapshot snapshot{};
+  bool is_main = false;
+};
+
+/** Returns the selected candidate index, or -1 when no candidate exists. */
+int ResolveScreenSelectionIndex(
+    int32_t selection, const std::vector<ScreenSelectionCandidate>& candidates,
+    double mouse_x, double mouse_y);
 
 void ClearLastError();
 int32_t SetLastError(DaStatus status, std::string_view message);

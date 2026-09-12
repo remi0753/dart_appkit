@@ -193,6 +193,47 @@ void main(List<String> arguments) {
       8) {
     _fail('legacy bridge accepted additive global hot-key registration');
   }
+  if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
+          8 ||
+      bindings
+              .windowSetPresentationConfiguration(
+                handle: 1,
+                level: dartAppKitWindowLevelStatus,
+                collectionBehaviorMask:
+                    dartAppKitWindowCollectionBehaviorCanJoinAllSpaces,
+              )
+              .status !=
+          8 ||
+      bindings
+              .windowPresent(
+                handle: 1,
+                startFrame: const NativeRect(x: 0, y: 0, width: 100, height: 1),
+                targetFrame: const NativeRect(
+                  x: 0,
+                  y: 0,
+                  width: 100,
+                  height: 100,
+                ),
+                durationSeconds: 0,
+                makeKey: false,
+              )
+              .status !=
+          8 ||
+      bindings
+              .windowHide(
+                handle: 1,
+                targetFrame: const NativeRect(
+                  x: 0,
+                  y: 0,
+                  width: 100,
+                  height: 1,
+                ),
+                durationSeconds: 0,
+              )
+              .status !=
+          8) {
+    _fail('legacy bridge accepted additive window presentation APIs');
+  }
   final NativeValueResult<int> configuredWindow = bindings.windowCreate(
     x: 0,
     y: 0,

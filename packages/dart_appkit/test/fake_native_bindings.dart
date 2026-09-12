@@ -34,7 +34,8 @@ final class FakeNativeBindings
         NativeBindings,
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
-        NativeGlobalHotKeyBindings {
+        NativeGlobalHotKeyBindings,
+        NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
   int nextHandle = 100;
@@ -62,6 +63,52 @@ final class FakeNativeBindings
   int? mainMenu;
   final Map<int, ({int keyCode, int modifiers})> globalHotKeys =
       <int, ({int keyCode, int modifiers})>{};
+  final Map<int, NativeScreenSnapshot> resolvedScreens =
+      <int, NativeScreenSnapshot>{
+        dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
+          displayId: 1,
+          frame: NativeRect(x: 0, y: 0, width: 1440, height: 900),
+          visibleFrame: NativeRect(x: 0, y: 25, width: 1440, height: 875),
+          backingScaleFactor: 2,
+        ),
+        dartAppKitScreenSelectionMouse: const NativeScreenSnapshot(
+          displayId: 2,
+          frame: NativeRect(x: -1920, y: 0, width: 1920, height: 1080),
+          visibleFrame: NativeRect(x: -1920, y: 25, width: 1920, height: 1055),
+          backingScaleFactor: 1,
+        ),
+        dartAppKitScreenSelectionMenuBar: const NativeScreenSnapshot(
+          displayId: 3,
+          frame: NativeRect(x: 1440, y: -200, width: 2560, height: 1440),
+          visibleFrame: NativeRect(x: 1440, y: -175, width: 2560, height: 1415),
+          backingScaleFactor: 2,
+        ),
+      };
+  final Map<int, ({int level, int collectionBehaviorMask})>
+  windowPresentationConfigurations =
+      <int, ({int level, int collectionBehaviorMask})>{};
+  final List<
+    ({
+      int handle,
+      NativeRect startFrame,
+      NativeRect targetFrame,
+      double durationSeconds,
+      bool makeKey,
+    })
+  >
+  windowPresentations =
+      <
+        ({
+          int handle,
+          NativeRect startFrame,
+          NativeRect targetFrame,
+          double durationSeconds,
+          bool makeKey,
+        })
+      >[];
+  final List<({int handle, NativeRect targetFrame, double durationSeconds})>
+  windowHides =
+      <({int handle, NativeRect targetFrame, double durationSeconds})>[];
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
@@ -293,6 +340,27 @@ final class FakeNativeBindings
   }
 
   @override
+  NativeValueResult<NativeScreenSnapshot> applicationResolveScreen(
+    int selection,
+  ) {
+    final NativeCallResult status = _status('applicationResolveScreen');
+    if (!status.isSuccess) {
+      return NativeValueResult<NativeScreenSnapshot>.failure(
+        status.status,
+        status.message,
+      );
+    }
+    final NativeScreenSnapshot? result = resolvedScreens[selection];
+    if (result == null) {
+      return const NativeValueResult<NativeScreenSnapshot>.failure(
+        1,
+        'unknown screen selection',
+      );
+    }
+    return NativeValueResult<NativeScreenSnapshot>.success(result);
+  }
+
+  @override
   NativeValueResult<NativePasteboardTextSnapshot> pasteboardReadText() {
     final NativeValueResult<NativePasteboardTextSnapshot> result =
         _value<NativePasteboardTextSnapshot>(
@@ -518,6 +586,74 @@ final class FakeNativeBindings
   NativeCallResult windowSetFullscreen(int handle, bool enabled) {
     final NativeCallResult result = _status('windowSetFullscreen');
     if (result.isSuccess) windowFullscreenStates[handle] = enabled;
+    return result;
+  }
+
+  @override
+  NativeCallResult windowSetPresentationConfiguration({
+    required int handle,
+    required int level,
+    required int collectionBehaviorMask,
+  }) {
+    final NativeCallResult result = _status(
+      'windowSetPresentationConfiguration',
+    );
+    if (result.isSuccess) {
+      windowPresentationConfigurations[handle] = (
+        level: level,
+        collectionBehaviorMask: collectionBehaviorMask,
+      );
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowPresent({
+    required int handle,
+    required NativeRect startFrame,
+    required NativeRect targetFrame,
+    required double durationSeconds,
+    required bool makeKey,
+  }) {
+    final NativeCallResult result = _status('windowPresent');
+    if (result.isSuccess) {
+      windowPresentations.add((
+        handle: handle,
+        startFrame: startFrame,
+        targetFrame: targetFrame,
+        durationSeconds: durationSeconds,
+        makeKey: makeKey,
+      ));
+      windowFrames[handle] = <double>[
+        targetFrame.x,
+        targetFrame.y,
+        targetFrame.width,
+        targetFrame.height,
+      ];
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult windowHide({
+    required int handle,
+    required NativeRect targetFrame,
+    required double durationSeconds,
+  }) {
+    final NativeCallResult result = _status('windowHide');
+    if (result.isSuccess) {
+      windowHides.add((
+        handle: handle,
+        targetFrame: targetFrame,
+        durationSeconds: durationSeconds,
+      ));
+      windowFrames[handle] = <double>[
+        targetFrame.x,
+        targetFrame.y,
+        targetFrame.width,
+        targetFrame.height,
+      ];
+    }
     return result;
   }
 
@@ -952,6 +1088,7 @@ final class FakeNativeBindings
       windowFrames.remove(handle);
       windowContentLayoutRects.remove(handle);
       windowFullscreenStates.remove(handle);
+      windowPresentationConfigurations.remove(handle);
       windowRepresentedFilePaths.remove(handle);
       windowTabColors.remove(handle);
       viewConfigurations.remove(handle);

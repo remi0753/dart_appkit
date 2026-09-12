@@ -94,6 +94,130 @@ final class WindowTabColor {
 /// Built-in shapes for the simple native window-tab accessory mechanism.
 enum WindowTabAccessoryShape { rectangle, ellipse }
 
+/// A screen role resolved from current AppKit state each time it is requested.
+enum AppKitScreenSelection { main, mouse, menuBar }
+
+/// Current screen geometry plus the scale needed before first presentation.
+final class AppKitResolvedScreen {
+  const AppKitResolvedScreen({
+    required this.screen,
+    required this.backingScaleFactor,
+  });
+
+  final AppKitScreen screen;
+  final double backingScaleFactor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppKitResolvedScreen &&
+      other.screen == screen &&
+      other.backingScaleFactor == backingScaleFactor;
+
+  @override
+  int get hashCode => Object.hash(screen, backingScaleFactor);
+}
+
+/// Stable native ordering levels for generic window presentation.
+enum WindowPresentationLevel { normal, floating, status }
+
+/// Immutable window level and Spaces behavior.
+final class WindowPresentationConfiguration {
+  const WindowPresentationConfiguration({
+    this.level = WindowPresentationLevel.normal,
+    this.canJoinAllSpaces = false,
+    this.fullScreenAuxiliary = false,
+    this.stationary = false,
+    this.transient = false,
+  });
+
+  final WindowPresentationLevel level;
+  final bool canJoinAllSpaces;
+  final bool fullScreenAuxiliary;
+  final bool stationary;
+  final bool transient;
+
+  int get _nativeLevel => switch (level) {
+    WindowPresentationLevel.normal => dartAppKitWindowLevelNormal,
+    WindowPresentationLevel.floating => dartAppKitWindowLevelFloating,
+    WindowPresentationLevel.status => dartAppKitWindowLevelStatus,
+  };
+
+  int get _nativeCollectionBehaviorMask =>
+      (canJoinAllSpaces
+          ? dartAppKitWindowCollectionBehaviorCanJoinAllSpaces
+          : 0) |
+      (fullScreenAuxiliary
+          ? dartAppKitWindowCollectionBehaviorFullScreenAuxiliary
+          : 0) |
+      (stationary ? dartAppKitWindowCollectionBehaviorStationary : 0) |
+      (transient ? dartAppKitWindowCollectionBehaviorTransient : 0);
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowPresentationConfiguration &&
+      other.level == level &&
+      other.canJoinAllSpaces == canJoinAllSpaces &&
+      other.fullScreenAuxiliary == fullScreenAuxiliary &&
+      other.stationary == stationary &&
+      other.transient == transient;
+
+  @override
+  int get hashCode => Object.hash(
+    level,
+    canJoinAllSpaces,
+    fullScreenAuxiliary,
+    stationary,
+    transient,
+  );
+}
+
+extension AppKitApplicationScreenResolution on AppKitApplication {
+  /// Resolves a current display without retaining stale `NSScreen` state.
+  AppKitResolvedScreen resolveScreen(AppKitScreenSelection selection) {
+    _ensureRunning();
+    final NativeBindings nativeBindings = _bindings;
+    if (nativeBindings is! NativeWindowPresentationBindings) {
+      throw UnsupportedError(
+        'the native bridge does not expose current screen resolution',
+      );
+    }
+    final int nativeSelection = switch (selection) {
+      AppKitScreenSelection.main => dartAppKitScreenSelectionMain,
+      AppKitScreenSelection.mouse => dartAppKitScreenSelectionMouse,
+      AppKitScreenSelection.menuBar => dartAppKitScreenSelectionMenuBar,
+    };
+    final NativeScreenSnapshot snapshot = _checkValue<NativeScreenSnapshot>(
+      (nativeBindings as NativeWindowPresentationBindings)
+          .applicationResolveScreen(nativeSelection),
+      'AppKitApplication.resolveScreen',
+    );
+    bool validRect(NativeRect value) =>
+        value.x.isFinite &&
+        value.y.isFinite &&
+        value.width.isFinite &&
+        value.height.isFinite &&
+        value.width > 0 &&
+        value.height > 0;
+    if (snapshot.displayId <= 0 ||
+        !validRect(snapshot.frame) ||
+        !validRect(snapshot.visibleFrame) ||
+        !snapshot.backingScaleFactor.isFinite ||
+        snapshot.backingScaleFactor <= 0) {
+      throw StateError('native screen snapshot violates its public contract');
+    }
+    Rect rect(NativeRect value) =>
+        Rect.fromLTWH(value.x, value.y, value.width, value.height);
+    return AppKitResolvedScreen(
+      screen: AppKitScreen(
+        displayId: snapshot.displayId,
+        frame: rect(snapshot.frame),
+        visibleFrame: rect(snapshot.visibleFrame),
+      ),
+      backingScaleFactor: snapshot.backingScaleFactor,
+    );
+  }
+}
+
 /// Immutable presentation for one simple native window-tab accessory.
 final class WindowTabAccessory {
   factory WindowTabAccessory({
@@ -206,6 +330,8 @@ final class Window extends _NativeResource {
   AppKitScreen? _screen;
   bool _fullscreen = false;
   bool? _requestedFullscreen;
+  WindowPresentationConfiguration _presentationConfiguration =
+      const WindowPresentationConfiguration();
 
   Stream<WindowEvent> get events => _eventController.stream;
 
@@ -432,6 +558,27 @@ final class Window extends _NativeResource {
   AppKitScreen? get screen => _screen;
   bool get isFullscreen => _fullscreen;
 
+  WindowPresentationConfiguration get presentationConfiguration {
+    ensureAlive();
+    return _presentationConfiguration;
+  }
+
+  set presentationConfiguration(WindowPresentationConfiguration value) {
+    ensureAlive();
+    if (_presentationConfiguration == value) return;
+    final NativeWindowPresentationBindings bindings =
+        _requirePresentationBindings();
+    _checkCall(
+      bindings.windowSetPresentationConfiguration(
+        handle: _handle,
+        level: value._nativeLevel,
+        collectionBehaviorMask: value._nativeCollectionBehaviorMask,
+      ),
+      'Window.presentationConfiguration',
+    );
+    _presentationConfiguration = value;
+  }
+
   /// Requests native fullscreen entry or exit.
   ///
   /// Completion is asynchronous; [isFullscreen] changes only when AppKit
@@ -493,6 +640,46 @@ final class Window extends _NativeResource {
   void show() {
     ensureAlive();
     _checkCall(_bindings.windowShow(_handle), 'Window.show');
+  }
+
+  /// Shows and optionally focuses this window with a bounded frame animation.
+  void present({
+    required Rect startFrame,
+    required Rect targetFrame,
+    Duration duration = Duration.zero,
+    bool makeKey = true,
+  }) {
+    ensureAlive();
+    _validateFrame(startFrame);
+    _validateFrame(targetFrame);
+    final double seconds = _validatePresentationDuration(duration);
+    _checkCall(
+      _requirePresentationBindings().windowPresent(
+        handle: _handle,
+        startFrame: _nativeRect(startFrame),
+        targetFrame: _nativeRect(targetFrame),
+        durationSeconds: seconds,
+        makeKey: makeKey,
+      ),
+      'Window.present',
+    );
+    _frame = targetFrame;
+  }
+
+  /// Orders this window out without closing or releasing its content.
+  void hide({required Rect targetFrame, Duration duration = Duration.zero}) {
+    ensureAlive();
+    _validateFrame(targetFrame);
+    final double seconds = _validatePresentationDuration(duration);
+    _checkCall(
+      _requirePresentationBindings().windowHide(
+        handle: _handle,
+        targetFrame: _nativeRect(targetFrame),
+        durationSeconds: seconds,
+      ),
+      'Window.hide',
+    );
+    _frame = targetFrame;
   }
 
   void close() {
@@ -587,7 +774,38 @@ final class Window extends _NativeResource {
     _tabAccessory = null;
     _fullscreen = false;
     _requestedFullscreen = null;
+    _presentationConfiguration = const WindowPresentationConfiguration();
     unawaited(_eventController.close());
+  }
+
+  NativeWindowPresentationBindings _requirePresentationBindings() {
+    final NativeBindings nativeBindings = _bindings;
+    if (nativeBindings is! NativeWindowPresentationBindings) {
+      throw UnsupportedError(
+        'the native bridge does not expose animated window presentation',
+      );
+    }
+    return nativeBindings as NativeWindowPresentationBindings;
+  }
+
+  static NativeRect _nativeRect(Rect value) => NativeRect(
+    x: value.left,
+    y: value.top,
+    width: value.width,
+    height: value.height,
+  );
+
+  static double _validatePresentationDuration(Duration value) {
+    const Duration maximum = Duration(seconds: 5);
+    if (value.isNegative || value.inMicroseconds > maximum.inMicroseconds) {
+      throw RangeError.range(
+        value.inMicroseconds,
+        0,
+        maximum.inMicroseconds,
+        'duration.inMicroseconds',
+      );
+    }
+    return value.inMicroseconds / Duration.microsecondsPerSecond;
   }
 
   static bool _isValidRepresentedFilePath(String value) {
