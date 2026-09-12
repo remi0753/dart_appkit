@@ -3484,3 +3484,23 @@ product meaning, visible text, and policy to the consumer.
 The inventory is complete. The ownership-correction parent remains open, and
 the next ordered subtask is moving the PTY native asset package and its test
 gates to the consuming repository.
+
+## 2026-09-12 — PTY package ownership transfer
+
+- All 19 tracked files below `packages/dart_pty_macos` were copied without
+  source differences to the consuming repository. Its root path dependency now
+  selects that local package.
+- The consumer Makefile now owns the C11/C++20 public-header checks,
+  warning-as-error native objects/library/test, restricted child-symbol audit,
+  Dart analysis, build-hook asset, fake backend, and real process/lifecycle
+  suites. Its aggregate test target includes both transferred gates.
+- Focused consumer native and Dart gates passed. This repository's package
+  tree, ignored package-local build output, variables, recipes, help entries,
+  phony targets, and aggregate dependencies were removed.
+- `make validate`, an aggregate test dry run with no PTY target/source match,
+  the package-path absence check, and `git diff --check` passed here.
+
+### Roadmap checkpoint
+
+The PTY ownership subtask is complete. The parent remains open, and the next
+ordered subtask is moving the renderer capability and its verification gates.

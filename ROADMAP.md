@@ -266,7 +266,7 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
 
 - [x] tracked package／build target／汎用code内semantic leakの全件inventoryを作成し、
   [`docs/WORKLOG.md`](docs/WORKLOG.md) とconsumer側task memoに移設順と完了条件を記録する。
-- [ ] PTY native asset packageと検証所有権をconsumerへ移す。
+- [x] PTY native asset packageと検証所有権をconsumerへ移す。
 - [ ] renderer capability packageと検証所有権をconsumerへ移す。
 - [ ] AppleScript capability packageと検証所有権をconsumerへ移す。
 - [ ] App Intents capability packageと検証所有権をconsumerへ移す。
