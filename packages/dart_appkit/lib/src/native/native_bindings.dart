@@ -3,7 +3,9 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 7;
+const int dartAppKitCurrentEventProtocolVersion = 8;
+const int dartAppKitStatusGlobalHotKeyConflict = 11;
+const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
@@ -434,4 +436,12 @@ abstract interface class NativeTextEditorBindings {
 /// test bindings that implement only the mutation API.
 abstract interface class NativeSplitViewPositionBindings {
   NativeValueResult<double> splitViewGetFraction(int handle);
+}
+
+/// Optional global-hot-key surface kept separate for older native bridges.
+abstract interface class NativeGlobalHotKeyBindings {
+  NativeValueResult<int> globalHotKeyRegister({
+    required int keyCode,
+    required int modifiers,
+  });
 }

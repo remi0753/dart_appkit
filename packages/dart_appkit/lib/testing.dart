@@ -5,5 +5,6 @@ export 'src/api.dart'
     show
         attachApplicationForTesting,
         injectRawAppKitEventForTesting,
+        nativeGlobalHotKeyHandleForTesting,
         nativeWindowHandleForTesting,
         requestApplicationTerminationForTesting;

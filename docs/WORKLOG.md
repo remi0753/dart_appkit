@@ -3109,3 +3109,38 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
 - `git diff --check` は clean。公開 header、native/Dart validation、optional FFI、
   fake/native/current/legacy tests、README/C ABI/verification の差分を見直し、product
   policy、秘密情報、無関係な生成物を含めていないことを確認した。
+
+## 2026-09-12 — Exclusive global hot-key substrate
+
+- Dart Terminal の Quick Terminal は非アクティブ時にも1つの物理キー chord を受け取る
+  必要がある。`NSEvent` global monitor は入力監視／Accessibility trust に依存するため採用せず、
+  main-thread の Carbon `RegisterEventHotKey` と application event target を使用する。
+- 公開 API は macOS virtual key code 0..127 と Shift/Control/Option/Command の非空 mask のみを
+  受け取る。登録は exclusive とし、既存 chord は専用 conflict status、その他の OSStatus は
+  typed registration failure として返す。product 固有の shortcut parse、default、toggle、
+  replacement policy は bridge に含めない。
+- 登録は generation-checked owned handle である。明示 release／finalizer／shutdown は event map
+  から source を外してから OS hot key を解除し、stale event が再利用 handle へ配送されない
+  順序を維持する。Dart facade は application-wide stream と resource-local `onPressed` の両方へ
+  v8 event を配送する。
+- Event protocol v8 は payload-free `GLOBAL_HOT_KEY_PRESSED` を追加する。v1..v7 の field order と
+  timestamp unit は不変で、v7 sink には新 event を投稿しない。C ABI version は additive symbol
+  のため変更しない。
+- Native tests は実登録、同一 chord conflict、release 後の再登録、main-thread guard、入力境界、
+  direct event delivery を検証する。Dart fake/current/legacy tests は typed failures、所有権、
+  local/application routing、stale handle、optional symbol fallback を検証する。
+- 最初の focused run は event protocol header を v8 にした後も既存 Make rule が header を
+  dependency として持たず、古い event-encoder binary を実行して失敗した。test source の
+  unsupported-version 境界も旧 current+1 の v8 だったため v9 へ更新し、再ビルド後は exact v8
+  record と v7 filtering が通過した。続く Dart analyze は optional interface の明示 cast と sealed
+  event switch の新 case 漏れを検出し、両方を修正して再実行した。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test
+  event-encoder-test dart-test ffi-smoke` は warning-clean native bridge、共有 encoder、Dart API、
+  launcher、current/legacy FFI をすべて通過した。
+- Complete `CI=true DART_SUPPRESS_ANALYTICS=true make test` も scaffold/header、Runner、scheduler、
+  lifecycle/diagnostics、capability、renderer、PTY、全 Dart package、Kernel compilation、FFI まで
+  回帰なく通過した。さらに `make runtime-jit-runner runtime-aot-runner` で変更 bridge と Carbon
+  framework を Developer JIT／Release AOT の両 generic host に warning-as-error でリンクできた。
+- `git diff --check` は clean。ABI version を変えず additive symbol と event protocol v8 に限定し、
+  broad keyboard monitor、Accessibility permission、product shortcut policy、生成物、秘密情報、
+  無関係な変更を差分へ含めていないことを確認した。

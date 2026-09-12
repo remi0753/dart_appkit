@@ -403,6 +403,12 @@ typedef _HandleDoubleOutputNative = Int32 Function(Uint64, Pointer<Double>);
 typedef _HandleDoubleOutputDart = int Function(int, Pointer<Double>);
 typedef _CreateHandleNative = Int32 Function(Pointer<Uint64>);
 typedef _CreateHandleDart = int Function(Pointer<Uint64>);
+typedef _GlobalHotKeyRegisterNative = Int32 Function(
+  Uint16,
+  Uint64,
+  Pointer<Uint64>,
+);
+typedef _GlobalHotKeyRegisterDart = int Function(int, int, Pointer<Uint64>);
 typedef _ViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaViewConfigurationNative>,
   Pointer<Uint64>,
@@ -1140,11 +1146,23 @@ _IntCreateHandleDart? _lookupIntCreateHandle(
   }
 }
 
+_GlobalHotKeyRegisterDart? _lookupGlobalHotKeyRegister(DynamicLibrary library) {
+  try {
+    return library
+        .lookupFunction<_GlobalHotKeyRegisterNative, _GlobalHotKeyRegisterDart>(
+          'da_global_hot_key_register',
+        );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 final class FfiNativeBindings
     implements
         NativeBindings,
         NativeTextEditorBindings,
-        NativeSplitViewPositionBindings {
+        NativeSplitViewPositionBindings,
+        NativeGlobalHotKeyBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
         'da_abi_version',
@@ -1183,6 +1201,7 @@ final class FfiNativeBindings
         library,
         'da_application_set_dock_badge_label',
       ),
+      _globalHotKeyRegister = _lookupGlobalHotKeyRegister(library),
       _pasteboardRead = _lookupPasteboardRead(library),
       _pasteboardWrite = _lookupPasteboardWrite(library),
       _pasteboardClear = _lookupPasteboardClear(library),
@@ -1347,6 +1366,7 @@ final class FfiNativeBindings
   final _ThreeStringsStatusDart? _applicationPostUserNotification;
   final _StringStatusDart? _applicationRemoveUserNotification;
   final _StringStatusDart? _applicationSetDockBadgeLabel;
+  final _GlobalHotKeyRegisterDart? _globalHotKeyRegister;
   final _PasteboardReadDart? _pasteboardRead;
   final _PasteboardWriteDart? _pasteboardWrite;
   final _Int64OutputDart? _pasteboardClear;
@@ -1723,6 +1743,36 @@ final class FfiNativeBindings
       (Pointer<Uint8> pointer, int length) =>
           _callResult(function(pointer, length)),
     );
+  }
+
+  @override
+  NativeValueResult<int> globalHotKeyRegister({
+    required int keyCode,
+    required int modifiers,
+  }) {
+    if (keyCode < 0 || keyCode > 0xffff || modifiers < 0) {
+      return const NativeValueResult<int>.failure(
+        1,
+        'global hot key inputs must fit their unsigned native fields',
+      );
+    }
+    final _GlobalHotKeyRegisterDart? function = _globalHotKeyRegister;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support global hot keys',
+      );
+    }
+    final Pointer<Uint64> output = _allocate(sizeOf<Uint64>()).cast<Uint64>();
+    try {
+      output.value = 0;
+      return _valueResult<int>(
+        function(keyCode, modifiers, output),
+        output.value,
+      );
+    } finally {
+      _free(output.cast<Void>());
+    }
   }
 
   @override

@@ -22,6 +22,80 @@
 namespace {
 
 int g_application_appearance_observation_context = 0;
+constexpr OSType kDaGlobalHotKeySignature = 'DAHK';
+EventHandlerRef g_global_hot_key_event_handler = nullptr;
+EventHandlerUPP g_global_hot_key_event_handler_upp = nullptr;
+NSMutableDictionary<NSNumber*, NSNumber*>* g_global_hot_key_handles = nil;
+UInt32 g_next_global_hot_key_identifier = 1;
+
+OSStatus HandleGlobalHotKeyEvent(EventHandlerCallRef next_handler,
+                                 EventRef event,
+                                 void* context) {
+  (void)next_handler;
+  (void)context;
+  EventHotKeyID identity{};
+  const OSStatus status = GetEventParameter(
+      event, kEventParamDirectObject, typeEventHotKeyID, nullptr,
+      sizeof(identity), nullptr, &identity);
+  if (status != noErr || identity.signature != kDaGlobalHotKeySignature) {
+    return eventNotHandledErr;
+  }
+  NSNumber* handle_number = g_global_hot_key_handles[@(identity.id)];
+  if (handle_number == nil) {
+    return eventNotHandledErr;
+  }
+  dart_appkit::NativeEvent native_event;
+  native_event.type = DA_EVENT_GLOBAL_HOT_KEY_PRESSED;
+  native_event.window = handle_number.unsignedLongLongValue;
+  native_event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  (void)dart_appkit::PostEvent(native_event);
+  return noErr;
+}
+
+OSStatus EnsureGlobalHotKeyEventHandler() {
+  if (g_global_hot_key_event_handler != nullptr) {
+    return noErr;
+  }
+  const EventTypeSpec event_type = {
+      kEventClassKeyboard,
+      kEventHotKeyPressed,
+  };
+  g_global_hot_key_event_handler_upp =
+      NewEventHandlerUPP(HandleGlobalHotKeyEvent);
+  const OSStatus status = InstallApplicationEventHandler(
+      g_global_hot_key_event_handler_upp, 1, &event_type, nullptr,
+      &g_global_hot_key_event_handler);
+  if (status != noErr) {
+    DisposeEventHandlerUPP(g_global_hot_key_event_handler_upp);
+    g_global_hot_key_event_handler_upp = nullptr;
+  }
+  return status;
+}
+
+void StopGlobalHotKeyEventHandlerIfUnused() {
+  if (g_global_hot_key_handles.count != 0 ||
+      g_global_hot_key_event_handler == nullptr) {
+    return;
+  }
+  RemoveEventHandler(g_global_hot_key_event_handler);
+  g_global_hot_key_event_handler = nullptr;
+  DisposeEventHandlerUPP(g_global_hot_key_event_handler_upp);
+  g_global_hot_key_event_handler_upp = nullptr;
+  g_global_hot_key_handles = nil;
+}
+
+void StopGlobalHotKeyInfrastructure() {
+  [g_global_hot_key_handles removeAllObjects];
+  g_global_hot_key_handles = nil;
+  if (g_global_hot_key_event_handler != nullptr) {
+    RemoveEventHandler(g_global_hot_key_event_handler);
+    g_global_hot_key_event_handler = nullptr;
+  }
+  if (g_global_hot_key_event_handler_upp != nullptr) {
+    DisposeEventHandlerUPP(g_global_hot_key_event_handler_upp);
+    g_global_hot_key_event_handler_upp = nullptr;
+  }
+}
 
 bool DaApplicationUsesDarkAppearance(NSApplication* application) {
   if (application == nil) {
@@ -46,6 +120,100 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 - (instancetype)initWithApplication:(NSApplication*)application;
 - (void)stop;
+
+@end
+
+@implementation DaGlobalHotKeyOwner
+
+@synthesize daIdentifier = _daIdentifier;
+
+- (instancetype)initWithKeyCode:(UInt32)keyCode
+                      modifiers:(UInt32)modifiers
+                      exclusive:(BOOL)exclusive
+                          status:(OSStatus*)status {
+  self = [super init];
+  if (self == nil) {
+    if (status != nullptr) {
+      *status = memFullErr;
+    }
+    return nil;
+  }
+  if (g_global_hot_key_handles == nil) {
+    g_global_hot_key_handles = [[NSMutableDictionary alloc] init];
+  }
+  const OSStatus handler_status = EnsureGlobalHotKeyEventHandler();
+  if (handler_status != noErr) {
+    if (status != nullptr) {
+      *status = handler_status;
+    }
+    StopGlobalHotKeyEventHandlerIfUnused();
+    return nil;
+  }
+  UInt32 identifier = g_next_global_hot_key_identifier++;
+  if (identifier == 0) {
+    identifier = g_next_global_hot_key_identifier++;
+  }
+  const EventHotKeyID identity = {
+      kDaGlobalHotKeySignature,
+      identifier,
+  };
+  const OptionBits options = exclusive ? kEventHotKeyExclusive : 0;
+  const OSStatus registration_status = RegisterEventHotKey(
+      keyCode, modifiers, identity, GetApplicationEventTarget(), options,
+      &_hotKeyRef);
+  if (registration_status != noErr) {
+    if (status != nullptr) {
+      *status = registration_status;
+    }
+    StopGlobalHotKeyEventHandlerIfUnused();
+    return nil;
+  }
+  _daIdentifier = identifier;
+  _preparedForRelease = NO;
+  if (status != nullptr) {
+    *status = noErr;
+  }
+  return self;
+}
+
+- (void)setDaHandle:(DaHandle)daHandle {
+  _daHandle = daHandle;
+  if (_daIdentifier != 0 && daHandle != 0) {
+    g_global_hot_key_handles[@(_daIdentifier)] = @(daHandle);
+  }
+}
+
+- (void)daPostPressed {
+  if (_preparedForRelease || _daHandle == 0) {
+    return;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_GLOBAL_HOT_KEY_PRESSED;
+  event.window = _daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  (void)dart_appkit::PostEvent(event);
+}
+
+- (void)daPrepareForRelease {
+  if (_preparedForRelease) {
+    return;
+  }
+  _preparedForRelease = YES;
+  if (_daIdentifier != 0) {
+    [g_global_hot_key_handles removeObjectForKey:@(_daIdentifier)];
+  }
+  _daHandle = 0;
+  _daIdentifier = 0;
+  if (_hotKeyRef != nullptr) {
+    UnregisterEventHotKey(_hotKeyRef);
+    _hotKeyRef = nullptr;
+  }
+  StopGlobalHotKeyEventHandlerIfUnused();
+}
+
+- (void)dealloc {
+  [self daPrepareForRelease];
+}
 
 @end
 
@@ -748,6 +916,32 @@ DaMenuItemOwner* MenuItemOwner(DaHandle handle, int32_t* out_status) {
       handle, ObjectKind::kMenuItem, ThreadDomain::kAppKitMain, out_status));
 }
 
+UInt32 CarbonHotKeyModifiers(uint64_t modifiers, int32_t* out_status) {
+  constexpr uint64_t kSupported = DA_MODIFIER_SHIFT | DA_MODIFIER_CONTROL |
+                                  DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND;
+  if (modifiers == 0 || (modifiers & ~kSupported) != 0) {
+    *out_status = SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "global hot key requires Shift, Control, Option, or Command only");
+    return 0;
+  }
+  UInt32 result = 0;
+  if ((modifiers & DA_MODIFIER_SHIFT) != 0) {
+    result |= shiftKey;
+  }
+  if ((modifiers & DA_MODIFIER_CONTROL) != 0) {
+    result |= controlKey;
+  }
+  if ((modifiers & DA_MODIFIER_OPTION) != 0) {
+    result |= optionKey;
+  }
+  if ((modifiers & DA_MODIFIER_COMMAND) != 0) {
+    result |= cmdKey;
+  }
+  *out_status = DA_STATUS_OK;
+  return result;
+}
+
 NSEventModifierFlags AppKitModifiers(uint64_t modifiers, int32_t* out_status) {
   if ((modifiers & ~kStableModifierMask) != 0) {
     *out_status =
@@ -813,6 +1007,8 @@ int32_t CompletePendingRelease(DaHandle handle) {
     PrepareMenuForRelease(static_cast<NSMenu*>(object));
   } else if (kind == ObjectKind::kMenuItem) {
     [static_cast<DaMenuItemOwner*>(object) daPrepareForRelease];
+  } else if (kind == ObjectKind::kGlobalHotKey) {
+    [static_cast<DaGlobalHotKeyOwner*>(object) daPrepareForRelease];
   }
   __strong id released_object =
       registry.CompleteRelease(handle, ThreadDomain::kAppKitMain, &status);
@@ -1218,6 +1414,7 @@ void ShutdownBridge() {
     }
   }
   registry.Clear();
+  StopGlobalHotKeyInfrastructure();
 }
 
 void ResetBridgeForTesting() {
@@ -1256,6 +1453,10 @@ const char* da_status_name(int32_t status) {
       return "shutting_down";
     case DA_STATUS_LIMIT_EXCEEDED:
       return "limit_exceeded";
+    case DA_STATUS_GLOBAL_HOT_KEY_CONFLICT:
+      return "global_hot_key_conflict";
+    case DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED:
+      return "global_hot_key_registration_failed";
     default:
       return "unknown_status";
   }
@@ -1580,6 +1781,70 @@ int32_t da_application_set_dock_badge_label(const char* label,
         exception.reason.UTF8String != nullptr
             ? exception.reason.UTF8String
             : "Dock badge update failed");
+  }
+}
+
+int32_t da_global_hot_key_register(uint16_t key_code, uint64_t modifiers,
+                                   DaHandle* out_handle) {
+  dart_appkit::ClearLastError();
+  if (out_handle == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_handle must not be null");
+  }
+  *out_handle = 0;
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (key_code > 127) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "global hot key virtual key code must be between 0 and 127");
+  }
+  int32_t status = DA_STATUS_OK;
+  const UInt32 carbon_modifiers =
+      dart_appkit::CarbonHotKeyModifiers(modifiers, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (NSApp == nil) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "NSApplication is not initialized");
+  }
+  @try {
+    OSStatus registration_status = noErr;
+    DaGlobalHotKeyOwner* owner =
+        [[DaGlobalHotKeyOwner alloc] initWithKeyCode:key_code
+                                          modifiers:carbon_modifiers
+                                          exclusive:YES
+                                              status:&registration_status];
+    if (owner == nil || registration_status != noErr) {
+      const DaStatus mapped_status = registration_status == eventHotKeyExistsErr
+                                         ? DA_STATUS_GLOBAL_HOT_KEY_CONFLICT
+                                         : DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED;
+      const std::string message =
+          std::string(registration_status == eventHotKeyExistsErr
+                          ? "exclusive global hot key is already registered"
+                          : "global hot key registration failed") +
+          " (OSStatus " + std::to_string(registration_status) + ")";
+      return dart_appkit::SetLastError(mapped_status, message);
+    }
+    const DaHandle handle = dart_appkit::ObjectRegistry::Shared().Insert(
+        owner, dart_appkit::ObjectKind::kGlobalHotKey,
+        dart_appkit::ThreadDomain::kAppKitMain);
+    if (handle == 0) {
+      [owner daPrepareForRelease];
+      return DA_STATUS_INTERNAL_ERROR;
+    }
+    owner.daHandle = handle;
+    *out_handle = handle;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "global hot key registration raised an exception");
   }
 }
 

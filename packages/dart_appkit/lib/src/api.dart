@@ -13,6 +13,7 @@ part 'api/application.dart';
 part 'api/events.dart';
 part 'api/external_url.dart';
 part 'api/geometry.dart';
+part 'api/global_hot_key.dart';
 part 'api/menu.dart';
 part 'api/native_resource.dart';
 part 'api/pasteboard.dart';

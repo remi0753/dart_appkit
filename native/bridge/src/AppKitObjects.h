@@ -2,12 +2,32 @@
 #define DART_APPKIT_BRIDGE_SRC_APPKIT_OBJECTS_H_
 
 #import <AppKit/AppKit.h>
+#import <Carbon/Carbon.h>
 
 #include "dart_appkit.h"
 
 @interface DaView : NSView
 
 @property(nonatomic, assign) BOOL daAcceptsFirstResponder;
+
+@end
+
+@interface DaGlobalHotKeyOwner : NSObject {
+ @private
+  EventHotKeyRef _hotKeyRef;
+  UInt32 _daIdentifier;
+  BOOL _preparedForRelease;
+}
+
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, assign, readonly) UInt32 daIdentifier;
+
+- (instancetype)initWithKeyCode:(UInt32)keyCode
+                      modifiers:(UInt32)modifiers
+                      exclusive:(BOOL)exclusive
+                          status:(OSStatus*)status;
+- (void)daPostPressed;
+- (void)daPrepareForRelease;
 
 @end
 

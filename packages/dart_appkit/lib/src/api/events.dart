@@ -364,6 +364,26 @@ final class MenuItemInvokedEvent extends AppKitEvent {
   int get menuItemHandle => sourceHandle;
 }
 
+final class GlobalHotKeyPressedEvent extends AppKitEvent {
+  const GlobalHotKeyPressedEvent({
+    required int globalHotKeyHandle,
+    required int monotonicMicros,
+    int protocolVersion = 8,
+    int sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+  }) : super(
+         windowHandle: globalHotKeyHandle,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: sourceGeneration,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+
+  int get globalHotKeyHandle => sourceHandle;
+}
+
 final class ModifierKeys {
   const ModifierKeys(this.bits);
 
@@ -416,6 +436,7 @@ final class _EventCodec {
   static const int _applicationTerminateRequested = 32;
   static const int _applicationAppearanceChanged = 33;
   static const int _menuItemInvoked = 40;
+  static const int _globalHotKeyPressed = 41;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -790,6 +811,17 @@ final class _EventCodec {
           monotonicNanoseconds: monotonicNanoseconds,
           operationId: operationId,
         );
+      case _globalHotKeyPressed:
+        _requireVersionEight(version, 'global hot key pressed');
+        _expectLength(message, payloadOffset, 'global hot key pressed');
+        return GlobalHotKeyPressedEvent(
+          globalHotKeyHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -834,6 +866,12 @@ final class _EventCodec {
   static void _requireVersionSeven(int version, String eventName) {
     if (version < 7) {
       throw FormatException('$eventName requires native event protocol 7');
+    }
+  }
+
+  static void _requireVersionEight(int version, String eventName) {
+    if (version < 8) {
+      throw FormatException('$eventName requires native event protocol 8');
     }
   }
 

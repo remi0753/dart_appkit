@@ -83,19 +83,20 @@ version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
 `[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2
-through 7 use
+through 8 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
 ...payload]`. Version 3 adds window focus, visibility, occlusion,
 backing-scale, and screen events. Those types are suppressed before posting to
 a version-1/2 sink. Version 4 adds application active/reopen/termination,
 user-close request, and menu-action records; these are suppressed for v1-v3.
 Version 5 adds precision scroll records, version 6 adds outer-frame and
-native-fullscreen state records, and version 7 adds application effective-
-appearance records; each is suppressed for every earlier sink.
+native-fullscreen state records, version 7 adds application effective-
+appearance records, and version 8 adds owned global-hot-key press records;
+each is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
 operation ID zero, while deferred close and termination requests carry a
-positive reply identity. The Dart decoder accepts all seven versions, preserves
+positive reply identity. The Dart decoder accepts all eight versions, preserves
 the existing `monotonicMicros` API, and exposes exact negotiated metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
@@ -128,6 +129,11 @@ Dark Aqua, posts that initial state, and observes the SDK-recommended KVO key.
 Equivalent effective light/dark results are deduplicated, observation is
 replaced on event-port re-registration, and shutdown removes it before the
 poster is disabled. AppDelegate posts active/resign and reopen transitions.
+Version 8 also admits payload-free global-hot-key events. Each exclusive Carbon
+registration is a main-thread registry object mapped by a private identifier to
+its generation-checked handle. Release removes that mapping and unregisters the
+OS hot key before the handle can be reused; shutdown removes every registration
+and the shared application event handler.
 User close and
 termination decisions remain synchronous inside AppKit only long enough to
 return `NO`/`NSTerminateLater`; Dart is never entered from the delegate. An

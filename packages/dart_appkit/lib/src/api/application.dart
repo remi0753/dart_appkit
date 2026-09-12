@@ -129,6 +129,8 @@ final class AppKitApplication {
       <int, WeakReference<Window>>{};
   final Map<int, WeakReference<MenuItem>> _menuItems =
       <int, WeakReference<MenuItem>>{};
+  final Map<int, WeakReference<GlobalHotKey>> _globalHotKeys =
+      <int, WeakReference<GlobalHotKey>>{};
 
   late final StreamSubscription<Object?> _eventSubscription;
   bool _terminated = false;
@@ -436,6 +438,24 @@ final class AppKitApplication {
     }
   }
 
+  void _registerGlobalHotKey(GlobalHotKey hotKey) {
+    _ensureRunning();
+    if (_globalHotKeys.containsKey(hotKey._handle)) {
+      throw StateError(
+        'native global hot key handle ${hotKey._handle} is duplicated',
+      );
+    }
+    _globalHotKeys[hotKey._handle] = WeakReference<GlobalHotKey>(hotKey);
+  }
+
+  void _unregisterGlobalHotKey(GlobalHotKey hotKey) {
+    final WeakReference<GlobalHotKey>? reference =
+        _globalHotKeys[hotKey._handle];
+    if (identical(reference?.target, hotKey) || reference?.target == null) {
+      _globalHotKeys.remove(hotKey._handle);
+    }
+  }
+
   void _menuDisposed(Menu menu) {
     if (identical(_mainMenu, menu)) {
       _mainMenu = null;
@@ -473,12 +493,24 @@ final class AppKitApplication {
           _menuItems.remove(event.menuItemHandle);
         }
       }
+      GlobalHotKey? globalHotKey;
+      if (event is GlobalHotKeyPressedEvent) {
+        final WeakReference<GlobalHotKey>? reference =
+            _globalHotKeys[event.globalHotKeyHandle];
+        globalHotKey = reference?.target;
+        if (globalHotKey == null) {
+          _globalHotKeys.remove(event.globalHotKeyHandle);
+        }
+      }
       _events.add(event);
       if (window != null) {
         window._dispatch(event);
       }
       if (menuItem != null && event is MenuItemInvokedEvent) {
         menuItem._dispatch(event);
+      }
+      if (globalHotKey != null && event is GlobalHotKeyPressedEvent) {
+        globalHotKey._dispatch(event);
       }
     } on Object catch (error, stackTrace) {
       _events.addError(error, stackTrace);
@@ -499,6 +531,7 @@ final class AppKitApplication {
     await _events.close();
     _windows.clear();
     _menuItems.clear();
+    _globalHotKeys.clear();
     _active = false;
     _effectiveAppearance = null;
     _defersTerminationRequests = false;
@@ -547,6 +580,10 @@ void injectRawAppKitEventForTesting(
 ///
 /// This hook is exported only from `package:dart_appkit/testing.dart`.
 int nativeWindowHandleForTesting(Window window) => window._handle;
+
+/// Returns the generation-checked global-hot-key handle for routing fixtures.
+/// Exported only from `package:dart_appkit/testing.dart`.
+int nativeGlobalHotKeyHandleForTesting(GlobalHotKey hotKey) => hotKey._handle;
 
 /// Enters the real native deferred-termination state machine without asking
 /// the host process to exit. Exported only from `package:dart_appkit/testing.dart`.

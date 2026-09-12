@@ -12,6 +12,7 @@ enum FakeObjectKind {
   textEditor,
   menu,
   menuItem,
+  globalHotKey,
 }
 
 final class FakeMenuItemState {
@@ -32,7 +33,8 @@ final class FakeNativeBindings
     implements
         NativeBindings,
         NativeTextEditorBindings,
-        NativeSplitViewPositionBindings {
+        NativeSplitViewPositionBindings,
+        NativeGlobalHotKeyBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
   int nextHandle = 100;
@@ -58,6 +60,8 @@ final class FakeNativeBindings
   int pasteboardChangeCount = 0;
   int? pasteboardTextUtf8LengthOverride;
   int? mainMenu;
+  final Map<int, ({int keyCode, int modifiers})> globalHotKeys =
+      <int, ({int keyCode, int modifiers})>{};
 
   final Map<int, FakeObjectKind> objects = <int, FakeObjectKind>{};
   final Map<int, String> windowTitles = <int, String>{};
@@ -258,6 +262,33 @@ final class FakeNativeBindings
   NativeCallResult applicationSetDockBadgeLabel(String? label) {
     final NativeCallResult result = _status('applicationSetDockBadgeLabel');
     if (result.isSuccess) dockBadgeLabel = label;
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> globalHotKeyRegister({
+    required int keyCode,
+    required int modifiers,
+  }) {
+    if (globalHotKeys.values.any(
+      (({int keyCode, int modifiers}) value) =>
+          value.keyCode == keyCode && value.modifiers == modifiers,
+    )) {
+      operations.add('globalHotKeyRegister');
+      return const NativeValueResult<int>.failure(
+        dartAppKitStatusGlobalHotKeyConflict,
+        'injected exclusive global hot key conflict',
+      );
+    }
+    final int handle = nextHandle++;
+    final NativeValueResult<int> result = _value<int>(
+      'globalHotKeyRegister',
+      handle,
+    );
+    if (result.isSuccess) {
+      objects[handle] = FakeObjectKind.globalHotKey;
+      globalHotKeys[handle] = (keyCode: keyCode, modifiers: modifiers);
+    }
     return result;
   }
 
@@ -956,6 +987,7 @@ final class FakeNativeBindings
       menuContents.remove(handle);
       submenus.remove(handle);
       menuItemEnabled.remove(handle);
+      globalHotKeys.remove(handle);
       if (mainMenu == handle) {
         mainMenu = null;
       }

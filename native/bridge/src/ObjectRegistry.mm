@@ -30,6 +30,8 @@ const char* ObjectKindName(ObjectKind kind) {
       return "menu";
     case ObjectKind::kMenuItem:
       return "menu item";
+    case ObjectKind::kGlobalHotKey:
+      return "global hot key";
   }
   return "unknown";
 }

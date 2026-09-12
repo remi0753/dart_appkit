@@ -110,6 +110,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 6;
     case DA_EVENT_APPLICATION_APPEARANCE_CHANGED:
       return protocol_version >= 7;
+    case DA_EVENT_GLOBAL_HOT_KEY_PRESSED:
+      return protocol_version >= 8;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

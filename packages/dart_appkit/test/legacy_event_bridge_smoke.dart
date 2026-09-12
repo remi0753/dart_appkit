@@ -189,6 +189,10 @@ void main(List<String> arguments) {
       bindings.applicationSetDockBadgeLabel('1%').status != 8) {
     _fail('legacy bridge accepted additive notification or Dock APIs');
   }
+  if (bindings.globalHotKeyRegister(keyCode: 79, modifiers: 1 << 4).status !=
+      8) {
+    _fail('legacy bridge accepted additive global hot-key registration');
+  }
   final NativeValueResult<int> configuredWindow = bindings.windowCreate(
     x: 0,
     y: 0,

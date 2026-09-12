@@ -19,6 +19,7 @@ enum class ObjectKind : uint8_t {
   kTextView = 3,
   kMenu = 4,
   kMenuItem = 5,
+  kGlobalHotKey = 6,
 };
 
 enum class ThreadDomain : uint8_t {

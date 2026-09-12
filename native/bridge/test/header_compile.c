@@ -13,7 +13,7 @@ _Static_assert(sizeof(DaMenuConfiguration) == 16,
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 7,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 8,
                "unexpected current event protocol version");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");
@@ -34,6 +34,8 @@ int da_header_compiles_as_c(void) {
       da_window_reply_to_close_request;
   int32_t (*key_event_routing)(DaHandle, int32_t) =
       da_window_set_key_event_routing;
+  int32_t (*global_hot_key_register)(uint16_t, uint64_t, DaHandle*) =
+      da_global_hot_key_register;
   int32_t (*pasteboard_read)(DaPasteboardText*) = da_pasteboard_read_text;
   int32_t (*menu_create)(const char*, size_t, DaHandle*) = da_menu_create;
   int32_t (*configured_menu_create)(const char*, size_t,
@@ -66,6 +68,7 @@ int da_header_compiles_as_c(void) {
                  external_url_open != 0 &&
                  external_url_open_with_policy != 0 &&
                  key_event_routing != 0 &&
+                 global_hot_key_register != 0 &&
                  pasteboard_read != 0 && menu_create != 0 &&
                  configured_menu_create != 0 &&
                  menu_item_create != 0 && custom_view_create != 0 &&

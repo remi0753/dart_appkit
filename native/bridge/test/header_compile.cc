@@ -16,7 +16,7 @@ static_assert(sizeof(DaTextViewConfiguration) == 160);
 static_assert(std::is_standard_layout_v<DaMenuConfiguration>);
 static_assert(sizeof(DaMenuConfiguration) == 16);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 7);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 8);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);
@@ -36,6 +36,7 @@ int da_header_compiles_as_cpp() {
   auto* external_url_open_with_policy =
       &da_application_open_external_url_with_policy;
   auto* key_event_routing = &da_window_set_key_event_routing;
+  auto* global_hot_key_register = &da_global_hot_key_register;
   auto* window_tab_add = &da_window_add_tabbed_window;
   auto* first_responder = &da_window_make_first_responder;
   auto* split_create = &da_split_view_create;
@@ -49,6 +50,7 @@ int da_header_compiles_as_cpp() {
                  external_url_open != nullptr &&
                  external_url_open_with_policy != nullptr &&
                  key_event_routing != nullptr &&
+                 global_hot_key_register != nullptr &&
                  window_tab_add != nullptr && first_responder != nullptr &&
                  split_create != nullptr && split_children != nullptr &&
                  extension_services != nullptr

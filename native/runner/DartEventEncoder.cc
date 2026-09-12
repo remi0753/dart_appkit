@@ -116,6 +116,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 4:
     case 5:
     case 6:
+    case 7:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -144,6 +145,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case DA_EVENT_WINDOW_CLOSE_REQUESTED:
     case DA_EVENT_APPLICATION_TERMINATE_REQUESTED:
     case DA_EVENT_MENU_ITEM_INVOKED:
+    case DA_EVENT_GLOBAL_HOT_KEY_PRESSED:
       break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;

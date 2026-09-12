@@ -513,6 +513,16 @@ DaMenuItemOwner* MenuItemOwnerFor(DaHandle handle) {
   return static_cast<DaMenuItemOwner*>(object);
 }
 
+DaGlobalHotKeyOwner* GlobalHotKeyOwnerFor(DaHandle handle) {
+  int32_t status = DA_STATUS_OK;
+  id object = dart_appkit::ObjectRegistry::Shared().Lookup(
+      handle, dart_appkit::ObjectKind::kGlobalHotKey,
+      dart_appkit::ThreadDomain::kAppKitMain, &status);
+  EXPECT_EQ(status, DA_STATUS_OK);
+  EXPECT_TRUE([object isKindOfClass:DaGlobalHotKeyOwner.class]);
+  return static_cast<DaGlobalHotKeyOwner*>(object);
+}
+
 void ResetWithCapture(Capture* capture) {
   dart_appkit::ResetBridgeForTesting();
   dart_appkit::InstallEventPoster(CapturePoster, capture);
@@ -554,6 +564,12 @@ void TestContractAndErrors() {
             std::string("shutting_down"));
   EXPECT_EQ(std::string(da_status_name(DA_STATUS_LIMIT_EXCEEDED)),
             std::string("limit_exceeded"));
+  EXPECT_EQ(std::string(da_status_name(DA_STATUS_GLOBAL_HOT_KEY_CONFLICT)),
+            std::string("global_hot_key_conflict"));
+  EXPECT_EQ(
+      std::string(
+          da_status_name(DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED)),
+      std::string("global_hot_key_registration_failed"));
 
   int32_t is_main = 0;
   EXPECT_EQ(da_debug_is_main_thread(&is_main), DA_STATUS_OK);
@@ -738,6 +754,20 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(7));
 
+  event.type = DA_EVENT_GLOBAL_HOT_KEY_PRESSED;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  const size_t before_version_eight_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_eight_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 8, 8, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(8));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(8));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -749,7 +779,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 8, 8, &selected_version),
+      da_application_set_event_port_versioned(4242, 9, 9, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -878,7 +908,7 @@ void TestApplicationAppearanceObservation() {
   EXPECT_TRUE(capture.events.back().state);
   EXPECT_EQ(capture.events.back().window, static_cast<DaHandle>(0));
   EXPECT_EQ(capture.events.back().operation_id, static_cast<int64_t>(0));
-  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(7));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(8));
 
   NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_APPEARANCE_CHANGED),
@@ -3150,6 +3180,67 @@ void TestWindowPresentationMetadata() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestGlobalHotKeys() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  constexpr uint16_t kTestKeyCode = 79;
+  constexpr uint64_t kTestModifiers =
+      DA_MODIFIER_CONTROL | DA_MODIFIER_OPTION | DA_MODIFIER_COMMAND;
+
+  DaHandle handle = 99;
+  EXPECT_EQ(da_global_hot_key_register(kTestKeyCode, kTestModifiers, &handle),
+            DA_STATUS_OK);
+  EXPECT_TRUE(handle != 0);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+
+  DaHandle conflicting = 99;
+  EXPECT_EQ(
+      da_global_hot_key_register(kTestKeyCode, kTestModifiers, &conflicting),
+      DA_STATUS_GLOBAL_HOT_KEY_CONFLICT);
+  EXPECT_EQ(conflicting, static_cast<DaHandle>(0));
+  EXPECT_TRUE(LastErrorMessage().find("OSStatus") != std::string::npos);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(1));
+
+  [GlobalHotKeyOwnerFor(handle) daPostPressed];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_GLOBAL_HOT_KEY_PRESSED);
+  EXPECT_EQ(capture.events[0].window, handle);
+  EXPECT_EQ(capture.events[0].operation_id, static_cast<int64_t>(0));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(8));
+
+  DaHandle invalid = 99;
+  EXPECT_EQ(da_global_hot_key_register(128, kTestModifiers, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(invalid, static_cast<DaHandle>(0));
+  EXPECT_EQ(da_global_hot_key_register(kTestKeyCode, 0, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_global_hot_key_register(kTestKeyCode, DA_MODIFIER_CAPS_LOCK,
+                                       &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_global_hot_key_register(kTestKeyCode, kTestModifiers, nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  DaHandle worker_handle = 99;
+  std::thread worker([&]() {
+    worker_status.store(da_global_hot_key_register(
+        kTestKeyCode, kTestModifiers, &worker_handle));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_handle, static_cast<DaHandle>(0));
+
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+  DaHandle replacement = 0;
+  EXPECT_EQ(
+      da_global_hot_key_register(kTestKeyCode, kTestModifiers, &replacement),
+      DA_STATUS_OK);
+  EXPECT_TRUE(replacement != 0 && replacement != handle);
+  EXPECT_EQ(da_release(replacement), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 }  // namespace
 
 int main() {
@@ -3179,6 +3270,7 @@ int main() {
     TestInputEvents();
     TestScrollInputEvent();
     TestKeyEventRouting();
+    TestGlobalHotKeys();
     TestWindowPresentationMetadata();
     TestNativeTabsSplitViewsAndFirstResponder();
     dart_appkit::ResetBridgeForTesting();

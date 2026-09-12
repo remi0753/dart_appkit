@@ -92,6 +92,15 @@ void main(List<String> arguments) {
       dockBadge.message.isEmpty) {
     _fail('Dock badge symbol did not preserve its main-thread guard');
   }
+  final NativeValueResult<int> globalHotKey = bindings.globalHotKeyRegister(
+    keyCode: 79,
+    modifiers: 1 << 4,
+  );
+  if (globalHotKey.isSuccess ||
+      globalHotKey.status != 5 ||
+      globalHotKey.message.isEmpty) {
+    _fail('global hot-key symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> menu = bindings.menuCreate(
     'FFI smoke',
     autoEnablesItems: true,

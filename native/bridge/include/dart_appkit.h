@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)7)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)8)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -272,7 +272,9 @@ typedef enum DaStatus {
   DA_STATUS_INTERNAL_ERROR = 7,
   DA_STATUS_UNSUPPORTED_VERSION = 8,
   DA_STATUS_SHUTTING_DOWN = 9,
-  DA_STATUS_LIMIT_EXCEEDED = 10
+  DA_STATUS_LIMIT_EXCEEDED = 10,
+  DA_STATUS_GLOBAL_HOT_KEY_CONFLICT = 11,
+  DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED = 12
 } DaStatus;
 
 /** Event list slot 1; slot 0 is the negotiated event protocol version. */
@@ -298,7 +300,8 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_REOPEN_REQUESTED = 31,
   DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
   DA_EVENT_APPLICATION_APPEARANCE_CHANGED = 33,
-  DA_EVENT_MENU_ITEM_INVOKED = 40
+  DA_EVENT_MENU_ITEM_INVOKED = 40,
+  DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41
 } DaEventType;
 
 /** Stable scroll gesture phase values used by protocol version 5. */
@@ -439,6 +442,19 @@ DA_EXPORT int32_t da_application_remove_user_notification(
  */
 DA_EXPORT int32_t da_application_set_dock_badge_label(
     const char* label, size_t label_length);
+
+/**
+ * Main thread only. Registers one exclusive system-wide physical-key chord.
+ *
+ * key_code is a macOS virtual key code in the inclusive range 0 through 127.
+ * modifiers must contain at least one of Shift, Control, Option, or Command
+ * and no other DaModifier bits. On success out_handle owns the registration;
+ * da_release unregisters it. A collision reports
+ * DA_STATUS_GLOBAL_HOT_KEY_CONFLICT without allocating a handle.
+ */
+DA_EXPORT int32_t da_global_hot_key_register(uint16_t key_code,
+                                             uint64_t modifiers,
+                                             DaHandle* out_handle);
 
 /**
  * Main thread only. Reads one bounded general-pasteboard plain-text snapshot.

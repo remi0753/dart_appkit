@@ -91,8 +91,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 7 &&
-        app.eventProtocolVersion == 7,
+        bindings.requestedMaximumEventProtocolVersion == 8 &&
+        app.eventProtocolVersion == 8,
     'current event protocol negotiation',
   );
 
@@ -153,6 +153,131 @@ Future<void> _testLifecycleAndErrors() async {
   await app.terminate();
   _expect(bindings.terminateCalled, 'native terminate requested');
   await raw.close();
+}
+
+Future<void> _testGlobalHotKeyApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (9 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  const ModifierKeys modifiers = ModifierKeys(
+    ModifierKeys.controlBit | ModifierKeys.commandBit,
+  );
+  final GlobalHotKey hotKey = GlobalHotKey(keyCode: 50, modifiers: modifiers);
+  final int handle = testing.nativeGlobalHotKeyHandleForTesting(hotKey);
+  var applicationPresses = 0;
+  var resourcePresses = 0;
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is GlobalHotKeyPressedEvent) applicationPresses++;
+  }, onError: errors.add);
+  final StreamSubscription<GlobalHotKeyPressedEvent> hotKeyEvents = hotKey
+      .onPressed
+      .listen((GlobalHotKeyPressedEvent event) => resourcePresses++);
+
+  _expect(
+    hotKey.keyCode == 50 &&
+        hotKey.modifiers == modifiers &&
+        bindings.globalHotKeys[handle] ==
+            (keyCode: 50, modifiers: modifiers.bits) &&
+        bindings.attachedFinalizers.length == 1,
+    'exclusive global hot key owns the native registration',
+  );
+  final GlobalHotKeyRegistrationException conflict =
+      await _expectThrows<GlobalHotKeyRegistrationException>(
+        () => GlobalHotKey(keyCode: 50, modifiers: modifiers),
+      );
+  _expect(
+    conflict.reason == GlobalHotKeyRegistrationFailure.conflict &&
+        conflict.nativeStatus == dartAppKitStatusGlobalHotKeyConflict &&
+        bindings.globalHotKeys.length == 1,
+    'exclusive conflict is typed and retains the first registration',
+  );
+
+  bindings
+    ..failNextOperation = 'globalHotKeyRegister'
+    ..failureStatus = dartAppKitStatusGlobalHotKeyRegistrationFailed;
+  final GlobalHotKeyRegistrationException systemFailure =
+      await _expectThrows<GlobalHotKeyRegistrationException>(
+        () => GlobalHotKey(keyCode: 49, modifiers: modifiers),
+      );
+  _expect(
+    systemFailure.reason == GlobalHotKeyRegistrationFailure.systemFailure &&
+        systemFailure.nativeStatus ==
+            dartAppKitStatusGlobalHotKeyRegistrationFailed &&
+        bindings.globalHotKeys.length == 1,
+    'system registration failure is typed and leaves the old owner intact',
+  );
+  final GlobalHotKeyRegistrationException unsupported =
+      await _expectThrows<GlobalHotKeyRegistrationException>(
+        () => GlobalHotKey(keyCode: 128, modifiers: modifiers),
+      );
+  _expect(
+    unsupported.reason == GlobalHotKeyRegistrationFailure.unsupportedKey,
+    'unsupported virtual key code is a typed registration failure',
+  );
+  await _expectThrows<ArgumentError>(
+    () => GlobalHotKey(keyCode: 50, modifiers: const ModifierKeys(0)),
+  );
+  await _expectThrows<ArgumentError>(
+    () => GlobalHotKey(
+      keyCode: 50,
+      modifiers: const ModifierKeys(ModifierKeys.capsLockBit),
+    ),
+  );
+
+  raw.add(<Object?>[8, 41, handle, 9, 900000, 0]);
+  _expect(
+    applicationPresses == 1 && resourcePresses == 1 && errors.isEmpty,
+    'version 8 press reaches the application and its exact resource once',
+  );
+  raw.add(<Object?>[7, 41, handle, 9, 901000, 0]);
+  _expect(
+    errors.length == 1 && errors.single is FormatException,
+    'older protocol cannot smuggle a global hot-key event',
+  );
+
+  hotKey.dispose();
+  raw.add(<Object?>[8, 41, handle, 9, 902000, 0]);
+  _expect(
+    applicationPresses == 2 &&
+        resourcePresses == 1 &&
+        bindings.globalHotKeys.isEmpty &&
+        bindings.attachedFinalizers.isEmpty,
+    'late queued event reaches no disposed registration owner',
+  );
+  final GlobalHotKey replacement = GlobalHotKey(
+    keyCode: 50,
+    modifiers: modifiers,
+  );
+  _expect(
+    testing.nativeGlobalHotKeyHandleForTesting(replacement) != handle,
+    'released chord can be registered again with a fresh owner identity',
+  );
+  replacement.dispose();
+  await hotKeyEvents.cancel();
+  await applicationEvents.cancel();
+  await app.terminate();
+  await raw.close();
+
+  final StreamController<Object?> legacyRaw =
+      StreamController<Object?>.broadcast(sync: true);
+  final FakeNativeBindings legacyBindings = FakeNativeBindings()
+    ..selectedEventProtocolVersion = 7;
+  final AppKitApplication legacy = await _attach(legacyBindings, legacyRaw);
+  await _expectThrows<UnsupportedError>(
+    () => GlobalHotKey(keyCode: 50, modifiers: modifiers),
+  );
+  _expect(
+    !legacyBindings.operations.contains('globalHotKeyRegister'),
+    'older negotiated event protocol refuses registration before allocation',
+  );
+  await legacy.terminate();
+  await legacyRaw.close();
 }
 
 Future<void> _testGenericViewBoundary() async {
@@ -1161,7 +1286,8 @@ Future<void> _testWindowStateEvents() async {
           AppKitScrollEvent() ||
           AppKitKeyEvent() ||
           ApplicationEvent() ||
-          MenuItemInvokedEvent():
+          MenuItemInvokedEvent() ||
+          GlobalHotKeyPressedEvent():
         break;
     }
   }, onError: (Object error) => streamErrors.add(error));
@@ -2212,6 +2338,7 @@ Future<void> main() async {
     'application and window lifecycle request events',
     _testLifecycleRequestEvents,
   );
+  await _test('exclusive global hot-key ownership', _testGlobalHotKeyApi);
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
   await _test('allowlisted external URL opening', _testExternalUrlApi);
   await _test(

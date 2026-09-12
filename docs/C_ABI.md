@@ -208,7 +208,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 7 use the six-field common prefix:
+Versions 2 through 8 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -222,14 +222,15 @@ Versions 2 through 7 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 7 use nanoseconds.
+  microseconds; versions 2 through 8 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 7 is current. Version 3 adds window state, version 4 adds lifecycle
+- Version 8 is current. Version 3 adds window state, version 4 adds lifecycle
   decisions and menu actions, version 5 adds precision scroll, version 6 adds
   outer-frame and native-fullscreen state, and version 7 adds an application
-  effective-appearance boolean (`false` light, `true` dark). Version-specific
-  types are suppressed for an older negotiated sink.
+  effective-appearance boolean (`false` light, `true` dark). Version 8 adds
+  global-hot-key presses. Version-specific types are suppressed for an older
+  negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
 to the same deferred application decision and operation-ID state used by the
@@ -258,6 +259,7 @@ Payloads:
 | `APPLICATION_REOPEN_REQUESTED` | `hasVisibleWindows: bool` |
 | `APPLICATION_TERMINATE_REQUESTED` | none; positive operation ID in the prefix |
 | `MENU_ITEM_INVOKED` | none; reserved v4 record used by the additive menu API |
+| `GLOBAL_HOT_KEY_PRESSED` | none; the source handle identifies the owned v8 registration |
 
 Coordinates use the content view's top-left origin. Modifier values use stable
 `DaModifier` bits rather than exposing AppKit's enum representation.
@@ -323,6 +325,22 @@ port also posts the current application-active snapshot. A v7 registration
 additionally posts the current effective light/dark appearance and starts a
 deduplicating KVO observation that is replaced by re-registration and removed
 at bridge shutdown.
+
+## Global hot keys
+
+`da_global_hot_key_register` creates one exclusive system-wide registration
+for a macOS virtual key code from 0 through 127. The modifier mask must be
+nonempty and may contain only Shift, Control, Option, and Command. The call is
+main-thread-only and returns an owned generation-checked handle; `da_release`
+unregisters it before invalidating the handle. A chord already claimed by this
+or another process returns `DA_STATUS_GLOBAL_HOT_KEY_CONFLICT`, while other OS
+registration failures return `DA_STATUS_GLOBAL_HOT_KEY_REGISTRATION_FAILED`.
+
+A press posts the payload-free v8 `GLOBAL_HOT_KEY_PRESSED` event with the
+registration handle as its source. The Dart `GlobalHotKey` facade routes that
+record to both the application event stream and the registration-local
+`onPressed` stream. Consumers retain the object for as long as the shortcut is
+active and dispose the old registration only after a replacement succeeds.
 
 ## Pasteboard policy
 

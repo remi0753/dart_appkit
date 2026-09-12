@@ -33,6 +33,7 @@ workers must use official Dart JIT/AOT worker processes and explicit IPC.
 | Per-window key routing and raw-input responder suppression | Native default/exclusive/menu dispatch tests plus Dart state/failure and legacy-symbol tests | Verified |
 | v4 application/window lifecycle decisions | Exact encoder records, native delegate coalescing/fail-open/stale-reply tests, Dart state/typed-stream/API tests | Verified |
 | v7 application effective appearance | Initial light/dark snapshot, KVO change/deduplication/shutdown native tests, exact shared encoder record, strict Dart cache/typed-stream/malformed/legacy filtering tests | Verified |
+| v8 exclusive global hot keys | Native register/conflict/release/re-register/thread/validation tests, exact shared encoder and older-sink filtering, typed Dart ownership/routing/failure tests, and current/legacy FFI smoke | Verified |
 | Plain-text pasteboard snapshot/write/clear | In-process pasteboard-double native tests, nullable/empty/Unicode/NUL Dart tests, FFI thread guard and legacy fallback | Verified |
 | Application-owned external URL policy | Dart default/custom typed-policy matrix, native condition recorder after repeated validation, invariant bound/text/thread guards, current and exact-default legacy FFI smoke | Verified |
 | Bounded local notifications and Dock badge mechanism | Immutable Dart input validation, native main-thread/boundary/recorder tests, duplicate badge suppression, authorization-pending cancellation contract, and current/legacy FFI smoke | Verified |
