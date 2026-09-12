@@ -197,6 +197,7 @@ final class AppKitApplication {
   bool _terminated = false;
   bool _active = false;
   AppKitAppearance? _effectiveAppearance;
+  AppKitAccessibilityDisplayPreferences? _accessibilityDisplayPreferences;
   AppKitUserNotificationAuthorizationStatus?
   _userNotificationAuthorizationStatus;
   bool _defersTerminationRequests = false;
@@ -311,6 +312,16 @@ final class AppKitApplication {
   Stream<ApplicationAppearanceChangedEvent> get onAppearanceChanged => events
       .where((AppKitEvent event) => event is ApplicationAppearanceChangedEvent)
       .map((AppKitEvent event) => event as ApplicationAppearanceChangedEvent);
+  Stream<ApplicationAccessibilityDisplayPreferencesChangedEvent>
+  get onAccessibilityDisplayPreferencesChanged => events
+      .where(
+        (AppKitEvent event) =>
+            event is ApplicationAccessibilityDisplayPreferencesChangedEvent,
+      )
+      .map(
+        (AppKitEvent event) =>
+            event as ApplicationAccessibilityDisplayPreferencesChangedEvent,
+      );
   Stream<ApplicationFolderServiceRequestedEvent> get onFolderServiceRequested =>
       events
           .where(
@@ -332,6 +343,8 @@ final class AppKitApplication {
   bool get isTerminated => _terminated;
   bool get isActive => _active;
   AppKitAppearance? get effectiveAppearance => _effectiveAppearance;
+  AppKitAccessibilityDisplayPreferences? get accessibilityDisplayPreferences =>
+      _accessibilityDisplayPreferences;
   AppKitUserNotificationAuthorizationStatus?
   get userNotificationAuthorizationStatus =>
       _userNotificationAuthorizationStatus;
@@ -675,6 +688,11 @@ final class AppKitApplication {
       }
       if (event case ApplicationAppearanceChangedEvent(:final appearance)) {
         _effectiveAppearance = appearance;
+      }
+      if (event case ApplicationAccessibilityDisplayPreferencesChangedEvent(
+        :final preferences,
+      )) {
+        _accessibilityDisplayPreferences = preferences;
       }
       if (event
           case ApplicationUserNotificationChangedEvent(

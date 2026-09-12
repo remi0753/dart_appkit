@@ -250,6 +250,19 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectInt(values[7], 73);
     ExpectInt(values[8], DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED);
     ExpectInt(values[9], DA_USER_NOTIFICATION_FAILURE_NONE);
+  } else if (g_expected_case == 18) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(9));
+    ExpectInt(values[0], 14);
+    ExpectInt(
+        values[1],
+        DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectBool(values[6], true);
+    ExpectBool(values[7], false);
+    ExpectBool(values[8], true);
   } else {
     EXPECT_TRUE(false);
   }
@@ -392,6 +405,15 @@ int main() {
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 13, event));
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
 
+  event.type =
+      DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED;
+  event.reduce_motion = true;
+  event.increase_contrast = false;
+  event.differentiate_without_color = true;
+  g_expected_case = 18;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 14, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 13, event));
+
   const int accepted_posts = g_post_count;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
   event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
@@ -455,7 +477,7 @@ int main() {
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
   event.type = DA_EVENT_KEY_DOWN;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 14, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

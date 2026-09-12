@@ -32,7 +32,7 @@ static_assert(sizeof(DaWindowPresentationConfiguration) == 24);
 static_assert(std::is_standard_layout_v<DaSecureEventInputSnapshot>);
 static_assert(sizeof(DaSecureEventInputSnapshot) == 24);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 13);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 14);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);

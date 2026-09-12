@@ -5,9 +5,11 @@ export 'src/api.dart'
     show
         AppKitApplication,
         AppKitApplicationScreenResolution,
+        AppKitAccessibilityDisplayPreferences,
         AppKitAppearance,
         AppKitEvent,
         ApplicationActiveChangedEvent,
+        ApplicationAccessibilityDisplayPreferencesChangedEvent,
         ApplicationAppearanceChangedEvent,
         ApplicationEvent,
         ApplicationFolderServiceRequestedEvent,

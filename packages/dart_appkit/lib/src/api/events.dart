@@ -83,6 +83,43 @@ final class ApplicationAppearanceChangedEvent extends ApplicationEvent {
   final AppKitAppearance appearance;
 }
 
+/// Immutable snapshot of macOS accessibility display preferences.
+final class AppKitAccessibilityDisplayPreferences {
+  const AppKitAccessibilityDisplayPreferences({
+    required this.reduceMotion,
+    required this.increaseContrast,
+    required this.differentiateWithoutColor,
+  });
+
+  final bool reduceMotion;
+  final bool increaseContrast;
+  final bool differentiateWithoutColor;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AppKitAccessibilityDisplayPreferences &&
+      other.reduceMotion == reduceMotion &&
+      other.increaseContrast == increaseContrast &&
+      other.differentiateWithoutColor == differentiateWithoutColor;
+
+  @override
+  int get hashCode =>
+      Object.hash(reduceMotion, increaseContrast, differentiateWithoutColor);
+}
+
+final class ApplicationAccessibilityDisplayPreferencesChangedEvent
+    extends ApplicationEvent {
+  const ApplicationAccessibilityDisplayPreferencesChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 14,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.preferences,
+  });
+
+  final AppKitAccessibilityDisplayPreferences preferences;
+}
+
 enum FolderServiceAction { primary, secondary }
 
 /// One bounded Finder Service request containing canonical local directories.
@@ -581,6 +618,7 @@ final class _EventCodec {
   static const int _applicationReopenRequested = 31;
   static const int _applicationTerminateRequested = 32;
   static const int _applicationAppearanceChanged = 33;
+  static const int _applicationAccessibilityDisplayPreferencesChanged = 34;
   static const int _menuItemInvoked = 40;
   static const int _globalHotKeyPressed = 41;
   static const int _viewQuickLookRequested = 42;
@@ -951,6 +989,35 @@ final class _EventCodec {
               ? AppKitAppearance.dark
               : AppKitAppearance.light,
         );
+      case _applicationAccessibilityDisplayPreferencesChanged:
+        _requireVersionFourteen(
+          version,
+          'application accessibility display preferences changed',
+        );
+        _expectLength(
+          message,
+          payloadOffset + 3,
+          'application accessibility display preferences changed',
+        );
+        return ApplicationAccessibilityDisplayPreferencesChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          preferences: AppKitAccessibilityDisplayPreferences(
+            reduceMotion: _boolean(message, payloadOffset, 'reduceMotion'),
+            increaseContrast: _boolean(
+              message,
+              payloadOffset + 1,
+              'increaseContrast',
+            ),
+            differentiateWithoutColor: _boolean(
+              message,
+              payloadOffset + 2,
+              'differentiateWithoutColor',
+            ),
+          ),
+        );
       case _menuItemInvoked:
         _requireVersionFour(version, 'menu item invoked');
         _expectLength(message, payloadOffset, 'menu item invoked');
@@ -1196,6 +1263,12 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionFourteen(int version, String eventName) {
+    if (version < 14) {
+      throw FormatException('$eventName requires native event protocol 14');
+    }
+  }
+
   static void _requireVersionFive(int version, String eventName) {
     if (version < 5) {
       throw FormatException('$eventName requires native event protocol 5');
@@ -1240,6 +1313,7 @@ final class _EventCodec {
       type == _applicationReopenRequested ||
       type == _applicationTerminateRequested ||
       type == _applicationAppearanceChanged ||
+      type == _applicationAccessibilityDisplayPreferencesChanged ||
       type == _applicationFolderServiceRequested ||
       type == _applicationUserNotificationChanged;
 

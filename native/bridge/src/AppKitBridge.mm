@@ -202,6 +202,19 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
+@interface DaApplicationAccessibilityDisplayPreferencesObserver : NSObject {
+ @private
+  NSNotificationCenter* _notificationCenter;
+  BOOL _observing;
+  dart_appkit::AccessibilityDisplayPreferences _lastPreferences;
+}
+
+- (instancetype)initWithNotificationCenter:
+    (NSNotificationCenter*)notificationCenter;
+- (void)stop;
+
+@end
+
 @interface DaViewBadge : NSView {
  @private
   NSTextField* _label;
@@ -1317,6 +1330,60 @@ void DaDropDraggingEnded(NSWindow* window, id<NSDraggingInfo> sender) {
 
 @end
 
+@implementation DaApplicationAccessibilityDisplayPreferencesObserver
+
+- (instancetype)initWithNotificationCenter:
+    (NSNotificationCenter*)notificationCenter {
+  self = [super init];
+  if (self != nil) {
+    _notificationCenter = notificationCenter;
+    _lastPreferences =
+        dart_appkit::ApplicationAccessibilityDisplayPreferences();
+    [notificationCenter
+        addObserver:self
+           selector:@selector(accessibilityDisplayOptionsDidChange:)
+               name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+             object:nil];
+    _observing = YES;
+  }
+  return self;
+}
+
+- (void)stop {
+  NSNotificationCenter* notification_center = _notificationCenter;
+  if (!_observing || notification_center == nil) {
+    _observing = NO;
+    return;
+  }
+  _observing = NO;
+  [notification_center
+      removeObserver:self
+                name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+              object:nil];
+  _notificationCenter = nil;
+}
+
+- (void)accessibilityDisplayOptionsDidChange:(NSNotification*)notification {
+  (void)notification;
+  if (!_observing) {
+    return;
+  }
+  const dart_appkit::AccessibilityDisplayPreferences preferences =
+      dart_appkit::ApplicationAccessibilityDisplayPreferences();
+  if (preferences == _lastPreferences) {
+    return;
+  }
+  _lastPreferences = preferences;
+  dart_appkit::PostApplicationAccessibilityDisplayPreferencesChanged(
+      preferences);
+}
+
+- (void)dealloc {
+  [self stop];
+}
+
+@end
+
 @implementation DaMenuItemOwner
 
 @synthesize item = _item;
@@ -1384,6 +1451,22 @@ bool g_defers_application_termination_requests = false;
 int64_t g_pending_application_termination_operation_id = 0;
 bool g_programmatic_application_termination = false;
 DaApplicationAppearanceObserver* g_application_appearance_observer = nil;
+DaApplicationAccessibilityDisplayPreferencesObserver*
+    g_application_accessibility_display_preferences_observer = nil;
+
+AccessibilityDisplayPreferences QueryAccessibilityDisplayPreferencesWithSystem() {
+  NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
+  return AccessibilityDisplayPreferences{
+      .reduce_motion = workspace.accessibilityDisplayShouldReduceMotion,
+      .increase_contrast = workspace.accessibilityDisplayShouldIncreaseContrast,
+      .differentiate_without_color =
+          workspace.accessibilityDisplayShouldDifferentiateWithoutColor,
+  };
+}
+
+AccessibilityDisplayPreferencesQuery
+    g_accessibility_display_preferences_query =
+        QueryAccessibilityDisplayPreferencesWithSystem;
 NSMutableDictionary<NSString*, NSNumber*>* g_pending_user_notifications = nil;
 NSMutableDictionary<NSString*, DaTrackedUserNotification*>*
     g_tracked_user_notifications = nil;
@@ -2935,6 +3018,45 @@ void StopApplicationAppearanceObservation() {
   g_application_appearance_observer = nil;
 }
 
+void PostApplicationAccessibilityDisplayPreferencesChanged(
+    const AccessibilityDisplayPreferences& preferences) {
+  NativeEvent event;
+  event.type =
+      DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.reduce_motion = preferences.reduce_motion;
+  event.increase_contrast = preferences.increase_contrast;
+  event.differentiate_without_color =
+      preferences.differentiate_without_color;
+  (void)PostEvent(event);
+}
+
+AccessibilityDisplayPreferences ApplicationAccessibilityDisplayPreferences() {
+  return g_accessibility_display_preferences_query();
+}
+
+void StartApplicationAccessibilityDisplayPreferencesObservation() {
+  StopApplicationAccessibilityDisplayPreferencesObservation();
+  NSNotificationCenter* notification_center =
+      [NSWorkspace sharedWorkspace].notificationCenter;
+  if (notification_center != nil) {
+    g_application_accessibility_display_preferences_observer =
+        [[DaApplicationAccessibilityDisplayPreferencesObserver alloc]
+            initWithNotificationCenter:notification_center];
+  }
+}
+
+void StopApplicationAccessibilityDisplayPreferencesObservation() {
+  [g_application_accessibility_display_preferences_observer stop];
+  g_application_accessibility_display_preferences_observer = nil;
+}
+
+void InstallAccessibilityDisplayPreferencesQueryForTesting(
+    AccessibilityDisplayPreferencesQuery query) {
+  g_accessibility_display_preferences_query =
+      query == nullptr ? QueryAccessibilityDisplayPreferencesWithSystem : query;
+}
+
 ApplicationTerminationDecision HandleApplicationShouldTerminate() {
   if (g_programmatic_application_termination) {
     g_programmatic_application_termination = false;
@@ -3022,6 +3144,7 @@ void ShutdownBridge() {
   ++g_user_notification_epoch;
   if (g_user_notification_epoch == 0) g_user_notification_epoch = 1;
   StopApplicationAppearanceObservation();
+  StopApplicationAccessibilityDisplayPreferencesObservation();
   StopUserNotificationObservation();
   ClearFolderServicesProvider();
   g_defers_application_termination_requests = false;
@@ -3067,6 +3190,7 @@ void ResetBridgeForTesting() {
   InstallSecureEventInputHandlersForTesting(nullptr, nullptr, nullptr,
                                             nullptr);
   InstallDefinitionPresentationHandlerForTesting(nullptr, nullptr);
+  InstallAccessibilityDisplayPreferencesQueryForTesting(nullptr);
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
 }
@@ -3126,6 +3250,7 @@ int32_t da_application_set_event_port(int64_t dart_port) {
     return thread_status;
   }
   dart_appkit::StopApplicationAppearanceObservation();
+  dart_appkit::StopApplicationAccessibilityDisplayPreferencesObservation();
   return dart_appkit::SetEventPort(dart_port);
 }
 
@@ -3141,6 +3266,7 @@ int32_t da_application_set_event_port_versioned(
     return thread_status;
   }
   dart_appkit::StopApplicationAppearanceObservation();
+  dart_appkit::StopApplicationAccessibilityDisplayPreferencesObservation();
   const int32_t status = dart_appkit::SetEventPortVersioned(
       dart_port, min_version, max_version, out_selected_version);
   if (status == DA_STATUS_OK) {
@@ -3149,6 +3275,11 @@ int32_t da_application_set_event_port_versioned(
       dart_appkit::StartApplicationAppearanceObservation();
       dart_appkit::PostApplicationAppearanceChanged(
           dart_appkit::ApplicationUsesDarkAppearance());
+    }
+    if (*out_selected_version >= 14) {
+      dart_appkit::StartApplicationAccessibilityDisplayPreferencesObservation();
+      dart_appkit::PostApplicationAccessibilityDisplayPreferencesChanged(
+          dart_appkit::ApplicationAccessibilityDisplayPreferences());
     }
   }
   return status;

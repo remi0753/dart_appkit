@@ -93,6 +93,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       event.type == DA_EVENT_APPLICATION_REOPEN_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED ||
+      event.type ==
+          DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED ||
       event.type == DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
   const bool reply_required =
@@ -132,6 +134,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 10:
     case 11:
     case 12:
+    case 13:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -237,6 +240,13 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       SetInt64(&values[payload_offset + 2],
                event.user_notification_authorization);
       SetInt64(&values[payload_offset + 3], event.user_notification_failure);
+      break;
+    case DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED:
+      length += 3;
+      SetBool(&values[payload_offset], event.reduce_motion);
+      SetBool(&values[payload_offset + 1], event.increase_contrast);
+      SetBool(&values[payload_offset + 2],
+              event.differentiate_without_color);
       break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;

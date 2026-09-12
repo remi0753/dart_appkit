@@ -104,8 +104,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 13 &&
-        app.eventProtocolVersion == 13,
+        bindings.requestedMaximumEventProtocolVersion == 14 &&
+        app.eventProtocolVersion == 14,
     'current event protocol negotiation',
   );
 
@@ -1939,6 +1939,93 @@ Future<void> _testLifecycleRequestEvents() async {
   await raw.close();
 }
 
+Future<void> _testAccessibilityDisplayPreferencesEvents() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  const AppKitAccessibilityDisplayPreferences expected =
+      AppKitAccessibilityDisplayPreferences(
+        reduceMotion: true,
+        increaseContrast: false,
+        differentiateWithoutColor: true,
+      );
+  _expect(
+    expected ==
+            const AppKitAccessibilityDisplayPreferences(
+              reduceMotion: true,
+              increaseContrast: false,
+              differentiateWithoutColor: true,
+            ) &&
+        expected.hashCode ==
+            const AppKitAccessibilityDisplayPreferences(
+              reduceMotion: true,
+              increaseContrast: false,
+              differentiateWithoutColor: true,
+            ).hashCode &&
+        expected !=
+            const AppKitAccessibilityDisplayPreferences(
+              reduceMotion: false,
+              increaseContrast: false,
+              differentiateWithoutColor: true,
+            ),
+    'accessibility display preference snapshots have value semantics',
+  );
+
+  var typedCount = 0;
+  var cacheWasCurrent = false;
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> allEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event case ApplicationAccessibilityDisplayPreferencesChangedEvent(
+      :final preferences,
+    )) {
+      cacheWasCurrent = app.accessibilityDisplayPreferences == preferences;
+    }
+  }, onError: errors.add);
+  final StreamSubscription<
+    ApplicationAccessibilityDisplayPreferencesChangedEvent
+  >
+  typedEvents = app.onAccessibilityDisplayPreferencesChanged.listen((
+    ApplicationAccessibilityDisplayPreferencesChangedEvent event,
+  ) {
+    typedCount++;
+    _expect(event.preferences == expected, 'typed preference payload');
+  }, onError: (Object _) {});
+
+  raw.add(<Object?>[14, 34, 0, 0, 500000, 0, true, false, true]);
+  _expect(
+    typedCount == 1 &&
+        cacheWasCurrent &&
+        app.accessibilityDisplayPreferences == expected,
+    'preference cache updates before typed stream observation',
+  );
+
+  raw
+    ..add(<Object?>[13, 34, 0, 0, 501000, 0, true, false, true])
+    ..add(<Object?>[14, 34, 0, 0, 502000, 0, true, false])
+    ..add(<Object?>[14, 34, 0, 0, 503000, 0, true, false, true, false])
+    ..add(<Object?>[14, 34, 0, 0, 504000, 0, 1, false, true])
+    ..add(<Object?>[14, 34, 1, 0, 505000, 0, true, false, true])
+    ..add(<Object?>[14, 34, 0, 0, 506000, 1, true, false, true]);
+  _expect(
+    errors.length == 6 &&
+        errors.every((Object error) => error is FormatException),
+    'malformed accessibility display preference events are surfaced',
+  );
+  _expect(
+    typedCount == 1 && app.accessibilityDisplayPreferences == expected,
+    'malformed preference events do not mutate cache or typed stream',
+  );
+
+  await typedEvents.cancel();
+  await allEvents.cancel();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testPasteboardApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -3642,6 +3729,10 @@ Future<void> main() async {
   await _test(
     'application and window lifecycle request events',
     _testLifecycleRequestEvents,
+  );
+  await _test(
+    'application accessibility display preference events',
+    _testAccessibilityDisplayPreferencesEvents,
   );
   await _test('exclusive global hot-key ownership', _testGlobalHotKeyApi);
   await _test(

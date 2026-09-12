@@ -9,7 +9,8 @@ The reusable surface is deliberately small: native windows and tab groups,
 generic, text, registered native-provider, and two-child split views, explicit
 first-responder selection, menus and menu-item actions, periodic `Timer`
 updates, lifecycle/window/input events, cached application light/dark
-appearance, exclusive owned system-wide physical-key registrations,
+appearance, cached accessibility display preferences, exclusive owned
+system-wide physical-key registrations,
 balanced Secure Event Input ownership, application-configured generic view
 badges,
 view-local context menus, stage-2 pressure lookup requests, and bounded native
@@ -40,11 +41,12 @@ coordinates. Version 10 adds bounded plain text returned by a Service to its
 generation-checked View. Version 11 adds a performed text/file-URL drop for a
 generation-checked View. Version 12 adds typed primary/secondary action
 requests containing canonical local directory URLs from the application
-Services provider. Current Dart/native pairs negotiate version 13, which adds
-content-free notification settings, authorization, delivery, cancellation,
-and default-response events with opaque positive tokens. The Dart API strictly
-decodes all thirteen versions and suppresses newer records for older negotiated
-sinks.
+Services provider. Version 13 adds content-free notification settings,
+authorization, delivery, cancellation, and default-response events with opaque
+positive tokens. Current Dart/native pairs negotiate version 14, which adds a
+deduplicated application snapshot of Reduce Motion, Increase Contrast, and
+Differentiate Without Color. The Dart API strictly decodes all fourteen
+versions and suppresses newer records for older negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other
@@ -219,6 +221,13 @@ first-child fraction after a user drags its divider. The cached `fraction`
 continues to represent the last requested or observed value, so an application
 can mirror native interaction into its own layout state without polling during
 ordinary rendering.
+
+`AppKitApplication.accessibilityDisplayPreferences` caches the latest immutable
+three-boolean macOS accessibility display snapshot delivered by protocol v14;
+it remains null until the initial event arrives. The matching typed stream
+publishes distinct native observations. The library does not choose animation,
+color, wording, or layout policy from those values—applications project them
+onto their own UI while preserving stored configuration.
 
 `TextEditor` is a separate, scrollable `NSTextView` surface for multiline
 editing. `setDocument` publishes one bounded plain-text buffer, UTF-16

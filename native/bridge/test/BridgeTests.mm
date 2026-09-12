@@ -449,6 +449,13 @@ struct Capture {
   int64_t last_port = 0;
 };
 
+dart_appkit::AccessibilityDisplayPreferences g_test_accessibility_preferences;
+
+dart_appkit::AccessibilityDisplayPreferences
+QueryAccessibilityDisplayPreferencesForTesting() {
+  return g_test_accessibility_preferences;
+}
+
 bool CapturePoster(int64_t port, uint32_t protocol_version,
                    const dart_appkit::NativeEvent& event, void* context) {
   auto* capture = static_cast<Capture*>(context);
@@ -1250,6 +1257,24 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(13));
 
+  event.type =
+      DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED;
+  event.reduce_motion = true;
+  event.increase_contrast = false;
+  event.differentiate_without_color = true;
+  const size_t before_version_fourteen_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_fourteen_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 14, 14,
+                                              &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(14));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(14));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1261,7 +1286,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 14, 14, &selected_version),
+      da_application_set_event_port_versioned(4242, 15, 15, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1402,6 +1427,81 @@ void TestApplicationAppearanceObservation() {
   NSApp.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
   EXPECT_EQ(capture.events.size(), after_shutdown);
   NSApp.appearance = original_appearance;
+  dart_appkit::ResetBridgeForTesting();
+}
+
+void TestApplicationAccessibilityDisplayPreferencesObservation() {
+  dart_appkit::ResetBridgeForTesting();
+  g_test_accessibility_preferences = {
+      .reduce_motion = true,
+      .increase_contrast = false,
+      .differentiate_without_color = true,
+  };
+  dart_appkit::InstallAccessibilityDisplayPreferencesQueryForTesting(
+      QueryAccessibilityDisplayPreferencesForTesting);
+  Capture capture;
+  dart_appkit::InstallEventPoster(CapturePoster, &capture);
+  uint32_t selected_version = 0;
+  EXPECT_EQ(da_application_set_event_port_versioned(
+                4242, DA_EVENT_PROTOCOL_VERSION_CURRENT,
+                DA_EVENT_PROTOCOL_VERSION_CURRENT, &selected_version),
+            DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(14));
+  EXPECT_EQ(CountEvents(
+                capture,
+                DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED),
+            static_cast<size_t>(1));
+  const dart_appkit::NativeEvent& initial = capture.events.back();
+  EXPECT_EQ(initial.type,
+            DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED);
+  EXPECT_TRUE(initial.reduce_motion);
+  EXPECT_TRUE(!initial.increase_contrast);
+  EXPECT_TRUE(initial.differentiate_without_color);
+  EXPECT_EQ(initial.window, static_cast<DaHandle>(0));
+  EXPECT_EQ(initial.operation_id, static_cast<int64_t>(0));
+
+  capture.events.clear();
+  capture.protocol_versions.clear();
+  NSNotificationCenter* notification_center =
+      [NSWorkspace sharedWorkspace].notificationCenter;
+  [notification_center
+      postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                    object:nil];
+  EXPECT_TRUE(capture.events.empty());
+
+  g_test_accessibility_preferences.increase_contrast = true;
+  [notification_center
+      postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                    object:nil];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_TRUE(capture.events.back().reduce_motion);
+  EXPECT_TRUE(capture.events.back().increase_contrast);
+  EXPECT_TRUE(capture.events.back().differentiate_without_color);
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(14));
+  [notification_center
+      postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                    object:nil];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+
+  EXPECT_EQ(da_application_set_event_port_versioned(4242, 14, 14,
+                                                    &selected_version),
+            DA_STATUS_OK);
+  capture.events.clear();
+  capture.protocol_versions.clear();
+  g_test_accessibility_preferences.reduce_motion = false;
+  [notification_center
+      postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                    object:nil];
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_TRUE(!capture.events.back().reduce_motion);
+
+  dart_appkit::ShutdownBridge();
+  const size_t after_shutdown = capture.events.size();
+  g_test_accessibility_preferences.differentiate_without_color = false;
+  [notification_center
+      postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
+                    object:nil];
+  EXPECT_EQ(capture.events.size(), after_shutdown);
   dart_appkit::ResetBridgeForTesting();
 }
 
@@ -4841,6 +4941,7 @@ int main() {
     TestEventProtocolNegotiation();
     TestLifecycleRequests();
     TestApplicationAppearanceObservation();
+    TestApplicationAccessibilityDisplayPreferencesObservation();
     TestPasteboardText();
     TestExternalUrlOpening();
     TestUserNotificationsAndDockBadge();

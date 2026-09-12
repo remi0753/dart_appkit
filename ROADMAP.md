@@ -191,6 +191,21 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - [x] generic test fixture、現行文書、Makefileを是正し、再混入を拒否するsource auditを追加する。
 - [x] exact full gateとconsumerのDeveloper JIT／Release AOT受け入れ後に親項目を完了する。
 
+### [x] 汎用accessibility display preference観測
+
+達成目標: macOSのReduce Motion、Increase Contrast、Differentiate Without Colorを、
+application固有policyを含まないimmutable snapshotとdeduplicated eventとして公開する。
+
+- [x] OS observation、protocol、Dart cache／stream、lifecycleの境界と検証条件を確定する。
+- [x] event protocol v14、native observer、typed Dart API、current／legacy testを実装する。
+- [x] 完全gateとDeveloper JIT／Release AOT smokeを通し、公開文書を更新する。
+
+完了条件:
+
+- attach時の初期snapshotと実変更だけがapplication-scoped eventとして配送される。
+- observerの再登録、旧protocolへのfilter、shutdown後の無配送が検証される。
+- application固有のanimation、色、文言、layout policyを汎用packageへ追加しない。
+
 ## 未実装ロードマップ
 
 主要な依存順は次のとおりとする。

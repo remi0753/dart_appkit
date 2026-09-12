@@ -3669,3 +3669,78 @@ documentation leak listed by the inventory has been removed or transferred.
 Both exact repository gates and both consumer runtime modes pass, so the final
 subtask and the ownership-correction parent are complete with no blocker or
 deferred work.
+
+## 2026-09-13 — Accessibility display preference observation contract
+
+### Purpose and background
+
+- The next consumer accessibility item needs live macOS Reduce Motion,
+  Increase Contrast, and Differentiate Without Color values. The current v13
+  event protocol exposes active state and effective light/dark appearance, but
+  no typed accessibility-display snapshot.
+- `NSWorkspace` owns all three process-wide values and publishes
+  `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification`. Observing and
+  copying that state is reusable AppKit mechanism; any animation, color,
+  wording, geometry, or workflow decision remains application policy.
+
+### Scope, exclusions, and dependencies
+
+- Scope: an immutable three-boolean Dart value, one application-scoped v14
+  event, an initial snapshot after versioned event-port registration, a
+  notification-center observer with distinct-snapshot deduplication, Dart
+  cache/stream projection, shutdown cleanup, strict decoding, current/legacy
+  native and Dart coverage, and public protocol documentation.
+- Out of scope: selecting animations, colors, contrast thresholds, localized
+  text, layout direction, or changing any stored application configuration.
+- The event uses the existing zero source identity, zero operation ID,
+  monotonic timestamp, version negotiation, and event-poster ownership. No C
+  ABI entry is required because the data is pushed through the established
+  event port.
+
+### Acceptance and verification plan
+
+- Protocol v14 encodes exactly three booleans in the order reduce motion,
+  increase contrast, and differentiate without color. Dart rejects short,
+  long, pre-v14, non-boolean, nonzero-source, and nonzero-operation records.
+- Native tests cover initial delivery, changed delivery, duplicate
+  suppression, observer replacement, legacy filtering, and no delivery after
+  shutdown. Dart tests cover value equality, cache-before-stream observation,
+  typed filtering, and malformed records.
+- Run header and event-encoder contracts, bridge tests, Dart analysis/unit
+  tests, current and legacy FFI smoke, the generic source audit, the complete
+  repository gate, and bounded Developer JIT and Release AOT smoke. No
+  duration-only soak is required for this bounded mechanism.
+
+### Implementation and focused verification
+
+- Event protocol v14 adds one application-scoped record containing exactly
+  three native booleans. Earlier negotiated sinks reject it before invoking
+  the event poster; v1 through v13 wire layouts and event identities are
+  unchanged.
+- A notification-center observer copies all three `NSWorkspace` properties,
+  compares the complete snapshot, and posts only distinct values. Event-port
+  replacement stops the prior observer before registering another; legacy
+  registration does not start it; bridge shutdown removes it before disabling
+  the poster.
+- Dart exposes an immutable value, typed event and stream, and nullable latest
+  cache. Strict decoding updates the cache before application stream observers
+  run and rejects malformed length, type, version, source, and operation data.
+- `make validate native-test event-encoder-test dart-test` passed after one
+  focused test correction: the encoder's former out-of-range check still used
+  14 after 14 became current, so it was correctly moved to 15. No production
+  defect was involved.
+
+### Final verification and roadmap checkpoint
+
+- `CI=true DART_SUPPRESS_ANALYTICS=true make test` passed. This covered the
+  131-path/130-text-file generic ownership audit, C/C++ header and native
+  bridge contracts, shared event encoder, runtime hosts and builder, public
+  Dart API, example package and Kernel, current FFI, and v1 legacy fallback.
+- The manifest-driven hello-window application built, launched, processed
+  three timer ticks, delivered menu and close events, released all handles, and
+  exited cleanly in both Developer JIT and Release AOT modes.
+- README, architecture, verification matrix, and roadmap now describe v14 and
+  the nullable typed cache/stream. No application presentation policy or
+  product vocabulary entered the generic source. The bounded observation item
+  is complete; the pre-existing G0 item remains the next independent roadmap
+  work.

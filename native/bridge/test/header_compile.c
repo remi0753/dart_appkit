@@ -27,7 +27,7 @@ _Static_assert(sizeof(DaSecureEventInputSnapshot) == 24,
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 13,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 14,
                "unexpected current event protocol version");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");

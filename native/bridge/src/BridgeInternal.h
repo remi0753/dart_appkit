@@ -41,6 +41,9 @@ struct NativeEvent {
   bool has_precise_scrolling_deltas = false;
   bool direction_inverted_from_device = false;
   bool state = false;
+  bool reduce_motion = false;
+  bool increase_contrast = false;
+  bool differentiate_without_color = false;
   bool has_screen = false;
   int64_t screen_id = 0;
   int64_t scroll_phase = DA_SCROLL_PHASE_NONE;
@@ -80,6 +83,21 @@ using UserNotificationLifecycleHandler = bool (*)(
 using SecureEventInputStatusHandler = int32_t (*)();
 using SecureEventInputEnabledHandler = bool (*)();
 using ApplicationActiveQuery = bool (*)();
+
+struct AccessibilityDisplayPreferences {
+  bool reduce_motion = false;
+  bool increase_contrast = false;
+  bool differentiate_without_color = false;
+
+  bool operator==(const AccessibilityDisplayPreferences& other) const {
+    return reduce_motion == other.reduce_motion &&
+           increase_contrast == other.increase_contrast &&
+           differentiate_without_color == other.differentiate_without_color;
+  }
+};
+
+using AccessibilityDisplayPreferencesQuery =
+    AccessibilityDisplayPreferences (*)();
 
 struct ScreenSelectionCandidate {
   DaScreenSnapshot snapshot{};
@@ -130,6 +148,13 @@ void PostApplicationAppearanceChanged(bool is_dark);
 bool ApplicationUsesDarkAppearance();
 void StartApplicationAppearanceObservation();
 void StopApplicationAppearanceObservation();
+void PostApplicationAccessibilityDisplayPreferencesChanged(
+    const AccessibilityDisplayPreferences& preferences);
+AccessibilityDisplayPreferences ApplicationAccessibilityDisplayPreferences();
+void StartApplicationAccessibilityDisplayPreferencesObservation();
+void StopApplicationAccessibilityDisplayPreferencesObservation();
+void InstallAccessibilityDisplayPreferencesQueryForTesting(
+    AccessibilityDisplayPreferencesQuery query);
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
 void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
                                               void* context);
@@ -186,6 +211,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 12;
     case DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED:
       return protocol_version >= 13;
+    case DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED:
+      return protocol_version >= 14;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
