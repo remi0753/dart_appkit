@@ -37,6 +37,7 @@ int da_header_compiles_as_cpp() {
   auto* configured_view_create = &da_view_create_configured;
   auto* configured_text_view_create = &da_text_view_create_configured;
   auto* configured_menu_create = &da_menu_create_configured;
+  auto* menu_item_set_checked = &da_menu_item_set_checked;
   auto* custom_view_operation = &da_view_perform_custom_operation;
   auto* external_url_open = &da_application_open_external_url;
   auto* external_url_open_with_policy =
@@ -62,6 +63,7 @@ int da_header_compiles_as_cpp() {
                  configured_view_create != nullptr &&
                  configured_text_view_create != nullptr &&
                  configured_menu_create != nullptr &&
+                 menu_item_set_checked != nullptr &&
                  custom_view_operation != nullptr &&
                  external_url_open != nullptr &&
                  external_url_open_with_policy != nullptr &&

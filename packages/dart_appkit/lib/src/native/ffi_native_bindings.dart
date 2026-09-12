@@ -1307,6 +1307,7 @@ final class FfiNativeBindings
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
+        NativeMenuItemStateBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1369,6 +1370,10 @@ final class FfiNativeBindings
       _menuAddItem = _lookupMenuAddItem(library),
       _menuItemSetSubmenu = _lookupMenuItemSetSubmenu(library),
       _menuItemSetEnabled = _lookupMenuItemSetEnabled(library),
+      _menuItemSetChecked = _lookupHandleInt(
+        library,
+        'da_menu_item_set_checked',
+      ),
       _applicationSetMainMenu = _lookupApplicationSetMainMenu(library),
       _menuItemPerformAction = _lookupMenuItemPerformAction(library),
       _windowCreate = library
@@ -1546,6 +1551,7 @@ final class FfiNativeBindings
   final _TwoHandlesDart? _menuAddItem;
   final _TwoHandlesDart? _menuItemSetSubmenu;
   final _HandleBoolStatusDart? _menuItemSetEnabled;
+  final _HandleBoolStatusDart? _menuItemSetChecked;
   final _HandleStatusDart? _applicationSetMainMenu;
   final _HandleStatusDart? _menuItemPerformAction;
   final _WindowCreateDart _windowCreate;
@@ -2321,6 +2327,18 @@ final class FfiNativeBindings
       );
     }
     return _callResult(function(itemHandle, enabled ? 1 : 0));
+  }
+
+  @override
+  NativeCallResult menuItemSetChecked(int handle, bool checked) {
+    final _HandleBoolStatusDart? function = _menuItemSetChecked;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support checked menu items',
+      );
+    }
+    return _callResult(function(handle, checked ? 1 : 0));
   }
 
   @override

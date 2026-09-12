@@ -2595,6 +2595,30 @@ int32_t da_menu_item_set_enabled(DaHandle item, int32_t enabled) {
   return DA_STATUS_OK;
 }
 
+int32_t da_menu_item_set_checked(DaHandle item, int32_t checked) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (checked != 0 && checked != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "checked must be 0 or 1");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaMenuItemOwner* owner = dart_appkit::MenuItemOwner(item, &status);
+  if (owner == nil) {
+    return status;
+  }
+  if (owner.isSeparator) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "a separator has no checked state");
+  }
+  owner.item.state = checked == 1 ? NSControlStateValueOn
+                                  : NSControlStateValueOff;
+  return DA_STATUS_OK;
+}
+
 int32_t da_application_set_main_menu(DaHandle menu) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();

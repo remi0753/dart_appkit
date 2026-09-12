@@ -599,6 +599,9 @@ DA_EXPORT int32_t da_menu_item_set_submenu(DaHandle item, DaHandle submenu);
 /** Main thread only. enabled must be 0 or 1. */
 DA_EXPORT int32_t da_menu_item_set_enabled(DaHandle item, int32_t enabled);
 
+/** Main thread only. checked must be 0 or 1. Separators are rejected. */
+DA_EXPORT int32_t da_menu_item_set_checked(DaHandle item, int32_t checked);
+
 /** Main thread only. Attaches the main menu, or clears it when menu is zero. */
 DA_EXPORT int32_t da_application_set_main_menu(DaHandle menu);
 

@@ -3207,3 +3207,24 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   runtime-aot-runner` も同じ bridge を Developer JIT／Release AOT の両 generic host に
   warning-as-error でリンクした。さらに consuming Dart Terminal の exact `make test` は
   272-file format、analysis、generated reference/evidence、Phase 9 security stress を含めて成功した。
+
+## 2026-09-12 — Checked menu-item projection
+
+- Dart Terminal が Secure Keyboard Entry の retained manual mode を application menu に表示する前提として、
+  既存 `MenuItem` に AppKit 標準の off/on state を投影できる最小の additive API を追加した。
+  mixed や画像、action policy、product 固有の checked 判定は対象外とした。
+- `da_menu_item_set_checked` は main-thread、generation/type、厳密な 0/1、separator 拒否を
+  enabled state と同じ所有権境界で検査し、`NSControlStateValueOff/On` だけを更新する。
+  ABI version と event protocol は変更しない。
+- Dart `MenuItem.isChecked` は native 成功後だけキャッシュを更新し、separator と旧 bridge を
+  typed error にする。native/Dart/current FFI/legacy FFI/header テストは on/off、等値更新、
+  失敗時キャッシュ保持、不正値、separator、main-thread guard、unsupported fallback を検証する。
+- 最初の `dart format` は sandbox 外の telemetry session の mtime 更新を拒否され、整形自体は
+  0-file change の後に終了値 1 となった。同じ対象を許可済みの sandbox 外で再実行し、0-file
+  change と成功を確認した。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make validate native-test dart-test ffi-smoke` は
+  C11/C++20 header、warning-clean native bridge、Dart API/analyzer、current/legacy FFI をすべて通過した。
+- Exact `CI=true DART_SUPPRESS_ANALYTICS=true make test` は Runner、event/lifecycle/diagnostics、native
+  capability、renderer、PTY、全 Dart packages、Kernel、current/legacy FFI を回帰なく通過した。
+  Consuming Dart Terminal の同じ exact gate も 272-file format、analysis、generated reference/evidence、
+  security stress を含め成功した。`git diff --check` は clean である。

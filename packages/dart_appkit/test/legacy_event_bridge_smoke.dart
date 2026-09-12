@@ -335,6 +335,7 @@ void main(List<String> arguments) {
       bindings.menuAddItem(1, 2).status != 8 ||
       bindings.menuItemSetSubmenu(1, 2).status != 8 ||
       bindings.menuItemSetEnabled(1, true).status != 8 ||
+      bindings.menuItemSetChecked(1, true).status != 8 ||
       bindings.applicationSetMainMenu(1).status != 8 ||
       bindings.menuItemPerformAction(1).status != 8) {
     _fail('legacy bridge did not reject additive menu APIs');

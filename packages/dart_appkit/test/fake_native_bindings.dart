@@ -36,6 +36,7 @@ final class FakeNativeBindings
         NativeTextEditorBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
+        NativeMenuItemStateBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -166,6 +167,7 @@ final class FakeNativeBindings
   final Map<int, List<int>> menuContents = <int, List<int>>{};
   final Map<int, int> submenus = <int, int>{};
   final Map<int, bool> menuItemEnabled = <int, bool>{};
+  final Map<int, bool> menuItemChecked = <int, bool>{};
   final List<int> performedMenuItems = <int>[];
   final List<int> windowCloseRequests = <int>[];
   int? windowCloseReplyHandle;
@@ -548,6 +550,7 @@ final class FakeNativeBindings
         isSeparator: false,
       );
       menuItemEnabled[handle] = true;
+      menuItemChecked[handle] = false;
     }
     return result;
   }
@@ -599,6 +602,13 @@ final class FakeNativeBindings
     if (result.isSuccess) {
       menuItemEnabled[itemHandle] = enabled;
     }
+    return result;
+  }
+
+  @override
+  NativeCallResult menuItemSetChecked(int handle, bool checked) {
+    final NativeCallResult result = _status('menuItemSetChecked');
+    if (result.isSuccess) menuItemChecked[handle] = checked;
     return result;
   }
 
@@ -1225,6 +1235,7 @@ final class FakeNativeBindings
       menuContents.remove(handle);
       submenus.remove(handle);
       menuItemEnabled.remove(handle);
+      menuItemChecked.remove(handle);
       globalHotKeys.remove(handle);
       secureInputIndicatorStates.remove(handle);
       if (secureEventInputOwner == handle) {

@@ -156,6 +156,10 @@ void main(List<String> arguments) {
   if (menu.isSuccess || menu.status != 5 || menu.message.isEmpty) {
     _fail('menu symbol did not preserve its main-thread guard');
   }
+  final NativeCallResult checked = bindings.menuItemSetChecked(1, true);
+  if (checked.isSuccess || checked.status != 5 || checked.message.isEmpty) {
+    _fail('checked menu-item symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<int> customView = bindings.customViewCreate(
     'missing.Provider',
   );

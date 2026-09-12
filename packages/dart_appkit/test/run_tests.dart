@@ -2366,10 +2366,20 @@ Future<void> _testMenuApi() async {
   );
   await _expectThrows<StateError>(quit.performAction);
   quit.isEnabled = true;
+  quit.isChecked = true;
+  _expect(
+    quit.isChecked && bindings.menuItemChecked[quitHandle] == true,
+    'checked state forwarded',
+  );
+  bindings.failNextOperation = 'menuItemSetChecked';
+  await _expectThrows<AppKitNativeException>(() => quit.isChecked = false);
+  _expect(quit.isChecked, 'failed checked update is not cached');
+  quit.isChecked = false;
   bindings.failNextOperation = 'menuItemSetEnabled';
   await _expectThrows<AppKitNativeException>(() => quit.isEnabled = false);
   _expect(quit.isEnabled, 'failed enabled update is not cached');
   await _expectThrows<StateError>(separator.performAction);
+  await _expectThrows<StateError>(() => separator.isChecked = true);
   await _expectThrows<StateError>(() => separator.submenu = applicationMenu);
   await _expectThrows<ArgumentError>(
     () => MenuItem(title: 'Invalid', modifiers: const ModifierKeys(1 << 20)),

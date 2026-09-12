@@ -151,6 +151,7 @@ final class MenuItem extends _NativeResource {
 
   Menu? _submenu;
   bool _enabled = true;
+  bool _checked = false;
 
   Stream<MenuItemInvokedEvent> get onInvoked => _eventController.stream;
 
@@ -193,6 +194,35 @@ final class MenuItem extends _NativeResource {
       'MenuItem.isEnabled',
     );
     _enabled = value;
+  }
+
+  bool get isChecked {
+    ensureAlive();
+    return _checked;
+  }
+
+  set isChecked(bool value) {
+    ensureAlive();
+    if (isSeparator) {
+      throw StateError('a separator has no checked state');
+    }
+    if (value == _checked) return;
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeMenuItemStateBindings) {
+      throw const AppKitNativeException(
+        operation: 'MenuItem.isChecked',
+        status: 8,
+        nativeMessage: 'native bridge does not support checked menu items',
+      );
+    }
+    _checkCall(
+      (bindings as NativeMenuItemStateBindings).menuItemSetChecked(
+        _handle,
+        value,
+      ),
+      'MenuItem.isChecked',
+    );
+    _checked = value;
   }
 
   void performAction() {

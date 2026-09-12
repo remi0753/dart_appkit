@@ -151,6 +151,11 @@ view.dispose();
 await app.terminate();
 ```
 
+Actionable `MenuItem` instances also expose cache-on-success
+`isEnabled` and `isChecked` state. Checked state is suitable for projecting
+retained application modes into an ordinary AppKit menu without changing the
+item action or shortcut.
+
 `WindowConfiguration` selects titled, closable, miniaturizable, and resizable
 styles independently at creation. Its const default preserves the historical
 four-style window; setting all four flags false creates a borderless window.

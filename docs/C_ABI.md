@@ -471,7 +471,9 @@ native image rather than silently changing validation policy.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and
-operation ID zero. Separators reject submenu, enabled-state, and perform calls.
+operation ID zero. `da_menu_item_set_checked` maps an exact `0` or `1` to the
+ordinary AppKit off/on state without changing enablement or action routing.
+Separators reject submenu, enabled-state, checked-state, and perform calls.
 `da_menu_item_perform_action` uses the same target path as an AppKit click and
 exists for deterministic product/integration exercise; an enabled actionable
 item is required. A v1-v3 sink suppresses the v4 action record without changing

@@ -1557,6 +1557,11 @@ void TestMenus() {
   EXPECT_TRUE(!native_quit_item.item.isEnabled);
   EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_menu_item_set_enabled(quit_item, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_item_set_checked(quit_item, 1), DA_STATUS_OK);
+  EXPECT_EQ(native_quit_item.item.state, NSControlStateValueOn);
+  EXPECT_EQ(da_menu_item_set_checked(quit_item, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_menu_item_set_checked(quit_item, 0), DA_STATUS_OK);
+  EXPECT_EQ(native_quit_item.item.state, NSControlStateValueOff);
   EXPECT_EQ(da_menu_item_perform_action(quit_item), DA_STATUS_OK);
   EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
   EXPECT_EQ(capture.events.back().type, DA_EVENT_MENU_ITEM_INVOKED);
@@ -1569,8 +1574,10 @@ void TestMenus() {
   EXPECT_EQ(da_menu_item_set_submenu(separator, app_menu),
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_menu_item_set_enabled(separator, 1), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_set_checked(separator, 1), DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_menu_item_perform_action(separator), DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(da_menu_item_set_enabled(quit_item, 2), DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_menu_item_set_checked(quit_item, 2), DA_STATUS_INVALID_ARGUMENT);
 
   dart_appkit::InstallEventPoster(CapturePoster, &capture);
   uint32_t selected_version = 0;

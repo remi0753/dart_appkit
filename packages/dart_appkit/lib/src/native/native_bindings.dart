@@ -489,6 +489,11 @@ abstract interface class NativeGlobalHotKeyBindings {
   });
 }
 
+/// Optional native checked state for existing menu-item handles.
+abstract interface class NativeMenuItemStateBindings {
+  NativeCallResult menuItemSetChecked(int handle, bool checked);
+}
+
 /// Optional balanced Secure Event Input and view-indicator surface.
 abstract interface class NativeSecureEventInputBindings {
   NativeValueResult<int> secureEventInputCreate();
