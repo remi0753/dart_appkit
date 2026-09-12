@@ -731,6 +731,9 @@ application delegate eventを提供する。
   test中に実browser／mail applicationを起動せずvalidationとdispatchを検証できる。
 - application policyを渡すadditive ABI entryを実装し、旧entryへは互換defaultと完全一致する
   場合だけfallbackする。custom scheme／条件は旧bridgeでunsupportedとして拒否する。
+- `NSApplication.servicesProvider`へboundedなfolder Services providerを接続した。
+  `openTab`／`openWindow` callbackはlocal file URLだけをfilesystem metadataでdirectory自身または
+  fileの親へ正規化し、順序を保って重複排除したv12 application eventを非同期配送する。
 
 未実装:
 

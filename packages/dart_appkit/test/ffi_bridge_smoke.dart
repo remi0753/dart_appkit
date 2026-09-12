@@ -187,6 +187,19 @@ void main(List<String> arguments) {
       dropDestination.message.isEmpty) {
     _fail('drop destination symbol did not preserve its main-thread guard');
   }
+  final NativeCallResult folderServices = bindings
+      .applicationSetFolderServicesProvider(
+        const NativeFolderServicesProviderConfiguration(
+          maximumFileUrlCount: 2,
+          maximumFileUrlUtf8Bytes: 256,
+          maximumTotalFileUrlUtf8Bytes: 512,
+        ),
+      );
+  if (folderServices.isSuccess ||
+      folderServices.status != 5 ||
+      folderServices.message.isEmpty) {
+    _fail('folder Services symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings

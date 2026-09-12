@@ -46,6 +46,7 @@ struct NativeEvent {
   int64_t scroll_phase = DA_SCROLL_PHASE_NONE;
   int64_t momentum_phase = DA_SCROLL_PHASE_NONE;
   int64_t drop_content_kind = DA_DROP_CONTENT_PLAIN_TEXT;
+  int64_t folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
 
   std::string characters;
   std::string characters_ignoring_modifiers;
@@ -157,6 +158,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 10;
     case DA_EVENT_VIEW_DROP_PERFORMED:
       return protocol_version >= 11;
+    case DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED:
+      return protocol_version >= 12;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

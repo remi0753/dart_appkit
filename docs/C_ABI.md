@@ -216,7 +216,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 11 use the six-field common prefix:
+Versions 2 through 12 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -230,10 +230,10 @@ Versions 2 through 11 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 11 use nanoseconds.
+  microseconds; versions 2 through 12 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 11 is current. Version 3 adds window state, version 4 adds lifecycle
+- Version 12 is current. Version 3 adds window state, version 4 adds lifecycle
   decisions and menu actions, version 5 adds precision scroll, version 6 adds
   outer-frame and native-fullscreen state, and version 7 adds an application
   effective-appearance boolean (`false` light, `true` dark). Version 8 adds
@@ -241,6 +241,8 @@ Versions 2 through 11 use the six-field common prefix:
   finite x/y coordinates. Version 10 adds bounded plain text returned by a
   Service to its registered View. Version 11 adds a bounded performed
   plain-text or local-file-URL drop with finite target-local coordinates.
+  Version 12 adds bounded canonical directory URLs requested by the
+  application folder Services provider.
   Version-specific types are suppressed for an older negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
@@ -274,6 +276,7 @@ Payloads:
 | `VIEW_QUICK_LOOK_REQUESTED` | `x: finite double, y: finite double`; the source handle identifies the registered View and the coordinates use that View's AppKit coordinate system |
 | `VIEW_SERVICES_TEXT_RECEIVED` | `text: Uint8 typed data`; the source handle identifies the registered View, native admission bounds UTF-8 before posting, and Dart strictly decodes the length-carrying bytes |
 | `VIEW_DROP_PERFORMED` | `contentKind: int, x/y: finite double, content: Uint8 typed data`; text is exact bounded UTF-8, while file URLs use a bounded little-endian count/length packet and the source handle identifies the destination View |
+| `APPLICATION_FOLDER_SERVICE_REQUESTED` | `disposition: int, directoryUrls: Uint8 typed data`; application source identity is zero, disposition is new tabs or new windows, and directory URLs use the bounded little-endian count/length packet |
 
 Coordinates use the content view's top-left origin. Modifier values use stable
 `DaModifier` bits rather than exposing AppKit's enum representation.
@@ -544,6 +547,26 @@ File URL items must all be absolute local `file:` URLs without credentials,
 ports, queries, or fragments; native standardizes them and serializes one
 little-endian `uint32` count followed by `uint32 byteLength + UTF-8 bytes` per
 item. Dart checks every framing, byte, URL, and generation invariant again.
+
+`da_application_set_folder_services_provider` installs or replaces a
+size-prefixed application provider, or removes it when configuration is null.
+The fixed Service message bases are `openTab` and `openWindow`; the following
+runtime declaration layer uses those names and this bridge does not mutate the
+bundle. Each synchronous callback reads only file-URL pasteboard items under
+caller bounds no larger than 256 items, 1 MiB per URL, and 64 MiB aggregate.
+Absolute local URLs without credentials, ports, queries, or fragments are
+standardized, classified with filesystem directory metadata, and mapped to the
+selected directory itself or a selected file's parent. Indeterminate/missing
+items fail closed. Canonical directory URLs are de-duplicated in first-seen
+order and encoded with the same little-endian packet framing.
+
+The provider posts one v12 `APPLICATION_FOLDER_SERVICE_REQUESTED` record only
+after the whole snapshot succeeds; the callback never enters Dart inline.
+Failure sets one bounded deterministic Service error and posts no partial
+record. Disable, application termination, and bridge shutdown detach the
+provider from `NSApplication`; a stale retained provider cannot post. Dart
+revalidates framing, limits, absolute local canonical directory shape,
+uniqueness, zero source identity, and the closed disposition.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and

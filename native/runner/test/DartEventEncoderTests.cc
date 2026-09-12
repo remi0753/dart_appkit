@@ -226,6 +226,18 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectDouble(values[7], 30.5);
     ExpectDouble(values[8], 40.25);
     ExpectUtf8Bytes(values[9], std::string("\x01\0\0\0\x03\0\0\0url", 11));
+  } else if (g_expected_case == 16) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(8));
+    ExpectInt(values[0], 12);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectInt(values[6], DA_FOLDER_SERVICE_NEW_WINDOWS);
+    ExpectUtf8Bytes(
+        values[7],
+        std::string("\x01\0\0\0\x0b\0\0\0file:///tmp", 19));
   } else {
     EXPECT_TRUE(false);
   }
@@ -349,6 +361,15 @@ int main() {
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 11, event));
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 10, event));
 
+  event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
+  event.window = 0;
+  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_WINDOWS;
+  event.characters =
+      std::string("\x01\0\0\0\x0b\0\0\0file:///tmp", 19);
+  g_expected_case = 16;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 12, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 11, event));
+
   const int accepted_posts = g_post_count;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
   event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
@@ -397,14 +418,22 @@ int main() {
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 1, event));
   event.operation_id = 0;
   event.type = DA_EVENT_VIEW_DROP_PERFORMED;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
   event.drop_content_kind = 2;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 11, event));
   event.drop_content_kind = DA_DROP_CONTENT_PLAIN_TEXT;
   event.x = std::numeric_limits<double>::infinity();
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 11, event));
   event.x = 30.5;
-  event.type = DA_EVENT_KEY_DOWN;
+  event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
+  event.window = 0;
+  event.folder_service_disposition = 2;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
+  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
+  event.type = DA_EVENT_KEY_DOWN;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 13, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

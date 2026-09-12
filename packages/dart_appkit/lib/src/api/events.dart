@@ -83,6 +83,23 @@ final class ApplicationAppearanceChangedEvent extends ApplicationEvent {
   final AppKitAppearance appearance;
 }
 
+enum FolderServiceDisposition { newTabs, newWindows }
+
+/// One bounded Finder Service request containing canonical local directories.
+final class ApplicationFolderServiceRequestedEvent extends ApplicationEvent {
+  ApplicationFolderServiceRequestedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 12,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.disposition,
+    required Iterable<Uri> directoryUrls,
+  }) : directoryUrls = List<Uri>.unmodifiable(directoryUrls);
+
+  final FolderServiceDisposition disposition;
+  final List<Uri> directoryUrls;
+}
+
 sealed class WindowEvent extends AppKitEvent {
   const WindowEvent({
     required super.windowHandle,
@@ -532,6 +549,7 @@ final class _EventCodec {
   static const int _viewQuickLookRequested = 42;
   static const int _viewServicesTextReceived = 43;
   static const int _viewDropPerformed = 44;
+  static const int _applicationFolderServiceRequested = 45;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -980,6 +998,36 @@ final class _EventCodec {
           y: _finiteNumber(message, payloadOffset + 2, 'y'),
           content: content,
         );
+      case _applicationFolderServiceRequested:
+        _requireVersionTwelve(version, 'application folder Service requested');
+        _expectLength(
+          message,
+          payloadOffset + 2,
+          'application folder Service requested',
+        );
+        final FolderServiceDisposition disposition = switch (_integer(
+          message,
+          payloadOffset,
+          'folderServiceDisposition',
+        )) {
+          0 => FolderServiceDisposition.newTabs,
+          1 => FolderServiceDisposition.newWindows,
+          final int value => throw FormatException(
+            'folderServiceDisposition has invalid value $value',
+          ),
+        };
+        return ApplicationFolderServiceRequestedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          disposition: disposition,
+          directoryUrls: _boundedFileUrls(
+            message,
+            payloadOffset + 1,
+            requireDirectories: true,
+          ),
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -1027,6 +1075,12 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionTwelve(int version, String eventName) {
+    if (version < 12) {
+      throw FormatException('$eventName requires native event protocol 12');
+    }
+  }
+
   static void _requireVersionFive(int version, String eventName) {
     if (version < 5) {
       throw FormatException('$eventName requires native event protocol 5');
@@ -1070,7 +1124,8 @@ final class _EventCodec {
       type == _applicationActiveChanged ||
       type == _applicationReopenRequested ||
       type == _applicationTerminateRequested ||
-      type == _applicationAppearanceChanged;
+      type == _applicationAppearanceChanged ||
+      type == _applicationFolderServiceRequested;
 
   static bool _requiresReply(int type) =>
       type == _windowCloseRequested || type == _applicationTerminateRequested;
@@ -1176,7 +1231,11 @@ final class _EventCodec {
     }
   }
 
-  static List<Uri> _boundedFileUrls(List<Object?> values, int index) {
+  static List<Uri> _boundedFileUrls(
+    List<Object?> values,
+    int index, {
+    bool requireDirectories = false,
+  }) {
     final Object? value = values[index];
     if (value is! Uint8List) {
       throw const FormatException('fileUrls must be a byte packet');
@@ -1196,6 +1255,7 @@ final class _EventCodec {
       throw const FormatException('file URL count is invalid');
     }
     final List<Uri> result = <Uri>[];
+    final Set<String> seenDirectories = <String>{};
     int totalUrlBytes = 0;
     for (int item = 0; item < count; item++) {
       if (offset + 4 > value.length) {
@@ -1236,9 +1296,18 @@ final class _EventCodec {
           uri.userInfo.isNotEmpty ||
           uri.hasPort ||
           uri.hasQuery ||
-          uri.hasFragment) {
+          uri.hasFragment ||
+          requireDirectories &&
+              (host.isNotEmpty ||
+                  !uri.path.endsWith('/') ||
+                  uri.normalizePath() != uri)) {
         throw const FormatException(
           'dropped URL must be an absolute local file URL',
+        );
+      }
+      if (requireDirectories && !seenDirectories.add(uri.toString())) {
+        throw const FormatException(
+          'folder Service directory URLs must be unique',
         );
       }
       result.add(uri);

@@ -14,7 +14,8 @@ balanced Secure Event Input ownership with automatic/manual view indication,
 view-local context menus, stage-2 pressure lookup requests, and bounded native
 dictionary definition presentation, cached plain-text Services requestors with
 bounded asynchronous returned text, and copy-only bounded plain-text/local
-file-URL drop destinations,
+file-URL drop destinations, plus a bounded application folder Services
+provider,
 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
@@ -35,9 +36,11 @@ Version 7 adds a deduplicated application effective-appearance snapshot and
 change event. Version 8 adds an owned global-hot-key pressed event, and version
 9 adds a generation-checked View-local Quick Look request with finite local
 coordinates. Version 10 adds bounded plain text returned by a Service to its
-generation-checked View. Current Dart/native pairs negotiate version 11,
-which adds a performed text/file-URL drop for a generation-checked View. The
-Dart API strictly decodes all eleven
+generation-checked View. Version 11 adds a performed text/file-URL drop for a
+generation-checked View. Current Dart/native pairs negotiate version 12,
+which adds typed new-tab/new-window requests containing canonical local
+directory URLs from the application Services provider. The Dart API strictly
+decodes all twelve
 versions and suppresses newer records for older negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded

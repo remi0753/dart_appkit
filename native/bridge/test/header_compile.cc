@@ -20,6 +20,9 @@ static_assert(std::is_standard_layout_v<DaServicesTextRequestorConfiguration>);
 static_assert(sizeof(DaServicesTextRequestorConfiguration) == 32);
 static_assert(std::is_standard_layout_v<DaDropDestinationConfiguration>);
 static_assert(sizeof(DaDropDestinationConfiguration) == 56);
+static_assert(
+    std::is_standard_layout_v<DaFolderServicesProviderConfiguration>);
+static_assert(sizeof(DaFolderServicesProviderConfiguration) == 40);
 static_assert(std::is_standard_layout_v<DaMenuConfiguration>);
 static_assert(sizeof(DaMenuConfiguration) == 16);
 static_assert(std::is_standard_layout_v<DaScreenSnapshot>);
@@ -29,7 +32,7 @@ static_assert(sizeof(DaWindowPresentationConfiguration) == 24);
 static_assert(std::is_standard_layout_v<DaSecureEventInputSnapshot>);
 static_assert(sizeof(DaSecureEventInputSnapshot) == 24);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 11);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 12);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);
@@ -47,6 +50,8 @@ int da_header_compiles_as_cpp() {
   auto* show_definition = &da_view_show_definition;
   auto* services_text_requestor = &da_view_set_services_text_requestor;
   auto* drop_destination = &da_view_set_drop_destination;
+  auto* folder_services_provider =
+      &da_application_set_folder_services_provider;
   auto* configured_text_view_create = &da_text_view_create_configured;
   auto* configured_menu_create = &da_menu_create_configured;
   auto* menu_item_set_checked = &da_menu_item_set_checked;
@@ -90,6 +95,7 @@ int da_header_compiles_as_cpp() {
                  show_definition != nullptr &&
                  services_text_requestor != nullptr &&
                  drop_destination != nullptr &&
+                 folder_services_provider != nullptr &&
                  screen_resolve != nullptr && window_present != nullptr &&
                  window_hide != nullptr &&
                  window_presentation_configuration != nullptr &&

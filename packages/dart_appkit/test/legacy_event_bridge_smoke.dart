@@ -255,6 +255,18 @@ void main(List<String> arguments) {
       8) {
     _fail('legacy bridge accepted additive drop destination APIs');
   }
+  if (bindings
+          .applicationSetFolderServicesProvider(
+            const NativeFolderServicesProviderConfiguration(
+              maximumFileUrlCount: 2,
+              maximumFileUrlUtf8Bytes: 256,
+              maximumTotalFileUrlUtf8Bytes: 512,
+            ),
+          )
+          .status !=
+      8) {
+    _fail('legacy bridge accepted additive folder Services APIs');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

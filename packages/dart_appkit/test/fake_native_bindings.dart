@@ -41,6 +41,7 @@ final class FakeNativeBindings
         NativeQuickLookBindings,
         NativeServicesTextRequestorBindings,
         NativeDropDestinationBindings,
+        NativeFolderServicesProviderBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -87,6 +88,7 @@ final class FakeNativeBindings
   servicesTextRequestors = <int, NativeServicesTextRequestorConfiguration>{};
   final Map<int, NativeDropDestinationConfiguration> dropDestinations =
       <int, NativeDropDestinationConfiguration>{};
+  NativeFolderServicesProviderConfiguration? folderServicesProvider;
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -245,6 +247,7 @@ final class FakeNativeBindings
     final NativeCallResult result = _status('applicationTerminate');
     if (result.isSuccess) {
       terminateCalled = true;
+      folderServicesProvider = null;
     }
     return result;
   }
@@ -516,6 +519,19 @@ final class FakeNativeBindings
       } else {
         dropDestinations[handle] = configuration;
       }
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult applicationSetFolderServicesProvider(
+    NativeFolderServicesProviderConfiguration? configuration,
+  ) {
+    final NativeCallResult result = _status(
+      'applicationSetFolderServicesProvider',
+    );
+    if (result.isSuccess) {
+      folderServicesProvider = configuration;
     }
     return result;
   }

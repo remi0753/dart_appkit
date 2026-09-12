@@ -3356,3 +3356,39 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   approved normal buildの再実行は成功し、source hash 2箇所だけを更新した。terminal exact `make test`も
   generated evidence、276-file format、analysis、Phase 9 security stress、aggregate testsを含め成功した。
   両repositoryの `git diff --check` はcleanである。
+
+## 2026-09-12 — Application local-folder Services provider
+
+- AppKitのstrong nullable `NSApplication.servicesProvider`へ、固定message base `openTab`／`openWindow`を
+  実装するprivate native providerを接続した。nullable size-prefixed configurationがenable/replace/disableと、
+  file URL count、per-URL UTF-8、aggregate UTF-8のapplication boundを所有する。hard maximumはdrop boundaryと
+  同じ256件／1 MiB／64 MiBである。
+- 同期Service callbackはpasteboard itemを一括snapshotし、absolute local `file:` URLだけを受理する。
+  credential、port、query、fragment、remote、relative、mixed、missing、filesystem metadata不明をfail closedにし、
+  `NSURLIsDirectoryKey`でdirectory自身またはfileの親へ変換する。canonical directory URLは最初の出現順を保って
+  de-duplicateし、全入力と全出力のboundおよびpasteboard change countが安定した場合だけclosed length-prefix
+  packetへencodeする。trailing slashだけをdirectory推定へ使わない。
+- Event protocol v12はapplication source identity 0の `APPLICATION_FOLDER_SERVICE_REQUESTED` を追加する。
+  payloadはnew-tabs/new-windowsのclosed dispositionとdirectory URL packetで、同期callbackはDartへ再入せず
+  `PostEvent`だけを行う。event-port refusalを含む全失敗はboundedな一定Service errorを返し、partial eventを
+  発行しない。disable、application termination、bridge shutdownはproviderをdetachし、stale providerも
+  identity再検査でpostできない。
+- Public Dartはimmutable `FolderServicesProviderConfiguration`、cache-on-successの
+  `AppKitApplication.folderServicesProvider`、`onFolderServiceRequested`、immutable
+  `ApplicationFolderServiceRequestedEvent`とclosed dispositionを提供する。decoderはpacket framing、strict UTF-8、
+  local/canonical directory shape、uniqueness、source/protocol/operation invariantを再検査する。optional FFI symbol、
+  deterministic fake、legacy unsupported fallbackを追加した。
+- 最初のnative buildはfilesystem sandboxが隣接repositoryの既存test binaryを置換できずlinkで停止した。
+  approved buildはwarning-cleanで、残った5件はv12追加後のstale protocol expectationだけだった。v11 filtering、
+  v12 acceptance、v13 rejectionへ更新したnative provider/encoder testは通過した。
+- 最初のDart formatはswitch-expression operandのtrailing commaで構文停止し、commaを完全に除いた後に通過した。
+  続くanalysisはoptional interface callにexplicit post-guard castを要求した。次のDart runはcurrent protocolの
+  stale v11 assertionで停止し、singleton未disposeによる後続attach cascadeを発生させた。v12へ更新後、新typed
+  filtered streamの意図的decoder errorにerror handlerがなくunhandledとなったため、application streamだけで
+  error数を検証するinert handlerを追加した。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make validate native-test event-encoder-test dart-test ffi-smoke`
+  はscaffold、C/C++ header、native provider、shared v12 encoder、全27 Dart API group、launcher、current/legacy
+  FFIを通過した。Developer JIT／Release AOT runnerも同じv12 bridgeをwarning-as-errorでlinkした。exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、native bridge/Runner/event、runtime、全Dart
+  package、Kernel、current/legacy FFIまで通過した。Runtime declarationとterminal tab/window生成は後続の
+  順序付きtaskに残す。

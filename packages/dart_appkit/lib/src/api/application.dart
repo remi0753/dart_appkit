@@ -110,6 +110,66 @@ bool _isSafeDisplayText(String value, int maximumUtf8Bytes) {
   return true;
 }
 
+/// Immutable bounds for the application's Finder folder Services provider.
+final class FolderServicesProviderConfiguration {
+  const FolderServicesProviderConfiguration({
+    this.maximumFileUrlCount = maximumFileUrlCountLimit,
+    this.maximumFileUrlUtf8Bytes = maximumFileUrlUtf8BytesLimit,
+    this.maximumTotalFileUrlUtf8Bytes = maximumTotalFileUrlUtf8BytesLimit,
+  });
+
+  static const int maximumFileUrlCountLimit =
+      dartAppKitFolderServiceMaximumFileUrlCount;
+  static const int maximumFileUrlUtf8BytesLimit =
+      dartAppKitFolderServiceMaximumFileUrlUtf8Bytes;
+  static const int maximumTotalFileUrlUtf8BytesLimit =
+      dartAppKitFolderServiceMaximumTotalFileUrlUtf8Bytes;
+
+  final int maximumFileUrlCount;
+  final int maximumFileUrlUtf8Bytes;
+  final int maximumTotalFileUrlUtf8Bytes;
+
+  NativeFolderServicesProviderConfiguration get _native {
+    RangeError.checkValueInInterval(
+      maximumFileUrlCount,
+      1,
+      maximumFileUrlCountLimit,
+      'maximumFileUrlCount',
+    );
+    RangeError.checkValueInInterval(
+      maximumFileUrlUtf8Bytes,
+      1,
+      maximumFileUrlUtf8BytesLimit,
+      'maximumFileUrlUtf8Bytes',
+    );
+    RangeError.checkValueInInterval(
+      maximumTotalFileUrlUtf8Bytes,
+      maximumFileUrlUtf8Bytes,
+      maximumTotalFileUrlUtf8BytesLimit,
+      'maximumTotalFileUrlUtf8Bytes',
+    );
+    return NativeFolderServicesProviderConfiguration(
+      maximumFileUrlCount: maximumFileUrlCount,
+      maximumFileUrlUtf8Bytes: maximumFileUrlUtf8Bytes,
+      maximumTotalFileUrlUtf8Bytes: maximumTotalFileUrlUtf8Bytes,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is FolderServicesProviderConfiguration &&
+      other.maximumFileUrlCount == maximumFileUrlCount &&
+      other.maximumFileUrlUtf8Bytes == maximumFileUrlUtf8Bytes &&
+      other.maximumTotalFileUrlUtf8Bytes == maximumTotalFileUrlUtf8Bytes;
+
+  @override
+  int get hashCode => Object.hash(
+    maximumFileUrlCount,
+    maximumFileUrlUtf8Bytes,
+    maximumTotalFileUrlUtf8Bytes,
+  );
+}
+
 final class AppKitApplication {
   AppKitApplication._(
     this._bindings,
@@ -141,6 +201,7 @@ final class AppKitApplication {
   Pasteboard? _generalPasteboard;
   Menu? _mainMenu;
   String? _dockBadgeLabel;
+  FolderServicesProviderConfiguration? _folderServicesProvider;
 
   static Future<AppKitApplication> attach({
     ExternalUrlPolicy? externalUrlPolicy,
@@ -248,9 +309,51 @@ final class AppKitApplication {
   Stream<ApplicationAppearanceChangedEvent> get onAppearanceChanged => events
       .where((AppKitEvent event) => event is ApplicationAppearanceChangedEvent)
       .map((AppKitEvent event) => event as ApplicationAppearanceChangedEvent);
+  Stream<ApplicationFolderServiceRequestedEvent> get onFolderServiceRequested =>
+      events
+          .where(
+            (AppKitEvent event) =>
+                event is ApplicationFolderServiceRequestedEvent,
+          )
+          .map(
+            (AppKitEvent event) =>
+                event as ApplicationFolderServiceRequestedEvent,
+          );
   bool get isTerminated => _terminated;
   bool get isActive => _active;
   AppKitAppearance? get effectiveAppearance => _effectiveAppearance;
+
+  FolderServicesProviderConfiguration? get folderServicesProvider {
+    _ensureRunning();
+    return _folderServicesProvider;
+  }
+
+  set folderServicesProvider(FolderServicesProviderConfiguration? value) {
+    _ensureRunning();
+    if (value == _folderServicesProvider) {
+      return;
+    }
+    if (value != null && eventProtocolVersion < 12) {
+      throw UnsupportedError(
+        'folder Services providers require native event protocol 12',
+      );
+    }
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeFolderServicesProviderBindings) {
+      throw const AppKitNativeException(
+        operation: 'AppKitApplication.folderServicesProvider',
+        status: 8,
+        nativeMessage:
+            'native bridge does not support folder Services providers',
+      );
+    }
+    _checkCall(
+      (bindings as NativeFolderServicesProviderBindings)
+          .applicationSetFolderServicesProvider(value?._native),
+      'AppKitApplication.folderServicesProvider',
+    );
+    _folderServicesProvider = value;
+  }
 
   Pasteboard get generalPasteboard {
     _ensureRunning();
@@ -574,6 +677,7 @@ final class AppKitApplication {
     _generalPasteboard = null;
     _mainMenu = null;
     _dockBadgeLabel = null;
+    _folderServicesProvider = null;
   }
 }
 

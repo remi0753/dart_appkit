@@ -9,6 +9,7 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
         NativeRect,
         NativeDefinitionPresentation,
         NativeDropDestinationConfiguration,
+        NativeFolderServicesProviderConfiguration,
         NativeScreenSnapshot,
         NativeServicesTextRequestorConfiguration,
         dartAppKitSecureInputIndicatorAutomatic,
@@ -105,8 +106,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 11 &&
-        app.eventProtocolVersion == 11,
+        bindings.requestedMaximumEventProtocolVersion == 12 &&
+        app.eventProtocolVersion == 12,
     'current event protocol negotiation',
   );
 
@@ -3136,6 +3137,218 @@ Future<void> _testDropDestinationApi() async {
   await raw.close();
 }
 
+Future<void> _testFolderServicesProviderApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final List<ApplicationFolderServiceRequestedEvent> applicationRequests =
+      <ApplicationFolderServiceRequestedEvent>[];
+  final List<ApplicationFolderServiceRequestedEvent> typedRequests =
+      <ApplicationFolderServiceRequestedEvent>[];
+  final List<Object> errors = <Object>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is ApplicationFolderServiceRequestedEvent) {
+      applicationRequests.add(event);
+    }
+  }, onError: errors.add);
+  final StreamSubscription<ApplicationFolderServiceRequestedEvent> typedEvents =
+      app.onFolderServiceRequested.listen(
+        typedRequests.add,
+        onError: (Object _) {},
+      );
+
+  const FolderServicesProviderConfiguration configuration =
+      FolderServicesProviderConfiguration(
+        maximumFileUrlCount: 8,
+        maximumFileUrlUtf8Bytes: 1024,
+        maximumTotalFileUrlUtf8Bytes: 4096,
+      );
+  app.folderServicesProvider = configuration;
+  final NativeFolderServicesProviderConfiguration nativeConfiguration =
+      bindings.folderServicesProvider!;
+  _expect(
+    app.folderServicesProvider == configuration &&
+        nativeConfiguration.maximumFileUrlCount == 8 &&
+        nativeConfiguration.maximumFileUrlUtf8Bytes == 1024 &&
+        nativeConfiguration.maximumTotalFileUrlUtf8Bytes == 4096 &&
+        dartAppKitFolderServiceOpenTabMessage == 'openTab' &&
+        dartAppKitFolderServiceOpenWindowMessage == 'openWindow',
+    'immutable folder Services policy reaches native with stable messages',
+  );
+  final int updateCount = bindings.operations
+      .where(
+        (String operation) =>
+            operation == 'applicationSetFolderServicesProvider',
+      )
+      .length;
+  app.folderServicesProvider = configuration;
+  _expect(
+    bindings.operations
+            .where(
+              (String operation) =>
+                  operation == 'applicationSetFolderServicesProvider',
+            )
+            .length ==
+        updateCount,
+    'equal folder Services policies suppress native work',
+  );
+
+  final Uint8List directories = _dropFileUrlPacket(<String>[
+    'file:///tmp/one/',
+    'file:///tmp/two%20dir/',
+  ]);
+  raw.add(<Object?>[12, 45, 0, 0, 1200000, 0, 0, directories]);
+  final ApplicationFolderServiceRequestedEvent tabRequest =
+      applicationRequests.single;
+  _expect(
+    identical(tabRequest, typedRequests.single) &&
+        tabRequest.protocolVersion == 12 &&
+        tabRequest.disposition == FolderServiceDisposition.newTabs &&
+        tabRequest.directoryUrls.map((Uri uri) => uri.toString()).join('|') ==
+            'file:///tmp/one/|file:///tmp/two%20dir/',
+    'typed new-tab folder Service request is routed once in exact order',
+  );
+  await _expectThrows<UnsupportedError>(
+    () => tabRequest.directoryUrls.add(Uri.directory('/tmp/mutation')),
+  );
+
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1201000,
+    0,
+    1,
+    _dropFileUrlPacket(<String>['file:///tmp/window/']),
+  ]);
+  _expect(
+    applicationRequests.length == 2 &&
+        typedRequests.length == 2 &&
+        applicationRequests.last.disposition ==
+            FolderServiceDisposition.newWindows,
+    'typed new-window folder Service request is distinct',
+  );
+
+  raw.add(<Object?>[11, 45, 0, 0, 1202000, 0, 0, directories]);
+  raw.add(<Object?>[12, 45, 1, 0, 1203000, 0, 0, directories]);
+  raw.add(<Object?>[12, 45, 0, 1, 1204000, 0, 0, directories]);
+  raw.add(<Object?>[12, 45, 0, 0, 1205000, 0, 2, directories]);
+  raw.add(<Object?>[12, 45, 0, 0, 1206000, 0, 0, 'directories']);
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1207000,
+    0,
+    0,
+    Uint8List.fromList(<int>[0, 0, 0, 0]),
+  ]);
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1208000,
+    0,
+    0,
+    _dropFileUrlPacket(<String>['file://server/tmp/']),
+  ]);
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1209000,
+    0,
+    0,
+    _dropFileUrlPacket(<String>['file:///tmp/not-a-directory']),
+  ]);
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1210000,
+    0,
+    0,
+    _dropFileUrlPacket(<String>[
+      'file:///tmp/duplicate/',
+      'file:///tmp/duplicate/',
+    ]),
+  ]);
+  raw.add(<Object?>[12, 45, 0, 0, 1211000, 1, 0, directories]);
+  _expect(
+    errors.length == 10 &&
+        applicationRequests.length == 2 &&
+        typedRequests.length == 2,
+    'old, wrong-source, malformed, remote, non-directory, duplicate, and '
+    'nonzero-operation folder requests fail closed',
+  );
+
+  bindings.failNextOperation = 'applicationSetFolderServicesProvider';
+  await _expectThrows<AppKitNativeException>(
+    () =>
+        app.folderServicesProvider = const FolderServicesProviderConfiguration(
+          maximumFileUrlCount: 4,
+          maximumFileUrlUtf8Bytes: 256,
+          maximumTotalFileUrlUtf8Bytes: 512,
+        ),
+  );
+  _expect(
+    app.folderServicesProvider == configuration &&
+        bindings.folderServicesProvider == nativeConfiguration,
+    'failed folder Services update preserves wrapper and native snapshots',
+  );
+  await _expectThrows<RangeError>(
+    () => app.folderServicesProvider =
+        const FolderServicesProviderConfiguration(maximumFileUrlCount: 0),
+  );
+  await _expectThrows<RangeError>(
+    () =>
+        app.folderServicesProvider = const FolderServicesProviderConfiguration(
+          maximumFileUrlUtf8Bytes: 2,
+          maximumTotalFileUrlUtf8Bytes: 1,
+        ),
+  );
+
+  app.folderServicesProvider = null;
+  _expect(
+    app.folderServicesProvider == null &&
+        bindings.folderServicesProvider == null,
+    'folder Services provider can be disabled explicitly',
+  );
+  raw.add(<Object?>[
+    12,
+    45,
+    0,
+    0,
+    1212000,
+    0,
+    0,
+    _dropFileUrlPacket(<String>['file:///tmp/late/']),
+  ]);
+  _expect(
+    applicationRequests.length == 3 && typedRequests.length == 3,
+    'already queued folder Service event remains observable after disable',
+  );
+  app.folderServicesProvider = configuration;
+
+  await applicationEvents.cancel();
+  await typedEvents.cancel();
+  await app.terminate();
+  _expect(
+    bindings.folderServicesProvider == null,
+    'application termination clears the native folder Services provider',
+  );
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -3166,6 +3379,10 @@ Future<void> _testLegacyProtocolSelection() async {
   );
   await _expectThrows<UnsupportedError>(
     () => view.dropDestination = const DropDestinationConfiguration(),
+  );
+  await _expectThrows<UnsupportedError>(
+    () => app.folderServicesProvider =
+        const FolderServicesProviderConfiguration(),
   );
   view.dispose();
   window.dispose();
@@ -3353,6 +3570,10 @@ Future<void> main() async {
     _testServicesTextRequestorApi,
   );
   await _test('bounded text and file-URL drop API', _testDropDestinationApi);
+  await _test(
+    'application local-folder Services provider API',
+    _testFolderServicesProviderApi,
+  );
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(

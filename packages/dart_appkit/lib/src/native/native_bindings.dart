@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 11;
+const int dartAppKitCurrentEventProtocolVersion = 12;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
@@ -59,6 +59,14 @@ const int dartAppKitDropMaximumFileUrlCount = 256;
 const int dartAppKitDropMaximumFileUrlUtf8Bytes = 1024 * 1024;
 const int dartAppKitDropMaximumTotalFileUrlUtf8Bytes =
     dartAppKitPasteboardMaximumTextUtf8Bytes;
+const int dartAppKitFolderServiceMaximumFileUrlCount =
+    dartAppKitDropMaximumFileUrlCount;
+const int dartAppKitFolderServiceMaximumFileUrlUtf8Bytes =
+    dartAppKitDropMaximumFileUrlUtf8Bytes;
+const int dartAppKitFolderServiceMaximumTotalFileUrlUtf8Bytes =
+    dartAppKitDropMaximumTotalFileUrlUtf8Bytes;
+const String dartAppKitFolderServiceOpenTabMessage = 'openTab';
+const String dartAppKitFolderServiceOpenWindowMessage = 'openWindow';
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
 const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
 const int dartAppKitTextEditorMaximumStyleRuns = 64 * 1024;
@@ -128,6 +136,18 @@ final class NativeDropDestinationConfiguration {
   final bool acceptsPlainText;
   final bool acceptsFileUrls;
   final int maximumTextUtf8Bytes;
+  final int maximumFileUrlCount;
+  final int maximumFileUrlUtf8Bytes;
+  final int maximumTotalFileUrlUtf8Bytes;
+}
+
+final class NativeFolderServicesProviderConfiguration {
+  const NativeFolderServicesProviderConfiguration({
+    required this.maximumFileUrlCount,
+    required this.maximumFileUrlUtf8Bytes,
+    required this.maximumTotalFileUrlUtf8Bytes,
+  });
+
   final int maximumFileUrlCount;
   final int maximumFileUrlUtf8Bytes;
   final int maximumTotalFileUrlUtf8Bytes;
@@ -580,6 +600,13 @@ abstract interface class NativeDropDestinationBindings {
   NativeCallResult viewSetDropDestination(
     int handle,
     NativeDropDestinationConfiguration? configuration,
+  );
+}
+
+/// Optional application local-folder Services provider surface.
+abstract interface class NativeFolderServicesProviderBindings {
+  NativeCallResult applicationSetFolderServicesProvider(
+    NativeFolderServicesProviderConfiguration? configuration,
   );
 }
 

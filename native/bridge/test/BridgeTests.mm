@@ -257,6 +257,17 @@ int32_t PerformTestCustomViewOperation(void* context, void* view,
 
 @end
 
+@interface NSObject (DaFolderServicesProviderTesting)
+
+- (void)openTab:(NSPasteboard*)pasteboard
+       userData:(NSString*)userData
+          error:(NSString* __autoreleasing*)error;
+- (void)openWindow:(NSPasteboard*)pasteboard
+          userData:(NSString*)userData
+             error:(NSString* __autoreleasing*)error;
+
+@end
+
 
 @interface DaDraggingInfoProbe : NSObject
 
@@ -486,6 +497,32 @@ uint32_t ReadUint32LittleEndian(const std::string& bytes, size_t offset) {
          static_cast<uint32_t>(
              static_cast<unsigned char>(bytes[offset + 3]))
              << 24;
+}
+
+std::vector<std::string> ReadFileUrlPacket(const std::string& bytes) {
+  std::vector<std::string> result;
+  if (bytes.size() < sizeof(uint32_t)) {
+    EXPECT_TRUE(false);
+    return result;
+  }
+  const uint32_t count = ReadUint32LittleEndian(bytes, 0);
+  size_t offset = sizeof(uint32_t);
+  for (uint32_t index = 0; index < count; ++index) {
+    if (offset + sizeof(uint32_t) > bytes.size()) {
+      EXPECT_TRUE(false);
+      return {};
+    }
+    const uint32_t length = ReadUint32LittleEndian(bytes, offset);
+    offset += sizeof(uint32_t);
+    if (offset + length > bytes.size()) {
+      EXPECT_TRUE(false);
+      return {};
+    }
+    result.push_back(bytes.substr(offset, length));
+    offset += length;
+  }
+  EXPECT_EQ(offset, bytes.size());
+  return result;
 }
 
 DaViewConfiguration DefaultViewConfiguration() {
@@ -1154,6 +1191,23 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(11));
 
+  event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
+  event.window = 0;
+  event.folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  event.characters = "directory packet";
+  const size_t before_version_twelve_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_twelve_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 12, 12,
+                                              &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(12));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(12));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1165,7 +1219,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 12, 12, &selected_version),
+      da_application_set_event_port_versioned(4242, 13, 13, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1997,7 +2051,7 @@ void TestServicesTextRequestors() {
   EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED);
   EXPECT_EQ(capture.events[0].window, inner_handle);
   EXPECT_EQ(capture.events[0].characters, returned_text);
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(11));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
 
   configuration.maximum_returned_text_utf8_bytes = 3;
   EXPECT_EQ(da_view_set_services_text_requestor(
@@ -2158,7 +2212,7 @@ void TestDropDestinations() {
   EXPECT_EQ(capture.events[0].characters, dropped_text);
   EXPECT_TRUE(std::isfinite(capture.events[0].x));
   EXPECT_TRUE(std::isfinite(capture.events[0].y));
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(11));
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
 
   pasteboard.text = @"fallback";
   pasteboard.advertisesFileUrls = YES;
@@ -2326,6 +2380,229 @@ void TestDropDestinations() {
   EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestApplicationFolderServicesProvider() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_OPEN_TAB_MESSAGE),
+            std::string("openTab"));
+  EXPECT_EQ(std::string(DA_FOLDER_SERVICE_OPEN_WINDOW_MESSAGE),
+            std::string("openWindow"));
+
+  DaFolderServicesProviderConfiguration configuration = {
+      DA_FOLDER_SERVICES_PROVIDER_CONFIGURATION_VERSION_1_SIZE,
+      8,
+      1024,
+      4096,
+      0,
+      0,
+  };
+  EXPECT_EQ(da_application_set_folder_services_provider(&configuration),
+            DA_STATUS_OK);
+  id provider = NSApp.servicesProvider;
+  EXPECT_TRUE(provider != nil);
+  EXPECT_TRUE([provider respondsToSelector:@selector(openTab:userData:error:)]);
+  EXPECT_TRUE(
+      [provider respondsToSelector:@selector(openWindow:userData:error:)]);
+
+  NSFileManager* file_manager = NSFileManager.defaultManager;
+  NSURL* root = [NSURL
+      fileURLWithPath:[NSTemporaryDirectory()
+                          stringByAppendingPathComponent:NSUUID.UUID.UUIDString]
+           isDirectory:YES];
+  NSURL* nested = [root URLByAppendingPathComponent:@"nested dir"
+                                        isDirectory:YES];
+  NSError* file_error = nil;
+  EXPECT_TRUE([file_manager createDirectoryAtURL:nested
+                     withIntermediateDirectories:YES
+                                      attributes:nil
+                                           error:&file_error]);
+  NSURL* first_file = [root URLByAppendingPathComponent:@"first.txt"];
+  NSURL* nested_file = [nested URLByAppendingPathComponent:@"日本.txt"];
+  EXPECT_TRUE([@"one" writeToURL:first_file
+                       atomically:YES
+                         encoding:NSUTF8StringEncoding
+                            error:&file_error]);
+  EXPECT_TRUE([@"two" writeToURL:nested_file
+                       atomically:YES
+                         encoding:NSUTF8StringEncoding
+                            error:&file_error]);
+
+  DaDropTestPasteboard* pasteboard = [[DaDropTestPasteboard alloc] init];
+  pasteboard.fileItems = FileUrlItems(@[
+    first_file.absoluteString,
+    root.absoluteString,
+    nested_file.absoluteString,
+  ]);
+  NSString* service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard
+           userData:@"ignored"
+              error:&service_error];
+  EXPECT_TRUE(service_error == nil);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type,
+            DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED);
+  EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
+  EXPECT_EQ(capture.events[0].folder_service_disposition,
+            DA_FOLDER_SERVICE_NEW_TABS);
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
+  const std::vector<std::string> tab_urls =
+      ReadFileUrlPacket(capture.events[0].characters);
+  EXPECT_EQ(tab_urls.size(), static_cast<size_t>(2));
+  if (tab_urls.size() == 2) {
+    EXPECT_EQ(tab_urls[0],
+              std::string([NSURL fileURLWithPath:root.path isDirectory:YES]
+                              .absoluteString.UTF8String));
+    EXPECT_EQ(tab_urls[1],
+              std::string([NSURL fileURLWithPath:nested.path isDirectory:YES]
+                              .absoluteString.UTF8String));
+  }
+
+  service_error = nil;
+  [provider openWindow:(NSPasteboard*)pasteboard
+              userData:nil
+                 error:&service_error];
+  EXPECT_TRUE(service_error == nil);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(2));
+  EXPECT_EQ(capture.events[1].folder_service_disposition,
+            DA_FOLDER_SERVICE_NEW_WINDOWS);
+  EXPECT_EQ(capture.events[1].characters, capture.events[0].characters);
+
+  const size_t accepted_event_count = capture.events.size();
+  pasteboard.fileItems = @[];
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  pasteboard.fileItems = FileUrlItems(@[ @"file://server/tmp/remote" ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  pasteboard.fileItems = FileUrlItems(@[ @"file:///tmp/query?bad=1" ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  NSURL* missing = [root URLByAppendingPathComponent:@"missing"];
+  pasteboard.fileItems = FileUrlItems(@[ missing.absoluteString ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  NSPasteboardItem* mixed_item = [[NSPasteboardItem alloc] init];
+  EXPECT_TRUE([mixed_item setString:@"plain"
+                            forType:NSPasteboardTypeString]);
+  pasteboard.fileItems = @[ mixed_item ];
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  DaFolderServicesProviderConfiguration limited = configuration;
+  limited.maximum_file_url_count = 1;
+  EXPECT_EQ(da_application_set_folder_services_provider(&limited),
+            DA_STATUS_OK);
+  EXPECT_TRUE(NSApp.servicesProvider == provider);
+  pasteboard.fileItems = FileUrlItems(
+      @[ root.absoluteString, nested.absoluteString ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  limited = configuration;
+  const NSUInteger first_url_bytes =
+      [first_file.absoluteString lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+  limited.maximum_file_url_utf8_bytes = first_url_bytes - 1;
+  limited.maximum_total_file_url_utf8_bytes = first_url_bytes - 1;
+  EXPECT_EQ(da_application_set_folder_services_provider(&limited),
+            DA_STATUS_OK);
+  pasteboard.fileItems = FileUrlItems(@[ first_file.absoluteString ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  limited = configuration;
+  limited.maximum_file_url_utf8_bytes = 16;
+  limited.maximum_total_file_url_utf8_bytes = 16;
+  EXPECT_EQ(da_application_set_folder_services_provider(&limited),
+            DA_STATUS_OK);
+  pasteboard.fileItems = FileUrlItems(@[ @"file:///", @"file:///tmp" ]);
+  service_error = nil;
+  [provider openTab:(NSPasteboard*)pasteboard userData:nil error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  DaFolderServicesProviderConfiguration invalid = configuration;
+  invalid.struct_size = 0;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.maximum_file_url_count = 0;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.maximum_file_url_count =
+      DA_FOLDER_SERVICE_FILE_URL_MAX_COUNT + 1;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.maximum_file_url_utf8_bytes = 0;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.maximum_total_file_url_utf8_bytes =
+      invalid.maximum_file_url_utf8_bytes - 1;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.reserved_1 = 1;
+  EXPECT_EQ(da_application_set_folder_services_provider(&invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(
+        da_application_set_folder_services_provider(&configuration));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_application_set_folder_services_provider(&configuration),
+            DA_STATUS_OK);
+  id stale_provider = NSApp.servicesProvider;
+  EXPECT_EQ(da_application_set_folder_services_provider(nullptr),
+            DA_STATUS_OK);
+  EXPECT_TRUE(NSApp.servicesProvider == nil);
+  pasteboard.fileItems = FileUrlItems(@[ root.absoluteString ]);
+  service_error = nil;
+  [stale_provider openTab:(NSPasteboard*)pasteboard
+                 userData:nil
+                    error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  EXPECT_EQ(da_application_set_folder_services_provider(&configuration),
+            DA_STATUS_OK);
+  provider = NSApp.servicesProvider;
+  dart_appkit::DisableEventPoster();
+  service_error = nil;
+  [provider openWindow:(NSPasteboard*)pasteboard
+              userData:nil
+                 error:&service_error];
+  EXPECT_TRUE(service_error != nil);
+  EXPECT_EQ(capture.events.size(), accepted_event_count);
+
+  dart_appkit::ResetBridgeForTesting();
+  EXPECT_TRUE(NSApp.servicesProvider == nil);
+  EXPECT_TRUE([file_manager removeItemAtURL:root error:&file_error]);
 }
 
 void TestRegistryLifecycleAndTypes() {
@@ -4359,6 +4636,7 @@ int main() {
     TestQuickLookRequestsAndDefinitions();
     TestServicesTextRequestors();
     TestDropDestinations();
+    TestApplicationFolderServicesProvider();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestAttributedTextEditor();

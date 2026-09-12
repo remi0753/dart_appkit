@@ -25,6 +25,7 @@
 @class DaServicesTextRequestor;
 @class DaDropDestinationOwner;
 @class DaDropDestinationSession;
+@class DaFolderServicesProvider;
 
 namespace {
 
@@ -41,6 +42,7 @@ id g_quick_look_event_monitor = nil;
 NSMutableArray<DaServicesTextRequestor*>* g_services_text_requestors = nil;
 NSMutableArray<DaDropDestinationOwner*>* g_drop_destination_owners = nil;
 NSMapTable<NSWindow*, DaDropDestinationSession*>* g_drop_sessions = nil;
+DaFolderServicesProvider* g_folder_services_provider = nil;
 
 int32_t EnableSecureEventInputWithSystem() {
   return static_cast<int32_t>(EnableSecureEventInput());
@@ -207,6 +209,21 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 @property(nonatomic, weak) DaDropDestinationOwner* owner;
 @property(nonatomic, assign) NSInteger sequenceNumber;
 @property(nonatomic, assign) DaDropContentKind contentKind;
+
+@end
+
+@interface DaFolderServicesProvider : NSObject
+
+@property(nonatomic, assign) NSUInteger maximumFileUrlCount;
+@property(nonatomic, assign) NSUInteger maximumFileUrlUtf8Bytes;
+@property(nonatomic, assign) NSUInteger maximumTotalFileUrlUtf8Bytes;
+
+- (void)openTab:(NSPasteboard*)pasteboard
+       userData:(NSString*)userData
+          error:(NSString* __autoreleasing*)error;
+- (void)openWindow:(NSPasteboard*)pasteboard
+          userData:(NSString*)userData
+             error:(NSString* __autoreleasing*)error;
 
 @end
 
@@ -700,48 +717,56 @@ void AppendUint32LittleEndian(std::string* output, uint32_t value) {
   output->push_back(static_cast<char>((value >> 24) & 0xffu));
 }
 
-bool CopyDropFileUrlPacket(NSPasteboard* pasteboard,
-                           DaDropDestinationOwner* owner,
-                           std::string* out_packet) {
-  const NSInteger initial_change_count = pasteboard.changeCount;
-  NSArray<NSPasteboardItem*>* items = pasteboard.pasteboardItems;
-  if (items.count == 0 || items.count > owner.maximumFileUrlCount ||
-      items.count > DA_DROP_FILE_URL_MAX_COUNT) {
+bool CopyNormalizedLocalFileUrl(NSString* value,
+                                NSUInteger maximum_utf8_bytes,
+                                NSURL** out_url, std::string* out_bytes) {
+  if (value == nil || out_bytes == nullptr || maximum_utf8_bytes == 0) {
     return false;
   }
-  std::vector<std::string> urls;
-  urls.reserve(items.count);
-  size_t total_url_bytes = 0;
-  for (NSPasteboardItem* item in items) {
-    NSString* value = [item stringForType:NSPasteboardTypeFileURL];
-    NSURL* url = value == nil ? nil : [NSURL URLWithString:value];
-    NSString* host = url.host;
-    const bool local_host = host == nil || host.length == 0 ||
-                            [host caseInsensitiveCompare:@"localhost"] ==
-                                NSOrderedSame;
-    if (url == nil || !url.isFileURL || url.baseURL != nil || !local_host ||
-        url.user != nil || url.password != nil || url.port != nil ||
-        url.query != nil || url.fragment != nil || url.path.length == 0 ||
-        ![url.path hasPrefix:@"/"]) {
-      return false;
-    }
-    NSURL* normalized = url.URLByStandardizingPath;
-    NSData* bytes = [normalized.absoluteString
-        dataUsingEncoding:NSUTF8StringEncoding
-     allowLossyConversion:NO];
-    if (bytes == nil || bytes.length == 0 ||
-        bytes.length > owner.maximumFileUrlUtf8Bytes ||
-        bytes.length > DA_DROP_FILE_URL_MAX_UTF8_BYTES ||
-        total_url_bytes >
-            owner.maximumTotalFileUrlUtf8Bytes - bytes.length) {
-      return false;
-    }
-    total_url_bytes += bytes.length;
-    urls.emplace_back(static_cast<const char*>(bytes.bytes), bytes.length);
+  NSURL* url = [NSURL URLWithString:value];
+  NSString* host = url.host;
+  const bool local_host = host == nil || host.length == 0 ||
+                          [host caseInsensitiveCompare:@"localhost"] ==
+                              NSOrderedSame;
+  if (url == nil || !url.isFileURL || url.baseURL != nil || !local_host ||
+      url.user != nil || url.password != nil || url.port != nil ||
+      url.query != nil || url.fragment != nil || url.path.length == 0 ||
+      ![url.path hasPrefix:@"/"]) {
+    return false;
   }
-  if (total_url_bytes > owner.maximumTotalFileUrlUtf8Bytes ||
-      total_url_bytes > DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES ||
-      pasteboard.changeCount != initial_change_count) {
+  NSURL* normalized = url.URLByStandardizingPath;
+  NSData* bytes = [normalized.absoluteString
+      dataUsingEncoding:NSUTF8StringEncoding
+   allowLossyConversion:NO];
+  if (bytes == nil || bytes.length == 0 ||
+      bytes.length > maximum_utf8_bytes ||
+      bytes.length > DA_DROP_FILE_URL_MAX_UTF8_BYTES) {
+    return false;
+  }
+  if (out_url != nullptr) {
+    *out_url = normalized;
+  }
+  out_bytes->assign(static_cast<const char*>(bytes.bytes), bytes.length);
+  return true;
+}
+
+bool EncodeFileUrlPacket(const std::vector<std::string>& urls,
+                         size_t maximum_total_url_bytes,
+                         std::string* out_packet) {
+  if (urls.empty() || urls.size() > DA_DROP_FILE_URL_MAX_COUNT ||
+      out_packet == nullptr) {
+    return false;
+  }
+  size_t total_url_bytes = 0;
+  for (const std::string& url : urls) {
+    if (url.empty() || url.size() > DA_DROP_FILE_URL_MAX_UTF8_BYTES ||
+        url.size() > maximum_total_url_bytes ||
+        total_url_bytes > maximum_total_url_bytes - url.size()) {
+      return false;
+    }
+    total_url_bytes += url.size();
+  }
+  if (total_url_bytes > DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES) {
     return false;
   }
   const size_t packet_size = sizeof(uint32_t) +
@@ -758,6 +783,149 @@ bool CopyDropFileUrlPacket(NSPasteboard* pasteboard,
     out_packet->append(url);
   }
   return true;
+}
+
+bool CopyDropFileUrlPacket(NSPasteboard* pasteboard,
+                           DaDropDestinationOwner* owner,
+                           std::string* out_packet) {
+  const NSInteger initial_change_count = pasteboard.changeCount;
+  NSArray<NSPasteboardItem*>* items = pasteboard.pasteboardItems;
+  if (items.count == 0 || items.count > owner.maximumFileUrlCount ||
+      items.count > DA_DROP_FILE_URL_MAX_COUNT) {
+    return false;
+  }
+  std::vector<std::string> urls;
+  urls.reserve(items.count);
+  size_t total_url_bytes = 0;
+  for (NSPasteboardItem* item in items) {
+    NSString* value = [item stringForType:NSPasteboardTypeFileURL];
+    std::string url_bytes;
+    if (!CopyNormalizedLocalFileUrl(value, owner.maximumFileUrlUtf8Bytes,
+                                    nullptr, &url_bytes)) {
+      return false;
+    }
+    if (total_url_bytes >
+        owner.maximumTotalFileUrlUtf8Bytes - url_bytes.size()) {
+      return false;
+    }
+    total_url_bytes += url_bytes.size();
+    urls.push_back(std::move(url_bytes));
+  }
+  if (total_url_bytes > owner.maximumTotalFileUrlUtf8Bytes ||
+      total_url_bytes > DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES ||
+      pasteboard.changeCount != initial_change_count) {
+    return false;
+  }
+  return EncodeFileUrlPacket(urls, owner.maximumTotalFileUrlUtf8Bytes,
+                             out_packet);
+}
+
+bool CopyFolderServiceDirectoryUrlPacket(
+    NSPasteboard* pasteboard, DaFolderServicesProvider* provider,
+    std::string* out_packet) {
+  if (pasteboard == nil || provider == nil || out_packet == nullptr) {
+    return false;
+  }
+  const NSInteger initial_change_count = pasteboard.changeCount;
+  NSArray<NSPasteboardItem*>* items = pasteboard.pasteboardItems;
+  if (items.count == 0 || items.count > provider.maximumFileUrlCount ||
+      items.count > DA_FOLDER_SERVICE_FILE_URL_MAX_COUNT) {
+    return false;
+  }
+  NSMutableSet<NSString*>* seen_paths = [[NSMutableSet alloc] init];
+  std::vector<std::string> directory_urls;
+  directory_urls.reserve(items.count);
+  size_t total_input_url_bytes = 0;
+  size_t total_directory_url_bytes = 0;
+  for (NSPasteboardItem* item in items) {
+    NSString* value = [item stringForType:NSPasteboardTypeFileURL];
+    NSURL* normalized = nil;
+    std::string input_url_bytes;
+    if (!CopyNormalizedLocalFileUrl(value, provider.maximumFileUrlUtf8Bytes,
+                                    &normalized, &input_url_bytes) ||
+        input_url_bytes.size() > provider.maximumTotalFileUrlUtf8Bytes ||
+        total_input_url_bytes >
+            provider.maximumTotalFileUrlUtf8Bytes - input_url_bytes.size()) {
+      return false;
+    }
+    total_input_url_bytes += input_url_bytes.size();
+
+    NSDictionary<NSURLResourceKey, id>* resource_values =
+        [normalized resourceValuesForKeys:@[ NSURLIsDirectoryKey ] error:nil];
+    NSNumber* is_directory = resource_values[NSURLIsDirectoryKey];
+    if (is_directory == nil) {
+      return false;
+    }
+    NSURL* directory = is_directory.boolValue
+                           ? normalized
+                           : normalized.URLByDeletingLastPathComponent;
+    NSString* directory_path = directory.path.stringByStandardizingPath;
+    if (directory_path.length == 0 || ![directory_path hasPrefix:@"/"]) {
+      return false;
+    }
+    NSURL* canonical = [NSURL fileURLWithPath:directory_path isDirectory:YES];
+    NSString* canonical_string = canonical.absoluteString;
+    if ([seen_paths containsObject:canonical_string]) {
+      continue;
+    }
+    NSData* canonical_bytes = [canonical_string
+        dataUsingEncoding:NSUTF8StringEncoding
+     allowLossyConversion:NO];
+    if (canonical_bytes == nil || canonical_bytes.length == 0 ||
+        canonical_bytes.length > provider.maximumFileUrlUtf8Bytes ||
+        canonical_bytes.length > DA_FOLDER_SERVICE_FILE_URL_MAX_UTF8_BYTES ||
+        canonical_bytes.length > provider.maximumTotalFileUrlUtf8Bytes ||
+        total_directory_url_bytes >
+            provider.maximumTotalFileUrlUtf8Bytes - canonical_bytes.length) {
+      return false;
+    }
+    [seen_paths addObject:canonical_string];
+    total_directory_url_bytes += canonical_bytes.length;
+    directory_urls.emplace_back(
+        static_cast<const char*>(canonical_bytes.bytes),
+        canonical_bytes.length);
+  }
+  if (pasteboard.changeCount != initial_change_count ||
+      directory_urls.empty()) {
+    return false;
+  }
+  return EncodeFileUrlPacket(directory_urls,
+                             provider.maximumTotalFileUrlUtf8Bytes,
+                             out_packet);
+}
+
+bool PostFolderServiceRequest(NSPasteboard* pasteboard,
+                              DaFolderServicesProvider* provider,
+                              DaFolderServiceDisposition disposition) {
+  if (provider == nil || provider != g_folder_services_provider ||
+      NSApp.servicesProvider != provider ||
+      (disposition != DA_FOLDER_SERVICE_NEW_TABS &&
+       disposition != DA_FOLDER_SERVICE_NEW_WINDOWS)) {
+    return false;
+  }
+  std::string packet;
+  if (!CopyFolderServiceDirectoryUrlPacket(pasteboard, provider, &packet)) {
+    return false;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  event.folder_service_disposition = disposition;
+  event.characters = std::move(packet);
+  return dart_appkit::PostEvent(event);
+}
+
+void SetFolderServiceError(NSString* __autoreleasing* error) {
+  if (error != nullptr) {
+    *error = @"The selected items could not be opened as local folders.";
+  }
+}
+
+void ClearFolderServicesProvider() {
+  if (NSApp.servicesProvider == g_folder_services_provider) {
+    NSApp.servicesProvider = nil;
+  }
+  g_folder_services_provider = nil;
 }
 
 DaQuickLookRequestOwner* QuickLookOwnerForHandle(DaHandle handle) {
@@ -903,6 +1071,36 @@ void RemoveQuickLookOwnerForView(NSView* view) {
 }
 
 }  // namespace
+
+@implementation DaFolderServicesProvider
+
+- (void)openTab:(NSPasteboard*)pasteboard
+       userData:(NSString*)userData
+          error:(NSString* __autoreleasing*)error {
+  (void)userData;
+  if (error != nullptr) {
+    *error = nil;
+  }
+  if (!PostFolderServiceRequest(pasteboard, self,
+                                DA_FOLDER_SERVICE_NEW_TABS)) {
+    SetFolderServiceError(error);
+  }
+}
+
+- (void)openWindow:(NSPasteboard*)pasteboard
+          userData:(NSString*)userData
+             error:(NSString* __autoreleasing*)error {
+  (void)userData;
+  if (error != nullptr) {
+    *error = nil;
+  }
+  if (!PostFolderServiceRequest(pasteboard, self,
+                                DA_FOLDER_SERVICE_NEW_WINDOWS)) {
+    SetFolderServiceError(error);
+  }
+}
+
+@end
 
 id DaServicesTextRequestorForWindow(NSWindow* window,
                                     NSPasteboardType send_type,
@@ -2456,6 +2654,7 @@ void ShutdownBridge() {
   g_accept_async_releases.store(false, std::memory_order_release);
   g_async_release_epoch.fetch_add(1, std::memory_order_acq_rel);
   StopApplicationAppearanceObservation();
+  ClearFolderServicesProvider();
   DisableEventPoster();
   g_defers_application_termination_requests = false;
   g_pending_application_termination_operation_id = 0;
@@ -2589,6 +2788,7 @@ int32_t da_application_terminate(void) {
     return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
                                      "NSApplication is not initialized");
   }
+  ClearFolderServicesProvider();
   if (dart_appkit::g_pending_application_termination_operation_id > 0) {
     dart_appkit::g_pending_application_termination_operation_id = 0;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -2600,6 +2800,53 @@ int32_t da_application_terminate(void) {
       [NSApp terminate:nil];
     });
   }
+  return DA_STATUS_OK;
+}
+
+int32_t da_application_set_folder_services_provider(
+    const DaFolderServicesProviderConfiguration* configuration) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (NSApp == nil) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "NSApplication is not initialized");
+  }
+  if (configuration == nullptr) {
+    ClearFolderServicesProvider();
+    return DA_STATUS_OK;
+  }
+  if (configuration->struct_size <
+          DA_FOLDER_SERVICES_PROVIDER_CONFIGURATION_VERSION_1_SIZE ||
+      configuration->reserved_0 != 0 || configuration->reserved_1 != 0 ||
+      configuration->maximum_file_url_count == 0 ||
+      configuration->maximum_file_url_count >
+          DA_FOLDER_SERVICE_FILE_URL_MAX_COUNT ||
+      configuration->maximum_file_url_utf8_bytes == 0 ||
+      configuration->maximum_file_url_utf8_bytes >
+          DA_FOLDER_SERVICE_FILE_URL_MAX_UTF8_BYTES ||
+      configuration->maximum_total_file_url_utf8_bytes == 0 ||
+      configuration->maximum_total_file_url_utf8_bytes >
+          DA_FOLDER_SERVICE_FILE_URL_TOTAL_MAX_UTF8_BYTES ||
+      configuration->maximum_file_url_utf8_bytes >
+          configuration->maximum_total_file_url_utf8_bytes) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "folder Services configuration is invalid or exceeds hard limits");
+  }
+  DaFolderServicesProvider* provider = g_folder_services_provider;
+  if (provider == nil) {
+    provider = [[DaFolderServicesProvider alloc] init];
+  }
+  provider.maximumFileUrlCount = configuration->maximum_file_url_count;
+  provider.maximumFileUrlUtf8Bytes =
+      configuration->maximum_file_url_utf8_bytes;
+  provider.maximumTotalFileUrlUtf8Bytes =
+      configuration->maximum_total_file_url_utf8_bytes;
+  g_folder_services_provider = provider;
+  NSApp.servicesProvider = provider;
   return DA_STATUS_OK;
 }
 

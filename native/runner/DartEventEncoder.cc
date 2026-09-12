@@ -92,7 +92,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       event.type == DA_EVENT_APPLICATION_ACTIVE_CHANGED ||
       event.type == DA_EVENT_APPLICATION_REOPEN_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED ||
-      event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
+      event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED ||
+      event.type == DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
   const bool reply_required =
       event.type == DA_EVENT_WINDOW_CLOSE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
@@ -128,6 +129,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 8:
     case 9:
     case 10:
+    case 11:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -193,6 +195,19 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       SetUtf8Bytes(&values[payload_offset + 3], event.characters);
       break;
     }
+    case DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED:
+      if (event.folder_service_disposition != DA_FOLDER_SERVICE_NEW_TABS &&
+          event.folder_service_disposition != DA_FOLDER_SERVICE_NEW_WINDOWS) {
+        return false;
+      }
+      if (event.characters.size() >
+          DA_FOLDER_SERVICE_FILE_URL_PACKET_MAX_BYTES) {
+        return false;
+      }
+      length += 2;
+      SetInt64(&values[payload_offset], event.folder_service_disposition);
+      SetUtf8Bytes(&values[payload_offset + 1], event.characters);
+      break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;
       SetDouble(&values[payload_offset], event.width);

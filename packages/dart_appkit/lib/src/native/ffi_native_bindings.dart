@@ -190,6 +190,26 @@ final class _DaDropDestinationConfigurationNative extends Struct {
   external int reserved1;
 }
 
+final class _DaFolderServicesProviderConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int maximumFileUrlCount;
+
+  @Uint64()
+  external int maximumFileUrlUtf8Bytes;
+
+  @Uint64()
+  external int maximumTotalFileUrlUtf8Bytes;
+
+  @Int32()
+  external int reserved0;
+
+  @Int32()
+  external int reserved1;
+}
+
 final class _DaTextViewColorConfigurationNative extends Struct {
   @Int32()
   external int kind;
@@ -614,6 +634,12 @@ typedef _ViewSetDropDestinationDart = int Function(
   int,
   Pointer<_DaDropDestinationConfigurationNative>,
 );
+typedef _ApplicationSetFolderServicesProviderNative = Int32 Function(
+  Pointer<_DaFolderServicesProviderConfigurationNative>,
+);
+typedef _ApplicationSetFolderServicesProviderDart = int Function(
+  Pointer<_DaFolderServicesProviderConfigurationNative>,
+);
 typedef _TextViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaTextViewConfigurationNative>,
   Pointer<Uint8>,
@@ -773,6 +799,18 @@ _ViewSetDropDestinationDart? _lookupViewSetDropDestination(
   }
 }
 
+_ApplicationSetFolderServicesProviderDart?
+_lookupApplicationSetFolderServicesProvider(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<
+      _ApplicationSetFolderServicesProviderNative,
+      _ApplicationSetFolderServicesProviderDart
+    >('da_application_set_folder_services_provider');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
   DynamicLibrary library,
 ) {
@@ -915,6 +953,19 @@ void _writeDropDestinationConfiguration(
     ..maximumTotalFileUrlUtf8Bytes = configuration.maximumTotalFileUrlUtf8Bytes
     ..acceptsPlainText = configuration.acceptsPlainText ? 1 : 0
     ..acceptsFileUrls = configuration.acceptsFileUrls ? 1 : 0
+    ..reserved0 = 0
+    ..reserved1 = 0;
+}
+
+void _writeFolderServicesProviderConfiguration(
+  _DaFolderServicesProviderConfigurationNative output,
+  NativeFolderServicesProviderConfiguration configuration,
+) {
+  output
+    ..structSize = sizeOf<_DaFolderServicesProviderConfigurationNative>()
+    ..maximumFileUrlCount = configuration.maximumFileUrlCount
+    ..maximumFileUrlUtf8Bytes = configuration.maximumFileUrlUtf8Bytes
+    ..maximumTotalFileUrlUtf8Bytes = configuration.maximumTotalFileUrlUtf8Bytes
     ..reserved0 = 0
     ..reserved1 = 0;
 }
@@ -1504,6 +1555,7 @@ final class FfiNativeBindings
         NativeQuickLookBindings,
         NativeServicesTextRequestorBindings,
         NativeDropDestinationBindings,
+        NativeFolderServicesProviderBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1644,6 +1696,8 @@ final class FfiNativeBindings
         library,
       ),
       _viewSetDropDestination = _lookupViewSetDropDestination(library),
+      _applicationSetFolderServicesProvider =
+          _lookupApplicationSetFolderServicesProvider(library),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -1794,6 +1848,8 @@ final class FfiNativeBindings
   final _ViewShowDefinitionDart? _viewShowDefinition;
   final _ViewSetServicesTextRequestorDart? _viewSetServicesTextRequestor;
   final _ViewSetDropDestinationDart? _viewSetDropDestination;
+  final _ApplicationSetFolderServicesProviderDart?
+  _applicationSetFolderServicesProvider;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -3154,6 +3210,36 @@ final class FfiNativeBindings
         configuration,
       );
       return _callResult(function(handle, nativeConfiguration));
+    } finally {
+      _free(nativeConfiguration.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult applicationSetFolderServicesProvider(
+    NativeFolderServicesProviderConfiguration? configuration,
+  ) {
+    final _ApplicationSetFolderServicesProviderDart? function =
+        _applicationSetFolderServicesProvider;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support folder Services providers',
+      );
+    }
+    if (configuration == null) {
+      return _callResult(function(nullptr));
+    }
+    final Pointer<_DaFolderServicesProviderConfigurationNative>
+    nativeConfiguration = _allocate(
+      sizeOf<_DaFolderServicesProviderConfigurationNative>(),
+    ).cast<_DaFolderServicesProviderConfigurationNative>();
+    try {
+      _writeFolderServicesProviderConfiguration(
+        nativeConfiguration.ref,
+        configuration,
+      );
+      return _callResult(function(nativeConfiguration));
     } finally {
       _free(nativeConfiguration.cast<Void>());
     }

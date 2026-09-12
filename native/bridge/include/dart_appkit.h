@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)11)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)12)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -187,6 +187,15 @@ typedef struct DaViewConfiguration {
 #define DA_DROP_FILE_URL_PACKET_MAX_BYTES                              \
   ((size_t)(DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES + sizeof(uint32_t) + \
             DA_DROP_FILE_URL_MAX_COUNT * sizeof(uint32_t)))
+#define DA_FOLDER_SERVICE_FILE_URL_MAX_COUNT DA_DROP_FILE_URL_MAX_COUNT
+#define DA_FOLDER_SERVICE_FILE_URL_MAX_UTF8_BYTES \
+  DA_DROP_FILE_URL_MAX_UTF8_BYTES
+#define DA_FOLDER_SERVICE_FILE_URL_TOTAL_MAX_UTF8_BYTES \
+  DA_DROP_FILE_URL_TOTAL_MAX_UTF8_BYTES
+#define DA_FOLDER_SERVICE_FILE_URL_PACKET_MAX_BYTES \
+  DA_DROP_FILE_URL_PACKET_MAX_BYTES
+#define DA_FOLDER_SERVICE_OPEN_TAB_MESSAGE "openTab"
+#define DA_FOLDER_SERVICE_OPEN_WINDOW_MESSAGE "openWindow"
 
 typedef enum DaTextViewFontKind {
   DA_TEXT_VIEW_FONT_SYSTEM = 0,
@@ -254,6 +263,24 @@ typedef enum DaDropContentKind {
   DA_DROP_CONTENT_PLAIN_TEXT = 0,
   DA_DROP_CONTENT_FILE_URLS = 1
 } DaDropContentKind;
+
+/** Size-prefixed immutable application folder Services policy. */
+typedef struct DaFolderServicesProviderConfiguration {
+  uint64_t struct_size;
+  uint64_t maximum_file_url_count;
+  uint64_t maximum_file_url_utf8_bytes;
+  uint64_t maximum_total_file_url_utf8_bytes;
+  int32_t reserved_0;
+  int32_t reserved_1;
+} DaFolderServicesProviderConfiguration;
+
+#define DA_FOLDER_SERVICES_PROVIDER_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaFolderServicesProviderConfiguration))
+
+typedef enum DaFolderServiceDisposition {
+  DA_FOLDER_SERVICE_NEW_TABS = 0,
+  DA_FOLDER_SERVICE_NEW_WINDOWS = 1
+} DaFolderServiceDisposition;
 
 typedef enum DaTextViewColorKind {
   DA_TEXT_VIEW_COLOR_LABEL = 0,
@@ -438,7 +465,8 @@ typedef enum DaEventType {
   DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41,
   DA_EVENT_VIEW_QUICK_LOOK_REQUESTED = 42,
   DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED = 43,
-  DA_EVENT_VIEW_DROP_PERFORMED = 44
+  DA_EVENT_VIEW_DROP_PERFORMED = 44,
+  DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED = 45
 } DaEventType;
 
 /** Stable scroll gesture phase values used by protocol version 5. */
@@ -869,6 +897,13 @@ DA_EXPORT int32_t da_view_set_services_text_requestor(
  */
 DA_EXPORT int32_t da_view_set_drop_destination(
     DaHandle view, const DaDropDestinationConfiguration* configuration);
+
+/**
+ * Main thread only. Replaces the application's bounded local-folder Services
+ * provider. A null configuration disables the provider.
+ */
+DA_EXPORT int32_t da_application_set_folder_services_provider(
+    const DaFolderServicesProviderConfiguration* configuration);
 
 /**
  * Main thread only. Creates the two-pane helper: two children, one thin
