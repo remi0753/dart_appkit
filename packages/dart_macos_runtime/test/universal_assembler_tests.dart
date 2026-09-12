@@ -171,6 +171,7 @@ const List<String> _codePaths = <String>[
   'Contents/Resources/application.aot',
   'Contents/Frameworks/libengine.dylib',
   'Contents/Helpers/example_worker',
+  'Contents/Resources/DartHelpers/example_worker.aot',
   'Contents/Frameworks/libasset.dylib',
   'Contents/Frameworks/libcapability.dylib',
   'Contents/Frameworks/libintents.dylib',
@@ -231,6 +232,7 @@ Future<void> _writeThin(Directory root, String architecture) async {
       <String, Object?>{
         'name': 'example_worker',
         'entrypoint': 'bin/worker.dart',
+        'payload': 'DartHelpers/example_worker.aot',
       },
     ],
     'resources': <Object?>['en.lproj/Localizable.strings'],
@@ -332,9 +334,11 @@ Future<void> main() async {
           decoded['schemaVersion'] == 2 &&
               jsonEncode(decoded['architectures']) ==
                   jsonEncode(<String>['arm64', 'x86_64']) &&
+              (decoded['nativeCapabilities']! as List<Object?>).length == 1 &&
+              (decoded['dartHelpers']! as List<Object?>).length == 1 &&
               (decoded['codePaths']! as List<Object?>).length ==
                   _codePaths.length,
-          'evidence records the exact architecture and code contract',
+          'evidence records the exact architecture, runtime, and code contract',
         );
         _expect(
           firstExecutor.commands
@@ -410,6 +414,32 @@ Future<void> main() async {
       }
     },
   );
+
+  await _test('unsafe helper payload declarations fail closed', () async {
+    final _Fixture fixture = await _Fixture.create();
+    try {
+      for (final Directory input in <Directory>[
+        fixture.arm64,
+        fixture.x86_64,
+      ]) {
+        final File manifest = File(
+          '${input.path}/Contents/Resources/runtime-build-manifest.json',
+        );
+        final Map<String, Object?> decoded =
+            jsonDecode(await manifest.readAsString()) as Map<String, Object?>;
+        final Map<String, Object?> helper =
+            (decoded['dartHelpers']! as List<Object?>).single
+                as Map<String, Object?>;
+        helper['payload'] = '../outside.aot';
+        await manifest.writeAsString(jsonEncode(decoded));
+      }
+      await _expectThrows<RuntimeBuilderException>(
+        () => fixture.assembler(_FakeExecutor()).run(fixture.options()),
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
 
   await _test('resource, plist, and manifest drift fail closed', () async {
     for (final String path in <String>[

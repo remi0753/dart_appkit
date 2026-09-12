@@ -400,7 +400,6 @@ final class RuntimeApplicationBuilder {
       );
       for (final String relativePath in const <String>[
         'bin/dartvm',
-        'bin/dartaotruntime',
         'bin/utils/gen_snapshot',
         'bin/snapshots/dartdev_aot.dart.snapshot',
         'bin/snapshots/gen_kernel_aot.dart.snapshot',
@@ -524,6 +523,14 @@ final class RuntimeApplicationBuilder {
       ),
       'generic native host',
     );
+    final File? aotCommandHost =
+        options.mode == RuntimeBuildMode.releaseAot &&
+            manifest.dartHelpers.isNotEmpty
+        ? await _existingFile(
+            _join(nativeBuild.path, 'native/dart_macos_runtime_aot_command'),
+            'generic Dart AOT command host',
+          )
+        : null;
 
     final Directory payloadDirectory = Directory(
       _join(buildRoot.path, 'payload'),
@@ -586,7 +593,8 @@ final class RuntimeApplicationBuilder {
       await _existingFile(payload.path, 'Dart AOT snapshot');
     }
 
-    final Map<String, File> dartHelpers = <String, File>{};
+    final Map<String, _CompiledDartHelper> dartHelpers =
+        <String, _CompiledDartHelper>{};
     if (manifest.dartHelpers.isNotEmpty) {
       final Directory helperOutput = Directory(
         _join(buildRoot.path, 'helpers'),
@@ -597,35 +605,99 @@ final class RuntimeApplicationBuilder {
           _join(projectRoot.path, helper.entrypoint),
           'Dart helper entrypoint ${helper.name}',
         );
-        final Directory helperBuild = Directory(
-          _join(helperOutput.path, '${helper.name}.build'),
-        );
-        if (await helperBuild.exists()) {
-          await helperBuild.delete(recursive: true);
+        if (options.mode == RuntimeBuildMode.developerJit) {
+          final Directory helperBuild = Directory(
+            _join(helperOutput.path, '${helper.name}.build'),
+          );
+          if (await helperBuild.exists()) {
+            await helperBuild.delete(recursive: true);
+          }
+          await _runChecked(
+            'Dart helper compilation (${helper.name})',
+            targetDartExecutable.path,
+            <String>[
+              'build',
+              'cli',
+              '--output=${helperBuild.path}',
+              '--target=${helperEntrypoint.path}',
+              '--packages=${packageConfig.path}',
+              '--target-os=macos',
+              '--target-arch=${targetArchitecture == 'arm64' ? 'arm64' : 'x64'}',
+              '--verbosity=warning',
+            ],
+            projectRoot.path,
+          );
+          final String sourceName = _basename(helper.entrypoint)
+              .replaceFirst(RegExp(r'\.dart$'), '');
+          final File compiledHelper = await _existingFile(
+            _join(helperBuild.path, 'bundle/bin/$sourceName'),
+            'compiled Dart helper ${helper.name}',
+          );
+          dartHelpers[helper.name] = _CompiledDartHelper(
+            executable: await compiledHelper.copy(
+              _join(helperOutput.path, helper.name),
+            ),
+          );
+          continue;
         }
+
+        final File helperWrapper = File(
+          _join(helperOutput.path, '${helper.name}_entrypoint.dart'),
+        );
+        await helperWrapper.writeAsString(
+          _entrypointWrapper(helperEntrypoint),
+          flush: true,
+        );
+        final File helperKernel = File(
+          _join(helperOutput.path, '${helper.name}.aot.dill'),
+        );
+        final File helperDepfile = File('${helperKernel.path}.d');
         await _runChecked(
-          'Dart helper compilation (${helper.name})',
-          targetDartExecutable.path,
+          'Dart helper Kernel compilation (${helper.name})',
+          compiler.path,
           <String>[
-            'build',
-            'cli',
-            '--output=${helperBuild.path}',
-            '--target=${helperEntrypoint.path}',
+            '--platform=${platform.path}',
             '--packages=${packageConfig.path}',
+            '--aot',
+            '--link-platform',
+            '--no-embed-sources',
             '--target-os=macos',
-            '--target-arch=${targetArchitecture == 'arm64' ? 'arm64' : 'x64'}',
-            '--verbosity=warning',
+            '--invocation-modes=compile',
+            '--verbosity=error',
+            '--output=${helperKernel.path}',
+            '--depfile=${helperDepfile.path}',
+            '-Dsdk_hash=${sdkRevision.substring(0, 10)}',
+            '-Ddart.vm.product=true',
+            '-Ddart.vm.asan=false',
+            '-Ddart.vm.msan=false',
+            '-Ddart.vm.tsan=false',
+            helperWrapper.path,
           ],
           projectRoot.path,
         );
-        final String sourceName = _basename(helper.entrypoint)
-            .replaceFirst(RegExp(r'\.dart$'), '');
-        final File compiledHelper = await _existingFile(
-          _join(helperBuild.path, 'bundle/bin/$sourceName'),
-          'compiled Dart helper ${helper.name}',
+        await _existingFile(
+          helperKernel.path,
+          'compiled Dart helper Kernel ${helper.name}',
         );
-        dartHelpers[helper.name] = await compiledHelper.copy(
-          _join(helperOutput.path, helper.name),
+        final File helperPayload = File(
+          _join(helperOutput.path, '${helper.name}.aot'),
+        );
+        await _runChecked(
+          'Dart helper AOT snapshot generation (${helper.name})',
+          snapshotter!.path,
+          <String>[
+            '--snapshot-kind=app-aot-macho-dylib',
+            '--macho=${helperPayload.path}',
+            helperKernel.path,
+          ],
+          projectRoot.path,
+        );
+        dartHelpers[helper.name] = _CompiledDartHelper(
+          executable: aotCommandHost!,
+          payload: await _existingFile(
+            helperPayload.path,
+            'Dart helper AOT snapshot ${helper.name}',
+          ),
         );
       }
     }
@@ -953,6 +1025,23 @@ final class RuntimeApplicationBuilder {
         exitCode: builderSoftwareExitCode,
       );
     }
+    final Object? decodedActions;
+    try {
+      decodedActions = jsonDecode(await actionsMetadata.readAsString());
+    } on FormatException catch (error) {
+      throw RuntimeBuilderException(
+        'App Intents action metadata is invalid JSON: ${error.message}',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    await versionMetadata.writeAsString(
+      '${jsonEncode(_canonicalJson(decodedVersion))}\n',
+      flush: true,
+    );
+    await actionsMetadata.writeAsString(
+      '${jsonEncode(_canonicalJson(decodedActions))}\n',
+      flush: true,
+    );
     return _CompiledAppIntents(
       declaration: declaration,
       image: checkedImage,
@@ -978,7 +1067,7 @@ final class RuntimeApplicationBuilder {
     required File sdkLicense,
     required String sdkVersion,
     required String sdkRevision,
-    required Map<String, File> dartHelpers,
+    required Map<String, _CompiledDartHelper> dartHelpers,
     required Map<String, File> nativeImages,
     required _CompiledAppIntents? appIntents,
     required String targetArchitecture,
@@ -992,6 +1081,9 @@ final class RuntimeApplicationBuilder {
     final Directory contents = Directory(_join(root.path, 'Contents'));
     final Directory macos = Directory(_join(contents.path, 'MacOS'));
     final Directory helpers = Directory(_join(contents.path, 'Helpers'));
+    final Directory helperPayloads = Directory(
+      _join(contents.path, 'Resources/DartHelpers'),
+    );
     final Directory frameworks = Directory(_join(contents.path, 'Frameworks'));
     final Directory resources = Directory(_join(contents.path, 'Resources'));
     await Future.wait(<Future<Directory>>[
@@ -1052,14 +1144,14 @@ final class RuntimeApplicationBuilder {
     );
     await sdkLicense.copy(_join(resources.path, 'DART_SDK_LICENSE.txt'));
     for (final MacosDartHelperManifest helper in manifest.dartHelpers) {
-      final File? source = dartHelpers[helper.name];
-      if (source == null) {
+      final _CompiledDartHelper? compiled = dartHelpers[helper.name];
+      if (compiled == null) {
         throw RuntimeBuilderException(
           'compiled Dart helper is missing: ${helper.name}',
           exitCode: builderSoftwareExitCode,
         );
       }
-      final File destination = await source.copy(
+      final File destination = await compiled.executable.copy(
         _join(helpers.path, helper.name),
       );
       await _runChecked(
@@ -1068,9 +1160,16 @@ final class RuntimeApplicationBuilder {
         <String>['755', destination.path],
         projectRoot.path,
       );
+      if (compiled.payload != null) {
+        await helperPayloads.create(recursive: true);
+        await compiled.payload!.copy(
+          _join(helperPayloads.path, '${helper.name}.aot'),
+        );
+      }
     }
     for (final String relativePath in manifest.resources) {
-      if (_reservedResources.contains(relativePath)) {
+      if (_reservedResources.contains(relativePath) ||
+          relativePath.startsWith('DartHelpers/')) {
         throw RuntimeBuilderException(
           'resource name is reserved by the runtime: $relativePath',
           exitCode: builderUsageExitCode,
@@ -1187,6 +1286,8 @@ final class RuntimeApplicationBuilder {
                 <String, Object>{
                   'name': helper.name,
                   'entrypoint': helper.entrypoint,
+                  if (dartHelpers[helper.name]!.payload != null)
+                    'payload': 'DartHelpers/${helper.name}.aot',
                 },
             ],
             'resources': manifest.resources,
@@ -1483,6 +1584,26 @@ final class RuntimeApplicationBuilder {
     'DART_SDK_LICENSE.txt',
     'runtime-build-manifest.json',
   };
+}
+
+Object? _canonicalJson(Object? value) {
+  if (value is Map<String, Object?>) {
+    final List<String> keys = value.keys.toList()..sort();
+    return <String, Object?>{
+      for (final String key in keys) key: _canonicalJson(value[key]),
+    };
+  }
+  if (value is List<Object?>) {
+    return <Object?>[for (final Object? item in value) _canonicalJson(item)];
+  }
+  return value;
+}
+
+final class _CompiledDartHelper {
+  const _CompiledDartHelper({required this.executable, this.payload});
+
+  final File executable;
+  final File? payload;
 }
 
 final class _CompiledAppIntents {

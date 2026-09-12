@@ -553,6 +553,7 @@ final class UniversalApplicationAssembler {
     await manifestFile.writeAsString(
       const JsonEncoder.withIndent('  ').convert(<String, Object?>{
             'schemaVersion': 2,
+            ...arm64.manifest.normalizedContract,
             'runtimeMode': 'release-aot',
             'architectures': const <String>['arm64', 'x86_64'],
             'bundleIdentifier': arm64.manifest.bundleIdentifier,
@@ -806,7 +807,44 @@ final class _ThinManifest {
       }
     }
 
-    addDeclaredCode('dartHelpers', 'name', 'Contents/Helpers');
+    final Object? helpers = source['dartHelpers'];
+    if (helpers is! List<Object?>) {
+      throw const RuntimeBuilderException(
+        'thin build manifest has no valid dartHelpers list',
+        exitCode: builderUsageExitCode,
+      );
+    }
+    for (final Object? value in helpers) {
+      if (value is! Map<String, Object?> || value['name'] is! String) {
+        throw const RuntimeBuilderException(
+          'thin build manifest has an invalid dartHelpers entry',
+          exitCode: builderUsageExitCode,
+        );
+      }
+      final String name = _safeLeaf(value['name']! as String);
+      if (!codePaths.add('Contents/Helpers/$name')) {
+        throw RuntimeBuilderException(
+          'thin build manifest declares duplicate code: $name',
+          exitCode: builderUsageExitCode,
+        );
+      }
+      final Object? helperPayload = value['payload'];
+      if (helperPayload != null) {
+        if (helperPayload is! String || !_safeRelativePath(helperPayload)) {
+          throw const RuntimeBuilderException(
+            'thin build manifest has an invalid Dart helper payload',
+            exitCode: builderUsageExitCode,
+          );
+        }
+        final String path = 'Contents/Resources/$helperPayload';
+        if (!codePaths.add(path)) {
+          throw RuntimeBuilderException(
+            'thin build manifest declares duplicate code: $helperPayload',
+            exitCode: builderUsageExitCode,
+          );
+        }
+      }
+    }
     addDeclaredCode('nativeAssets', 'library', 'Contents/Frameworks');
     addDeclaredCode('nativeCapabilities', 'library', 'Contents/Frameworks');
 

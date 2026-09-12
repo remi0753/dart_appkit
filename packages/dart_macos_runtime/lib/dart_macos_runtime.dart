@@ -18,4 +18,8 @@ export 'src/application_manifest.dart'
 export 'src/native_capability.dart'
     show MacosNativeCapability, MacosNativeCapabilityException;
 export 'src/runtime.dart'
-    show MacosRuntime, MacosRuntimeException, RuntimeDiagnosticPhase;
+    show
+        MacosRuntime,
+        MacosRuntimeException,
+        MacosRuntimeHelperCommand,
+        RuntimeDiagnosticPhase;

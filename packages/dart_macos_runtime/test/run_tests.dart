@@ -277,6 +277,12 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         '$build/native/${jit ? 'dart_macos_runtime_developer' : 'dart_macos_runtime_release'}',
         'fake host',
       );
+      if (!jit) {
+        _write(
+          '$build/native/dart_macos_runtime_aot_command',
+          'fake AOT command host',
+        );
+      }
     } else if (executable.endsWith('/bootstrap_gen_kernel.exe')) {
       final String output = arguments
           .firstWhere((String value) => value.startsWith('--output='))
@@ -400,7 +406,6 @@ final class _Fixture {
     );
     for (final String relativePath in <String>[
       'bin/dartvm',
-      'bin/dartaotruntime',
       'bin/utils/gen_snapshot',
       'bin/snapshots/dartdev_aot.dart.snapshot',
       'bin/snapshots/gen_kernel_aot.dart.snapshot',
@@ -1094,6 +1099,21 @@ Future<void> main() async {
       'fake',
     );
     _write('${root.path}/Hello.app/Contents/Helpers/runtime_worker', 'fake');
+    _write(
+      '${root.path}/Hello.app/Contents/Resources/DartHelpers/runtime_worker.aot',
+      'fake AOT snapshot',
+    );
+    _write(
+      '${root.path}/Hello.app/Contents/Resources/runtime-build-manifest.json',
+      jsonEncode(<String, Object>{
+        'dartHelpers': <Map<String, Object>>[
+          <String, Object>{
+            'name': 'runtime_worker',
+            'payload': 'DartHelpers/runtime_worker.aot',
+          },
+        ],
+      }),
+    );
     final String resource = MacosRuntime.bundleResourcePath(
       'data/config.json',
       resolvedExecutable: executable,
@@ -1112,6 +1132,19 @@ Future<void> main() async {
       resolvedExecutable: executable,
     );
     _expect(helper.endsWith('/Contents/Helpers/runtime_worker'), 'helper path');
+    final MacosRuntimeHelperCommand helperCommand =
+        MacosRuntime.bundleHelperCommand(
+          'runtime_worker',
+          resolvedExecutable: executable,
+        );
+    _expect(
+      helperCommand.executable == helper &&
+          helperCommand.arguments.length == 1 &&
+          helperCommand.arguments.single.endsWith(
+            '/Contents/Resources/DartHelpers/runtime_worker.aot',
+          ),
+      'external AOT helper command',
+    );
     _expectThrows<MacosRuntimeException>(() {
       MacosRuntime.bundleResourcePath(
         '../Info.plist',
@@ -1735,6 +1768,12 @@ Future<void> main() async {
           ).existsSync(),
       'AOT build links and records the same App Intents module',
     );
+    _expect(
+      File('${bundle.path}/Contents/Resources/Metadata.appintents/version.json')
+              .readAsStringSync() ==
+          '{"toolsVersion":"17F113","version":"3.0"}\n',
+      'App Intents JSON is canonicalized for cross-architecture equality',
+    );
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
     _expect(
@@ -1850,18 +1889,43 @@ Future<void> main() async {
         )
         .toList();
     _expect(
-      dartBuilds.length == 2 &&
+      dartBuilds.length == 1 &&
           dartBuilds.every(
             (_RecordedCommand command) =>
                 command.executable.contains('/ReleaseX64/dart-sdk/bin/dart') &&
                 command.arguments.contains('--target-arch=x64'),
           ) &&
+          executor.commands
+                  .where(
+                    (_RecordedCommand command) => command.executable.endsWith(
+                      '/ProductX64/bootstrap_gen_kernel.exe',
+                    ),
+                  )
+                  .length ==
+              2 &&
+          executor.commands
+                  .where(
+                    (_RecordedCommand command) =>
+                        command.executable.endsWith('/ProductX64/gen_snapshot'),
+                  )
+                  .length ==
+              2 &&
           executor.commands.any(
             (_RecordedCommand command) =>
                 command.executable.endsWith('/usr/bin/swiftc') &&
                 command.arguments.contains('x86_64-apple-macos14.0'),
           ),
-      'helper, native hooks, and App Intents receive the x86_64 target',
+      'helper AOT, native hooks, and App Intents receive the x86_64 target',
+    );
+    final Map<String, Object?> helperEvidence =
+        (buildManifest['dartHelpers']! as List<Object?>).single
+            as Map<String, Object?>;
+    _expect(
+      File('${bundle.path}/Contents/Helpers/helper').existsSync() &&
+          File('${bundle.path}/Contents/Resources/DartHelpers/helper.aot')
+              .existsSync() &&
+          helperEvidence['payload'] == 'DartHelpers/helper.aot',
+      'Release AOT helper runtime and external snapshot are staged',
     );
     await fixture.root.delete(recursive: true);
   });

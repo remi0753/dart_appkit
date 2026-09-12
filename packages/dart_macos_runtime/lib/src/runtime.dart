@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -22,6 +23,16 @@ final class MacosRuntimeException implements Exception {
 
   @override
   String toString() => status == null ? message : '$message (status $status)';
+}
+
+final class MacosRuntimeHelperCommand {
+  const MacosRuntimeHelperCommand({
+    required this.executable,
+    required this.arguments,
+  });
+
+  final String executable;
+  final List<String> arguments;
 }
 
 typedef _VersionNative = Uint32 Function();
@@ -183,6 +194,73 @@ abstract final class MacosRuntime {
       );
     }
     return helper.absolute.path;
+  }
+
+  static MacosRuntimeHelperCommand bundleHelperCommand(
+    String helperName, {
+    String? resolvedExecutable,
+  }) {
+    final String executable = bundleHelperPath(
+      helperName,
+      resolvedExecutable: resolvedExecutable,
+    );
+    final File rootExecutable = File(
+      resolvedExecutable ?? Platform.resolvedExecutable,
+    ).absolute;
+    final Directory resources = rootExecutable.parent.parent.childDirectory(
+      'Resources',
+    );
+    final File manifestFile = resources.childFile(
+      'runtime-build-manifest.json',
+    );
+    if (!manifestFile.existsSync()) {
+      throw const MacosRuntimeException(
+        'runtime build manifest does not exist',
+      );
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(manifestFile.readAsStringSync());
+    } on Object {
+      throw const MacosRuntimeException('runtime build manifest is invalid');
+    }
+    if (decoded is! Map<String, Object?> ||
+        decoded['dartHelpers'] is! List<Object?>) {
+      throw const MacosRuntimeException('runtime build manifest is invalid');
+    }
+    final List<Map<String, Object?>> declarations =
+        (decoded['dartHelpers']! as List<Object?>)
+            .whereType<Map<String, Object?>>()
+            .where((Map<String, Object?> value) => value['name'] == helperName)
+            .toList();
+    if (declarations.length != 1) {
+      throw MacosRuntimeException(
+        'runtime build manifest does not declare helper: $helperName',
+      );
+    }
+    final Object? relativePayload = declarations.single['payload'];
+    if (relativePayload == null) {
+      return MacosRuntimeHelperCommand(
+        executable: executable,
+        arguments: const <String>[],
+      );
+    }
+    if (relativePayload is! String) {
+      throw const MacosRuntimeException(
+        'runtime build manifest has an invalid helper payload',
+      );
+    }
+    _validateRelativePath(relativePayload);
+    final File payload = resources.childFile(relativePayload);
+    if (!payload.existsSync()) {
+      throw MacosRuntimeException(
+        'declared bundle helper payload does not exist: $relativePayload',
+      );
+    }
+    return MacosRuntimeHelperCommand(
+      executable: executable,
+      arguments: List<String>.unmodifiable(<String>[payload.absolute.path]),
+    );
   }
 
   static void _checkStatus(int status, String operation) {

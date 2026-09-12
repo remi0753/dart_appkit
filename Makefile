@@ -115,6 +115,22 @@ RUNTIME_AOT_SOURCES := \
 	$(RUNTIME_COMMON_SOURCES)
 RUNTIME_JIT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_developer
 RUNTIME_AOT_BINARY := $(NATIVE_BUILD_DIR)/dart_macos_runtime_release
+RUNTIME_AOT_COMMAND_BINARY := \
+	$(NATIVE_BUILD_DIR)/dart_macos_runtime_aot_command
+RUNTIME_AOT_COMMAND_TEST_SOURCE := \
+	$(PROJECT_ROOT)/test/fixtures/aot_command_fixture.dart
+RUNTIME_AOT_COMMAND_TEST_KERNEL := \
+	$(BUILD_DIR)/runtime-aot-command-test/application.dill
+RUNTIME_AOT_COMMAND_TEST_SNAPSHOT := \
+	$(BUILD_DIR)/runtime-aot-command-test/application.aot
+RUNTIME_AOT_COMMAND_TEST_ENGINE_OUTPUT := \
+	$(DART_ENGINE_ROOT)/xcodebuild/Product$(DART_ENGINE_RELEASE_ARCH)
+RUNTIME_AOT_COMMAND_TEST_COMPILER := \
+	$(RUNTIME_AOT_COMMAND_TEST_ENGINE_OUTPUT)/bootstrap_gen_kernel.exe
+RUNTIME_AOT_COMMAND_TEST_PLATFORM := \
+	$(RUNTIME_AOT_COMMAND_TEST_ENGINE_OUTPUT)/$(if $(filter arm64,$(HOST_ARCH)),clang_arm64_shared,clang_x64_shared)/vm_platform.dill
+RUNTIME_AOT_COMMAND_TEST_SNAPSHOTTER := \
+	$(RUNTIME_AOT_COMMAND_TEST_ENGINE_OUTPUT)/gen_snapshot
 RUNTIME_LIFECYCLE_TEST_BINARY := \
 	$(NATIVE_BUILD_DIR)/runtime_lifecycle_tests
 RUNTIME_DIAGNOSTICS_TEST_BINARY := \
@@ -157,7 +173,7 @@ PUBLIC_HOST_JIT_BINARY := \
 PUBLIC_HOST_AOT_BINARY := \
 	$(PUBLIC_HOST_PROBE_BUILD_DIR)/public_host_aot
 
-.PHONY: help validate generic-repository-audit contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
+.PHONY: help validate generic-repository-audit contract-check engine engine-check bridge native-test runner runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-contract-check runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-jit-runner runtime-aot-runner runtime-aot-command-test runtime-dart-test example-view-dart-test dart-test example-test example-smoke run-example ffi-smoke public-dart-api-host-engine public-dart-api-host-probe test clean
 
 help:
 	@echo "Dart AppKit Embedder targets:"
@@ -176,6 +192,7 @@ help:
 	@echo "  make runner         Build the embedded Dart/AppKit Runner"
 	@echo "  make runtime-jit-runner  Build the generic Developer JIT host"
 	@echo "  make runtime-aot-runner  Build the generic Release AOT host"
+	@echo "  make runtime-aot-command-test  Exercise the generic AOT command host"
 	@echo "  make runtime-dart-test   Analyze and test dart_macos_runtime"
 	@echo "  make native-capability-loader-test  Test dynamic view capability"
 	@echo "  make example-view-dart-test  Test the dependency build hook asset"
@@ -444,6 +461,48 @@ $(RUNTIME_AOT_BINARY): $(BRIDGE_HEADERS) $(BRIDGE_SOURCES) \
 
 runtime-aot-runner: engine-check $(RUNTIME_AOT_BINARY)
 
+$(RUNTIME_AOT_COMMAND_BINARY): \
+		$(PROJECT_ROOT)/native/runtime/AotCommandRunner.cc \
+		$(DART_ENGINE_AOT_LIBRARY)
+	@mkdir -p $(NATIVE_BUILD_DIR)
+	$(CLANGXX) $(COMMON_FLAGS) -std=c++20 -arch $(RUNTIME_TARGET_ARCH) \
+		-Wno-gnu-anonymous-struct -Wno-nested-anon-types \
+		-DDMR_DART_SDK_VERSION=\"$(shell cat $(DART_SDK)/version)\" \
+		-I$(DART_ENGINE_ROOT)/runtime \
+		-I$(DART_ENGINE_ROOT)/runtime/engine \
+		$(PROJECT_ROOT)/native/runtime/AotCommandRunner.cc \
+		$(DART_ENGINE_AOT_LIBRARY) \
+		-Wl,-rpath,@executable_path/../Frameworks \
+		-Wl,-export_dynamic -o $@
+
+runtime-aot-runner: $(RUNTIME_AOT_COMMAND_BINARY)
+
+$(RUNTIME_AOT_COMMAND_TEST_KERNEL): $(RUNTIME_AOT_COMMAND_TEST_SOURCE) \
+		$(RUNTIME_AOT_COMMAND_TEST_COMPILER) $(RUNTIME_AOT_COMMAND_TEST_PLATFORM)
+	@mkdir -p $(dir $@)
+	$(RUNTIME_AOT_COMMAND_TEST_COMPILER) \
+		--platform=$(RUNTIME_AOT_COMMAND_TEST_PLATFORM) \
+		--aot --link-platform --no-embed-sources --target-os=macos \
+		--invocation-modes=compile --verbosity=error \
+		--output=$@ --depfile=$@.d \
+		-Dsdk_hash=$(shell git -C $(DART_ENGINE_ROOT) rev-parse HEAD | cut -c1-10) \
+		-Ddart.vm.product=true -Ddart.vm.asan=false -Ddart.vm.msan=false \
+		-Ddart.vm.tsan=false $(RUNTIME_AOT_COMMAND_TEST_SOURCE)
+
+$(RUNTIME_AOT_COMMAND_TEST_SNAPSHOT): $(RUNTIME_AOT_COMMAND_TEST_KERNEL) \
+		$(RUNTIME_AOT_COMMAND_TEST_SNAPSHOTTER)
+	$(RUNTIME_AOT_COMMAND_TEST_SNAPSHOTTER) \
+		--snapshot-kind=app-aot-macho-dylib --macho=$@ $<
+
+runtime-aot-command-test: engine-check $(RUNTIME_AOT_COMMAND_BINARY) \
+		$(RUNTIME_AOT_COMMAND_TEST_SNAPSHOT)
+	@actual="$$(DYLD_LIBRARY_PATH=$(dir $(DART_ENGINE_AOT_LIBRARY)) \
+		$(RUNTIME_AOT_COMMAND_BINARY) $(RUNTIME_AOT_COMMAND_TEST_SNAPSHOT) \
+		first second)"; \
+	[[ "$$actual" == "AOT_COMMAND_PASS first,second" ]] || { \
+		echo "unexpected AOT command output: $$actual" >&2; exit 1; \
+	}
+
 runtime-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart pub get
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart analyze
@@ -565,7 +624,7 @@ public-dart-api-host-probe: $(PUBLIC_HOST_JIT_BINARY) \
 		--aot-application=$(PUBLIC_HOST_AOT_SNAPSHOT)
 	@$(MAKE) engine-check
 
-test: validate native-test runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-dart-test example-view-dart-test dart-test example-test ffi-smoke
+test: validate native-test runner-syntax runner-argument-test runner-configuration-test runner-shell-test message-pump-test event-encoder-test runtime-lifecycle-test runtime-diagnostics-test native-capability-loader-test runtime-aot-command-test runtime-dart-test example-view-dart-test dart-test example-test ffi-smoke
 
 clean:
 	@if [[ "$(BUILD_DIR)" != "$(PROJECT_ROOT)/build" ]]; then \
