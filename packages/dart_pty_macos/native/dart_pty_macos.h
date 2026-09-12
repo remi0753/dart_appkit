@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define DPTY_ABI_VERSION 5u
+#define DPTY_ABI_VERSION 6u
 
 #if defined(__cplusplus)
 extern "C" {
@@ -141,7 +141,7 @@ typedef struct DptySessionStatsV1 {
 // Content-free, same-call snapshot used for close/quit policy. Process names,
 // arguments, environment, working directories, and terminal bytes are never
 // inspected or returned. A nonzero per-field error leaves that process-group
-// value at zero without failing the whole snapshot.
+// value or terminal attribute unavailable without failing the whole snapshot.
 typedef struct DptyProcessSnapshotV1 {
   size_t struct_size;
   uint32_t abi_version;
@@ -151,6 +151,8 @@ typedef struct DptyProcessSnapshotV1 {
   int32_t child_process_group_error;
   int32_t foreground_process_group_error;
   int32_t has_exited;
+  int32_t terminal_echo_enabled;
+  int32_t terminal_attributes_error;
 } DptyProcessSnapshotV1;
 
 typedef struct DptyError {

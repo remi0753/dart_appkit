@@ -329,8 +329,10 @@ void TestInteractiveSession(Api* api) {
                  shell_snapshot.child_process_group &&
              shell_snapshot.child_process_group_error == 0 &&
              shell_snapshot.foreground_process_group_error == 0 &&
+             shell_snapshot.terminal_echo_enabled == 1 &&
+             shell_snapshot.terminal_attributes_error == 0 &&
              shell_snapshot.has_exited == 0,
-         "idle shell owns the foreground process group");
+         "idle shell owns its process group and starts with echo enabled");
 
   std::vector<uint8_t> oversized(64 * 1024 + 1, 'w');
   Expect(api->write(session, oversized.data(), oversized.size()) ==
@@ -350,6 +352,13 @@ void TestInteractiveSession(Api* api) {
   Expect(WaitForMarker(&events, "__DPTY_CWD__/private/tmp",
                        std::chrono::seconds(3)),
          "working directory is applied");
+  DptyProcessSnapshotV1 no_echo_snapshot = {};
+  no_echo_snapshot.struct_size = sizeof(no_echo_snapshot);
+  no_echo_snapshot.abi_version = DPTY_ABI_VERSION;
+  Expect(api->process_snapshot(session, &no_echo_snapshot) == DPTY_STATUS_OK &&
+             no_echo_snapshot.terminal_echo_enabled == 0 &&
+             no_echo_snapshot.terminal_attributes_error == 0,
+         "live no-echo terminal mode is observable without terminal content");
   {
     const std::lock_guard<std::mutex> lock(events.mutex);
     Expect(ContainsLocked(events, "__DPTY_TTY_OK__"),
@@ -500,7 +509,9 @@ void TestInteractiveSession(Api* api) {
              exited_snapshot.child_process_group == 0 &&
              exited_snapshot.foreground_process_group == 0 &&
              exited_snapshot.child_process_group_error == ENXIO &&
-             exited_snapshot.foreground_process_group_error == ENXIO,
+             exited_snapshot.foreground_process_group_error == ENXIO &&
+             exited_snapshot.terminal_echo_enabled == 0 &&
+             exited_snapshot.terminal_attributes_error == ENXIO,
          "exited snapshot is content-free and unavailable");
   Expect(api->destroy(session) == DPTY_STATUS_OK,
          "finished session is destroyed");

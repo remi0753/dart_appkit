@@ -222,6 +222,8 @@ final class PtyProcessSnapshot {
     required this.childProcessGroupSystemError,
     required this.foregroundProcessGroupSystemError,
     required this.hasExited,
+    this.terminalEchoEnabled,
+    this.terminalAttributesSystemError = 0,
   });
 
   final int? childPid;
@@ -230,6 +232,8 @@ final class PtyProcessSnapshot {
   final int childProcessGroupSystemError;
   final int foregroundProcessGroupSystemError;
   final bool hasExited;
+  final bool? terminalEchoEnabled;
+  final int terminalAttributesSystemError;
 
   bool get isAvailable =>
       childPid != null &&
@@ -240,6 +244,9 @@ final class PtyProcessSnapshot {
 
   bool get hasDistinctForegroundProcess =>
       isAvailable && foregroundProcessGroup != childProcessGroup;
+
+  bool get hasTerminalAttributes =>
+      terminalEchoEnabled != null && terminalAttributesSystemError == 0;
 }
 
 abstract interface class PtyProcess {

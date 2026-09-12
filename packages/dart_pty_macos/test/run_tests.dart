@@ -148,9 +148,30 @@ Future<void> main(List<String> arguments) async {
           idleSnapshot.childProcessGroup == process.pid &&
           idleSnapshot.foregroundProcessGroup == process.pid &&
           !idleSnapshot.hasDistinctForegroundProcess &&
+          idleSnapshot.hasTerminalAttributes &&
+          idleSnapshot.terminalEchoEnabled == true &&
           !idleSnapshot.hasExited,
       'fake idle process snapshot is available',
     );
+    fake.terminalEchoEnabled = false;
+    final PtyProcessSnapshot echoDisabledSnapshot = process.processSnapshot();
+    _expect(
+      echoDisabledSnapshot.hasTerminalAttributes &&
+          echoDisabledSnapshot.terminalEchoEnabled == false,
+      'fake terminal echo state is content-free and typed',
+    );
+    fake.terminalAttributesSystemError = 25;
+    final PtyProcessSnapshot terminalUnavailableSnapshot = process
+        .processSnapshot();
+    _expect(
+      !terminalUnavailableSnapshot.hasTerminalAttributes &&
+          terminalUnavailableSnapshot.terminalEchoEnabled == null &&
+          terminalUnavailableSnapshot.terminalAttributesSystemError == 25,
+      'fake terminal attribute failure remains typed and unavailable',
+    );
+    fake
+      ..terminalEchoEnabled = true
+      ..terminalAttributesSystemError = 0;
     fake.foregroundProcessGroup = process.pid + 1;
     _expect(
       process.processSnapshot().hasDistinctForegroundProcess,
@@ -231,7 +252,7 @@ Future<void> main(List<String> arguments) async {
   });
 
   await _test('real Dart listener callback and process lifecycle', () async {
-    _expect(_abiVersion() == 5, 'native asset ABI');
+    _expect(_abiVersion() == 6, 'native asset ABI');
     final PtyProcess process = await startPty(
       PtyCommand(
         executable: '/bin/sh',
@@ -257,6 +278,8 @@ Future<void> main(List<String> arguments) async {
           snapshot.foregroundProcessGroup == process.pid &&
           snapshot.isAvailable &&
           !snapshot.hasDistinctForegroundProcess &&
+          snapshot.hasTerminalAttributes &&
+          snapshot.terminalEchoEnabled == true &&
           !snapshot.hasExited,
       'real idle shell process snapshot crosses the FFI boundary',
     );

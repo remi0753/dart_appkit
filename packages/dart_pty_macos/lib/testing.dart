@@ -83,6 +83,8 @@ final class FakePtyProcess implements PtyProcess {
   int? foregroundProcessGroup;
   int childProcessGroupSystemError = 0;
   int foregroundProcessGroupSystemError = 0;
+  bool terminalEchoEnabled = true;
+  int terminalAttributesSystemError = 0;
 
   @override
   Stream<Uint8List> get output => _output.stream;
@@ -112,6 +114,10 @@ final class FakePtyProcess implements PtyProcess {
       childProcessGroupSystemError: childProcessGroupSystemError,
       foregroundProcessGroupSystemError: foregroundProcessGroupSystemError,
       hasExited: false,
+      terminalEchoEnabled: terminalAttributesSystemError == 0
+          ? terminalEchoEnabled
+          : null,
+      terminalAttributesSystemError: terminalAttributesSystemError,
     );
   }
 

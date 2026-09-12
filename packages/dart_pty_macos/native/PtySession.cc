@@ -407,6 +407,8 @@ class Session final : public std::enable_shared_from_this<Session> {
     output->child_process_group_error = 0;
     output->foreground_process_group_error = 0;
     output->has_exited = 0;
+    output->terminal_echo_enabled = 0;
+    output->terminal_attributes_error = 0;
 
     const std::lock_guard<std::mutex> lock(mutex_);
     output->has_exited = state_ == State::kFinished ? 1 : 0;
@@ -416,6 +418,7 @@ class Session final : public std::enable_shared_from_this<Session> {
       output->child_pid = child > 0 ? child : 0;
       output->child_process_group_error = ENXIO;
       output->foreground_process_group_error = ENXIO;
+      output->terminal_attributes_error = ENXIO;
       return DPTY_STATUS_OK;
     }
 
@@ -433,6 +436,13 @@ class Session final : public std::enable_shared_from_this<Session> {
       output->foreground_process_group = foreground;
     } else {
       output->foreground_process_group_error = errno == 0 ? ENOTTY : errno;
+    }
+    struct termios terminal = {};
+    errno = 0;
+    if (tcgetattr(master, &terminal) == 0) {
+      output->terminal_echo_enabled = (terminal.c_lflag & ECHO) != 0 ? 1 : 0;
+    } else {
+      output->terminal_attributes_error = errno == 0 ? ENOTTY : errno;
     }
     return DPTY_STATUS_OK;
   }

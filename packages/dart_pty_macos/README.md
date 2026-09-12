@@ -5,7 +5,7 @@ applications. Native code owns only `forkpty`, the audited child `execve` path,
 master-FD readiness, bounded byte queues, resize/signals, close escalation, and
 child reaping. Dart owns session policy and terminal semantics.
 
-The v5 `dpty_*` C ABI provides:
+The v6 `dpty_*` C ABI provides:
 
 - copied argv, environment, working directory, and initial size before fork;
 - an isolated C child branch using only audited async-signal-safe operations;
@@ -14,7 +14,8 @@ The v5 `dpty_*` C ABI provides:
   consumer-selectable smaller per-command delivery bound;
 - configurable read high/low watermarks and bounded write admission;
 - foreground process-group signals, `TIOCSWINSZ`, SIGHUP/grace/SIGKILL close;
-- a content-free on-demand child/owning/foreground process-group snapshot;
+- a content-free on-demand child/owning/foreground process-group and terminal
+  echo-mode snapshot;
 - idempotent, nonblocking immediate force close before or during graceful close;
 - opt-in, content-free write/control/reap diagnostics with tracked-write IDs;
 - bounded reactor turns so continuous output cannot starve writes or close;

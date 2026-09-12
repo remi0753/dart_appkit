@@ -8,7 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'api.dart';
 
 const String _assetId = 'package:dart_pty_macos/dart_pty_macos.dart';
-const int _abiVersion = 5;
+const int _abiVersion = 6;
 const int _statusOk = 0;
 const int _statusBackpressured = 4;
 const int _eventStarted = 1;
@@ -147,6 +147,12 @@ final class _NativeProcessSnapshot extends Struct {
 
   @Int32()
   external int hasExited;
+
+  @Int32()
+  external int terminalEchoEnabled;
+
+  @Int32()
+  external int terminalAttributesError;
 }
 
 @Native<Uint32 Function()>(symbol: 'dpty_abi_version', assetId: _assetId)
@@ -748,6 +754,10 @@ final class _MacosPtyProcess implements PtyProcess {
         childProcessGroupSystemError: value.childProcessGroupError,
         foregroundProcessGroupSystemError: value.foregroundProcessGroupError,
         hasExited: value.hasExited != 0,
+        terminalEchoEnabled: value.terminalAttributesError == 0
+            ? value.terminalEchoEnabled != 0
+            : null,
+        terminalAttributesSystemError: value.terminalAttributesError,
       );
     } finally {
       calloc.free(snapshot);
