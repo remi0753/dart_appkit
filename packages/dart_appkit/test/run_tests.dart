@@ -2422,6 +2422,106 @@ Future<void> _testMenuApi() async {
   await raw.close();
 }
 
+Future<void> _testViewContextMenuApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings();
+  final AppKitApplication app = await _attach(bindings, raw);
+  final Menu primary = Menu(title: 'Primary context');
+  final Menu replacement = Menu(title: 'Replacement context');
+  final View view = View();
+  final TextView textView = TextView();
+  final int primaryHandle = bindings.menuTitles.entries
+      .singleWhere(
+        (MapEntry<int, String> entry) => entry.value == 'Primary context',
+      )
+      .key;
+  final int replacementHandle = bindings.menuTitles.entries
+      .singleWhere(
+        (MapEntry<int, String> entry) => entry.value == 'Replacement context',
+      )
+      .key;
+  final int viewHandle = bindings.objects.entries
+      .singleWhere(
+        (MapEntry<int, FakeObjectKind> entry) =>
+            entry.value == FakeObjectKind.view,
+      )
+      .key;
+  final int textViewHandle = bindings.objects.entries
+      .singleWhere(
+        (MapEntry<int, FakeObjectKind> entry) =>
+            entry.value == FakeObjectKind.textView,
+      )
+      .key;
+
+  view.contextMenu = primary;
+  textView.contextMenu = primary;
+  _expect(
+    view.contextMenu == primary &&
+        textView.contextMenu == primary &&
+        bindings.viewContextMenus[viewHandle] == primaryHandle &&
+        bindings.viewContextMenus[textViewHandle] == primaryHandle,
+    'generic and specialized views retain one attached context menu',
+  );
+
+  view.contextMenu = replacement;
+  _expect(
+    view.contextMenu == replacement &&
+        bindings.viewContextMenus[viewHandle] == replacementHandle,
+    'context-menu replacement updates native and Dart state',
+  );
+  bindings.failNextOperation = 'viewSetContextMenu';
+  await _expectThrows<AppKitNativeException>(() => view.contextMenu = primary);
+  _expect(
+    view.contextMenu == replacement &&
+        bindings.viewContextMenus[viewHandle] == replacementHandle,
+    'failed context-menu replacement preserves both caches',
+  );
+  view.contextMenu = null;
+  _expect(
+    view.contextMenu == null &&
+        !bindings.viewContextMenus.containsKey(viewHandle),
+    'explicit context-menu clearing detaches the view',
+  );
+
+  view.contextMenu = primary;
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(view.dispose);
+  _expect(
+    !view.isDisposed &&
+        view.contextMenu == primary &&
+        bindings.viewContextMenus[viewHandle] == primaryHandle,
+    'failed view release preserves its context-menu attachment',
+  );
+  view.dispose();
+  _expect(
+    !bindings.viewContextMenus.containsKey(viewHandle),
+    'successful view release clears native context-menu ownership',
+  );
+
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(primary.dispose);
+  _expect(
+    !primary.isDisposed &&
+        textView.contextMenu == primary &&
+        bindings.viewContextMenus[textViewHandle] == primaryHandle,
+    'failed menu release preserves attached view state',
+  );
+  primary.dispose();
+  _expect(
+    textView.contextMenu == null &&
+        !bindings.viewContextMenus.containsKey(textViewHandle),
+    'successful menu release clears every attached view',
+  );
+
+  textView.dispose();
+  replacement.dispose();
+  _expect(bindings.objects.isEmpty, 'all context-menu handles released');
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -2554,6 +2654,7 @@ Future<void> _testCrossApplicationGuard() async {
   await _expectThrows<StateError>(() => newMenu.addItem(oldItem));
   await _expectThrows<StateError>(() => newItem.submenu = oldMenu);
   await _expectThrows<StateError>(() => appTwo.mainMenu = oldMenu);
+  await _expectThrows<StateError>(() => newView.contextMenu = oldMenu);
 
   oldView.dispose();
   oldWindow.dispose();
@@ -2618,6 +2719,7 @@ Future<void> main() async {
     _testUserNotificationAndDockBadgeApi,
   );
   await _test('menu ownership and action routing', _testMenuApi);
+  await _test('view context-menu ownership', _testViewContextMenuApi);
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(

@@ -1308,6 +1308,7 @@ final class FfiNativeBindings
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
+        NativeViewContextMenuBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1434,6 +1435,10 @@ final class FfiNativeBindings
       _viewSetSecureInputIndicator = _lookupHandleInt(
         library,
         'da_view_set_secure_input_indicator',
+      ),
+      _viewSetContextMenu = _lookupTwoHandles(
+        library,
+        'da_view_set_context_menu',
       ),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
@@ -1580,6 +1585,7 @@ final class FfiNativeBindings
   final _CreateHandleDart? _viewCreate;
   final _ViewCreateConfiguredDart? _viewCreateConfigured;
   final _HandleBoolStatusDart? _viewSetSecureInputIndicator;
+  final _TwoHandlesDart? _viewSetContextMenu;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -2813,6 +2819,18 @@ final class FfiNativeBindings
       );
     }
     return _callResult(function(handle, state));
+  }
+
+  @override
+  NativeCallResult viewSetContextMenu(int viewHandle, int menuHandle) {
+    final _TwoHandlesDart? function = _viewSetContextMenu;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support view context menus',
+      );
+    }
+    return _callResult(function(viewHandle, menuHandle));
   }
 
   @override

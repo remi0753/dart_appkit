@@ -127,6 +127,11 @@ their provider remains responsible for native view policy.
 - Menu and menu-item create calls return independent handles. Adding an item,
   attaching a submenu, and setting the application main menu borrow every
   handle and consume none; AppKit's retain graph is not a registry lease.
+- `da_view_set_context_menu` borrows a generic/specialized view and menu,
+  attaches the menu through `NSView.menu`, and consumes neither handle. Zero
+  clears the attachment. View release clears its menu; menu release scans only
+  a weak set of attached views and clears every matching property before the
+  registry reference is dropped.
 - Releasing a menu item clears its target/action/handle before dropping the
   registry reference. Releasing the currently attached main menu detaches it
   from `NSApplication`.
@@ -468,6 +473,15 @@ the menu is created. Its false compatibility default leaves explicit enabled
 state authoritative; `da_menu_create` remains that exact legacy wrapper.
 Current Dart bindings return unsupported for an auto-enabled menu on an older
 native image rather than silently changing validation policy.
+
+`da_view_set_context_menu` uses AppKit's ordinary view-local menu presentation
+for secondary-click and control-click. It adds no synchronous callback into
+Dart and no event protocol record: commands selected from that menu follow the
+same asynchronous `DA_EVENT_MENU_ITEM_INVOKED` path as main-menu items. The
+bridge retains only a weak set of attached views for release cleanup, while
+`NSView.menu` provides the native presentation retain graph. The Dart wrapper
+tracks the inverse relationship with weak `View` references so release failure
+leaves both caches retryable and successful release detaches both sides.
 
 Actionable items use a private native target that posts
 `DA_EVENT_MENU_ITEM_INVOKED` with the item's generation-checked handle and

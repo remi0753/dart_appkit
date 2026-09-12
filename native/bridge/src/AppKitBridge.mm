@@ -28,6 +28,7 @@ EventHandlerUPP g_global_hot_key_event_handler_upp = nullptr;
 NSMutableDictionary<NSNumber*, NSNumber*>* g_global_hot_key_handles = nil;
 UInt32 g_next_global_hot_key_identifier = 1;
 DaHandle g_secure_event_input_handle = 0;
+NSHashTable<NSView*>* g_context_menu_views = nil;
 
 int32_t EnableSecureEventInputWithSystem() {
   return static_cast<int32_t>(EnableSecureEventInput());
@@ -1271,8 +1272,31 @@ void PrepareWindowForRelease(DaWindowOwner* owner) {
 }
 
 void PrepareMenuForRelease(NSMenu* menu) {
-  if (menu != nil && NSApp.mainMenu == menu) {
+  if (menu == nil) {
+    return;
+  }
+  for (NSView* view in g_context_menu_views.allObjects) {
+    if (view.menu == menu) {
+      view.menu = nil;
+      [g_context_menu_views removeObject:view];
+    }
+  }
+  if (g_context_menu_views.count == 0) {
+    g_context_menu_views = nil;
+  }
+  if (NSApp.mainMenu == menu) {
     NSApp.mainMenu = nil;
+  }
+}
+
+void PrepareViewForRelease(NSView* view) {
+  if (view == nil) {
+    return;
+  }
+  view.menu = nil;
+  [g_context_menu_views removeObject:view];
+  if (g_context_menu_views.count == 0) {
+    g_context_menu_views = nil;
   }
 }
 
@@ -1287,6 +1311,9 @@ int32_t CompletePendingRelease(DaHandle handle) {
   }
   if (kind == ObjectKind::kWindow) {
     PrepareWindowForRelease(static_cast<DaWindowOwner*>(object));
+  } else if ((kind == ObjectKind::kView || kind == ObjectKind::kTextView) &&
+             [object isKindOfClass:NSView.class]) {
+    PrepareViewForRelease(static_cast<NSView*>(object));
   } else if (kind == ObjectKind::kMenu) {
     PrepareMenuForRelease(static_cast<NSMenu*>(object));
   } else if (kind == ObjectKind::kMenuItem) {
@@ -3475,6 +3502,39 @@ int32_t da_view_set_secure_input_indicator(DaHandle view_handle,
     ]];
   }
   indicator.daState = static_cast<DaSecureInputIndicatorState>(state);
+  return DA_STATUS_OK;
+}
+
+int32_t da_view_set_context_menu(DaHandle view_handle, DaHandle menu_handle) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  NSMenu* menu = nil;
+  if (menu_handle != 0) {
+    menu = dart_appkit::Menu(menu_handle, &status);
+    if (menu == nil) {
+      return status;
+    }
+  }
+  view.menu = menu;
+  if (menu == nil) {
+    [g_context_menu_views removeObject:view];
+  } else {
+    if (g_context_menu_views == nil) {
+      g_context_menu_views = [NSHashTable weakObjectsHashTable];
+    }
+    [g_context_menu_views addObject:view];
+  }
+  if (g_context_menu_views.count == 0) {
+    g_context_menu_views = nil;
+  }
   return DA_STATUS_OK;
 }
 

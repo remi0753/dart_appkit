@@ -677,6 +677,8 @@ window/application操作を提供する。
   action routingを実装した。
 - `MenuConfiguration` で明示的enabled stateとAppKit auto-enablementをmenuごとに選択可能にした。
 - general pasteboardのplain text read／write／clear／change countを実装した。
+- generic／specialized ViewにAppKit標準のcontext menuを接続し、View/Menuのどちらを
+  解放してもnative/Dart双方の所有状態を解除する仕組みを実装した。
 - nativeからのtext readを64 MiB UTF-8に制限し、超過時はoutputを空のまま
   `limit exceeded` として失敗させ、partial dataを公開しないcontractを実装した。
 
@@ -688,7 +690,6 @@ window/application操作を提供する。
   validationを追加する。
 - MenuItemのinsert/remove/reorderと、About、Settings、Hide、Services、Window、Help、
   Editなど標準menu roleを追加する。
-- context menuとView単位のmenu presentationを追加する。
 - PasteboardをUTTypeベースに拡張し、file URL、image、rich text、custom data、
   複数representationを扱えるようにする。
 - 64 MiBをnative hard maximumとして維持しつつ、applicationが用途ごとにより小さい

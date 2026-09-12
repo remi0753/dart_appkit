@@ -225,6 +225,11 @@ broader controlled-input contract remain later control work.
 enabled state through its target. The compatibility default is `false`, so
 explicit `MenuItem.isEnabled` updates remain authoritative; applications that
 participate in AppKit validation can opt into auto-enablement per menu.
+Every generic or specialized `View` can attach one `contextMenu`; AppKit owns
+secondary-click/control-click presentation while the existing `MenuItem`
+action stream remains the sole Dart callback path. Replacing or clearing the
+menu updates only after native success. Releasing either side detaches the
+relationship, and releasing a menu clears all still-live Dart view caches.
 
 Native tabs use one `Window` per tab, preserving independent window event and
 content-view ownership. `Window.addTabbedWindow` appends another window to the

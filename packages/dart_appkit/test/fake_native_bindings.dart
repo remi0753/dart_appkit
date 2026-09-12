@@ -37,6 +37,7 @@ final class FakeNativeBindings
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
+        NativeViewContextMenuBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -75,6 +76,7 @@ final class FakeNativeBindings
   int secureEventInputEnableCount = 0;
   int secureEventInputDisableCount = 0;
   final Map<int, int> secureInputIndicatorStates = <int, int>{};
+  final Map<int, int> viewContextMenus = <int, int>{};
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -438,6 +440,19 @@ final class FakeNativeBindings
     final NativeCallResult result = _status('viewSetSecureInputIndicator');
     if (result.isSuccess) {
       secureInputIndicatorStates[handle] = state;
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult viewSetContextMenu(int viewHandle, int menuHandle) {
+    final NativeCallResult result = _status('viewSetContextMenu');
+    if (result.isSuccess) {
+      if (menuHandle == 0) {
+        viewContextMenus.remove(viewHandle);
+      } else {
+        viewContextMenus[viewHandle] = menuHandle;
+      }
     }
     return result;
   }
@@ -1238,6 +1253,8 @@ final class FakeNativeBindings
       menuItemChecked.remove(handle);
       globalHotKeys.remove(handle);
       secureInputIndicatorStates.remove(handle);
+      viewContextMenus.remove(handle);
+      viewContextMenus.removeWhere((int view, int menu) => menu == handle);
       if (secureEventInputOwner == handle) {
         if (secureEventInputOwnedEnabled) {
           secureEventInputDisableCount++;

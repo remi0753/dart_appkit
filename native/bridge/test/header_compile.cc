@@ -35,6 +35,7 @@ int da_header_compiles_as_cpp() {
   const DaRect rect{0.0, 0.0, 640.0, 480.0};
   auto* custom_view_create = &da_view_create_custom;
   auto* configured_view_create = &da_view_create_configured;
+  auto* view_context_menu = &da_view_set_context_menu;
   auto* configured_text_view_create = &da_text_view_create_configured;
   auto* configured_menu_create = &da_menu_create_configured;
   auto* menu_item_set_checked = &da_menu_item_set_checked;
@@ -73,6 +74,7 @@ int da_header_compiles_as_cpp() {
                  secure_event_input_set_desired != nullptr &&
                  secure_event_input_snapshot != nullptr &&
                  secure_input_indicator != nullptr &&
+                 view_context_menu != nullptr &&
                  screen_resolve != nullptr && window_present != nullptr &&
                  window_hide != nullptr &&
                  window_presentation_configuration != nullptr &&

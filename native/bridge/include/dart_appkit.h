@@ -772,6 +772,12 @@ DA_EXPORT int32_t da_view_set_secure_input_indicator(DaHandle view,
                                                      int32_t state);
 
 /**
+ * Main thread only. Attaches a menu for view-local context presentation, or
+ * clears it when menu is zero. Consumes neither handle.
+ */
+DA_EXPORT int32_t da_view_set_context_menu(DaHandle view, DaHandle menu);
+
+/**
  * Main thread only. Creates the two-pane helper: two children, one thin
  * non-collapsible divider, and optional binary child zoom.
  */

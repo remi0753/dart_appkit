@@ -3228,3 +3228,33 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   capability、renderer、PTY、全 Dart packages、Kernel、current/legacy FFI を回帰なく通過した。
   Consuming Dart Terminal の同じ exact gate も 272-file format、analysis、generated reference/evidence、
   security stress を含め成功した。`git diff --check` は clean である。
+
+## 2026-09-12 — View-local context-menu ownership
+
+- Dart Terminal の右クリック操作に、main menu と同じ `MenuItem` action routing を再利用できる
+  AppKit 標準の view-local menu presentation が必要になった。同期 delegate から Dart へ再入せず、
+  `NSView.menu` への接続だけを新しい additive C ABI として公開した。event protocol と ABI version は
+  変更していない。
+- `da_view_set_context_menu` は main thread、generation/typeを検査し、menu handle 0を明示解除とする。
+  bridge は接続中Viewの弱参照集合だけを保持する。View解放では自身のmenuを解除し、Menu解放では
+  一致する全Viewを走査して解除してからregistry referenceを破棄するため、AppKitのretain graphが
+  registry leaseを暗黙に延長しない。
+- Public Dart `View.contextMenu` はnative成功後だけcacheとMenu側の弱い逆参照を更新する。View/Menuの
+  どちらのrelease失敗でも関係を保持して再試行でき、成功後は両方向のcacheを解除する。異なる
+  `AppKitApplication` のMenuはnative呼び出し前に拒否する。旧bridgeではoptional symbol fallbackが
+  typed unsupported failureを返す。
+- 最初のfocused native runは、registry domain testが意図的に非`NSView` probeを`kView`として登録する
+  既存の汎用性テストで、release hookが`setMenu:`を送って例外終了した。release cleanupを実際に
+  `NSView`であるobjectだけに限定し、同じテストを含めて再実行することでregistryのgeneric kind契約と
+  view cleanupの双方を維持した。
+- Focused `CI=true DART_SUPPRESS_ANALYTICS=true make native-test dart-test ffi-smoke` はwarning-clean
+  native bridge、generic/TextView attach・replace・clear・wrong type・stale・thread・両側release、
+  Dart failure/cache/retry/cross-application、current/legacy FFIを通過した。
+- 最初のexact gateはC11 header probeの新しい関数ポインタが戻り値条件に未参照だったため、
+  warning-as-errorで停止した。C/C++双方のprobeがsymbolを実際に参照する条件へ修正した。
+- `CI=true DART_SUPPRESS_ANALYTICS=true make runtime-jit-runner runtime-aot-runner` は同じ追加ABIを
+  Developer JIT／Release AOTの両generic hostへwarning-as-errorでリンクした。再実行したexact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、C/C++ header、bridge/Runner、
+  scheduler/event/runtime、native capability、renderer、PTY、全Dart package、Kernel、current/legacy
+  FFIまで回帰なく通過した。consuming Dart Terminalのexact `make test`も276-file format、analysis、
+  generated reference/evidence、Phase 9 security stressを含めて成功し、`git diff --check`もcleanである。

@@ -205,6 +205,9 @@ void main(List<String> arguments) {
           8) {
     _fail('legacy bridge accepted additive secure-input APIs');
   }
+  if (bindings.viewSetContextMenu(1, 2).status != 8) {
+    _fail('legacy bridge accepted additive view context-menu attachment');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

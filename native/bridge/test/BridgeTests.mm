@@ -1605,6 +1605,47 @@ void TestMenus() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestViewContextMenus() {
+  Capture capture;
+  ResetWithCapture(&capture);
+
+  const DaHandle view = CreateView();
+  const DaHandle text_view = CreateTextView();
+  const DaHandle primary = CreateMenu("Primary context");
+  const DaHandle replacement = CreateMenu("Replacement context");
+  DaView* native_view = NativeViewFor(view);
+  DaTextView* native_text_view = NativeTextViewFor(text_view);
+  NSMenu* native_primary = MenuFor(primary);
+  NSMenu* native_replacement = MenuFor(replacement);
+
+  EXPECT_EQ(da_view_set_context_menu(view, primary), DA_STATUS_OK);
+  EXPECT_EQ(da_view_set_context_menu(text_view, primary), DA_STATUS_OK);
+  EXPECT_TRUE(native_view.menu == native_primary);
+  EXPECT_TRUE(native_text_view.menu == native_primary);
+  EXPECT_EQ(da_view_set_context_menu(view, replacement), DA_STATUS_OK);
+  EXPECT_TRUE(native_view.menu == native_replacement);
+  EXPECT_EQ(da_view_set_context_menu(view, 0), DA_STATUS_OK);
+  EXPECT_TRUE(native_view.menu == nil);
+
+  EXPECT_EQ(da_view_set_context_menu(0, primary), DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_view_set_context_menu(primary, replacement),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_view_set_context_menu(view, text_view),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  EXPECT_EQ(da_release(primary), DA_STATUS_OK);
+  EXPECT_TRUE(native_text_view.menu == nil);
+  EXPECT_EQ(da_view_set_context_menu(text_view, primary),
+            DA_STATUS_INVALID_HANDLE);
+
+  EXPECT_EQ(da_view_set_context_menu(view, replacement), DA_STATUS_OK);
+  EXPECT_TRUE(native_view.menu == native_replacement);
+  EXPECT_EQ(da_release(view), DA_STATUS_OK);
+  EXPECT_EQ(da_release(replacement), DA_STATUS_OK);
+  EXPECT_EQ(da_release(text_view), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestRegistryLifecycleAndTypes() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -2497,6 +2538,7 @@ void TestThreadGuardAndFinalizer() {
     EXPECT_EQ(da_menu_item_set_enabled(1, 1), DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(da_application_set_main_menu(1), DA_STATUS_WRONG_THREAD);
     EXPECT_EQ(da_menu_item_perform_action(1), DA_STATUS_WRONG_THREAD);
+    EXPECT_EQ(da_view_set_context_menu(1, 2), DA_STATUS_WRONG_THREAD);
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
@@ -3616,6 +3658,7 @@ int main() {
     TestExternalUrlOpening();
     TestUserNotificationsAndDockBadge();
     TestMenus();
+    TestViewContextMenus();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestAttributedTextEditor();

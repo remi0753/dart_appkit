@@ -494,6 +494,11 @@ abstract interface class NativeMenuItemStateBindings {
   NativeCallResult menuItemSetChecked(int handle, bool checked);
 }
 
+/// Optional view-local context-menu attachment surface for older bridges.
+abstract interface class NativeViewContextMenuBindings {
+  NativeCallResult viewSetContextMenu(int viewHandle, int menuHandle);
+}
+
 /// Optional balanced Secure Event Input and view-indicator surface.
 abstract interface class NativeSecureEventInputBindings {
   NativeValueResult<int> secureEventInputCreate();

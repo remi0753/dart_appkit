@@ -44,6 +44,7 @@ final class Menu extends _NativeResource {
   final String title;
   final MenuConfiguration configuration;
   final List<MenuItem> _items = <MenuItem>[];
+  final List<WeakReference<View>> _contextViews = <WeakReference<View>>[];
 
   List<MenuItem> get items {
     ensureAlive();
@@ -60,12 +61,35 @@ final class Menu extends _NativeResource {
     _items.add(item);
   }
 
+  void _attachContextView(View view) {
+    _contextViews.removeWhere(
+      (WeakReference<View> reference) => reference.target == null,
+    );
+    if (_contextViews.any(
+      (WeakReference<View> reference) => identical(reference.target, view),
+    )) {
+      return;
+    }
+    _contextViews.add(WeakReference<View>(view));
+  }
+
+  void _detachContextView(View view) {
+    _contextViews.removeWhere((WeakReference<View> reference) {
+      final View? target = reference.target;
+      return target == null || identical(target, view);
+    });
+  }
+
   @override
   void dispose() {
     if (isDisposed) {
       return;
     }
     super.dispose();
+    for (final WeakReference<View> reference in _contextViews) {
+      reference.target?._contextMenuDisposed(this);
+    }
+    _contextViews.clear();
     _application._menuDisposed(this);
     _items.clear();
   }

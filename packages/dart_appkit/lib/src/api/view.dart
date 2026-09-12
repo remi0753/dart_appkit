@@ -62,6 +62,45 @@ base class View extends _NativeResource {
 
   SecureInputIndicatorState _secureInputIndicatorState =
       SecureInputIndicatorState.hidden;
+  Menu? _contextMenu;
+
+  /// Menu presented by AppKit for secondary-click and control-click gestures.
+  Menu? get contextMenu {
+    ensureAlive();
+    return _contextMenu;
+  }
+
+  set contextMenu(Menu? value) {
+    ensureAlive();
+    value?.ensureAlive();
+    if (value != null && !identical(value._bindings, _bindings)) {
+      throw StateError(
+        'context menu belongs to a different AppKit application',
+      );
+    }
+    if (identical(value, _contextMenu)) {
+      return;
+    }
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeViewContextMenuBindings) {
+      throw const AppKitNativeException(
+        operation: 'View.contextMenu',
+        status: 8,
+        nativeMessage: 'native bridge does not support view context menus',
+      );
+    }
+    _checkCall(
+      (bindings as NativeViewContextMenuBindings).viewSetContextMenu(
+        _handle,
+        value?._handle ?? 0,
+      ),
+      'View.contextMenu',
+    );
+    final Menu? previous = _contextMenu;
+    _contextMenu = value;
+    previous?._detachContextView(this);
+    value?._attachContextView(this);
+  }
 
   /// Current non-interactive badge shown over this view.
   SecureInputIndicatorState get secureInputIndicatorState =>
@@ -95,5 +134,22 @@ base class View extends _NativeResource {
       _bindings.customViewPerformOperation(_handle, payload),
       'View.performCustomOperation',
     );
+  }
+
+  void _contextMenuDisposed(Menu menu) {
+    if (identical(_contextMenu, menu)) {
+      _contextMenu = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (isDisposed) {
+      return;
+    }
+    super.dispose();
+    final Menu? menu = _contextMenu;
+    _contextMenu = null;
+    menu?._detachContextView(this);
   }
 }

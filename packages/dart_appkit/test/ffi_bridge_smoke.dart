@@ -114,6 +114,12 @@ void main(List<String> arguments) {
       secureIndicator.message.isEmpty) {
     _fail('secure-input symbols did not preserve their main-thread guards');
   }
+  final NativeCallResult contextMenu = bindings.viewSetContextMenu(1, 2);
+  if (contextMenu.isSuccess ||
+      contextMenu.status != 5 ||
+      contextMenu.message.isEmpty) {
+    _fail('view context-menu symbol did not preserve its main-thread guard');
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings
