@@ -1,6 +1,7 @@
 #include "dart_appkit.h"
 
 #import <AppKit/AppKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <UserNotifications/UserNotifications.h>
 
 #include <dispatch/dispatch.h>
@@ -1444,6 +1445,7 @@ struct ErrorState {
 
 thread_local ErrorState g_last_error;
 thread_local std::string g_pasteboard_text;
+thread_local std::string g_save_panel_path;
 thread_local std::string g_text_editor_snapshot;
 std::atomic<bool> g_accept_async_releases{true};
 std::atomic<uint64_t> g_async_release_epoch{1};
@@ -1497,6 +1499,52 @@ UserNotificationLifecycleHandler g_user_notification_lifecycle_handler =
 void* g_user_notification_lifecycle_context = nullptr;
 DefinitionPresentationHandler g_definition_presentation_handler = nullptr;
 void* g_definition_presentation_context = nullptr;
+
+SavePanelResponse RunSavePanelWithSystem(
+    const SavePanelRequestSnapshot& request, std::string* out_path,
+    void* context) {
+  (void)context;
+  if (out_path == nullptr) return SavePanelResponse::kFailure;
+  NSSavePanel* panel = [NSSavePanel savePanel];
+  if (panel == nil) return SavePanelResponse::kFailure;
+  panel.title = [NSString stringWithUTF8String:request.title.c_str()];
+  if (!request.message.empty()) {
+    panel.message = [NSString stringWithUTF8String:request.message.c_str()];
+  }
+  if (!request.prompt.empty()) {
+    panel.prompt = [NSString stringWithUTF8String:request.prompt.c_str()];
+  }
+  panel.nameFieldStringValue =
+      [NSString stringWithUTF8String:request.default_file_name.c_str()];
+  panel.canCreateDirectories = request.can_create_directories;
+  if (!request.allowed_file_extension.empty()) {
+    NSString* extension = [NSString
+        stringWithUTF8String:request.allowed_file_extension.c_str()];
+    UTType* type = [UTType typeWithFilenameExtension:extension];
+    if (type == nil) return SavePanelResponse::kFailure;
+    panel.allowedContentTypes = @[ type ];
+    panel.allowsOtherFileTypes = NO;
+  }
+  const NSModalResponse response = [panel runModal];
+  if (response == NSModalResponseCancel) {
+    return SavePanelResponse::kCancelled;
+  }
+  if (response != NSModalResponseOK) return SavePanelResponse::kFailure;
+  NSURL* url = panel.URL;
+  if (url == nil || !url.fileURL || url.baseURL != nil || url.path == nil) {
+    return SavePanelResponse::kFailure;
+  }
+  NSData* path = [url.path dataUsingEncoding:NSUTF8StringEncoding];
+  if (path == nil || path.length == 0 ||
+      path.length > DA_SAVE_PANEL_PATH_MAX_UTF8_BYTES) {
+    return SavePanelResponse::kFailure;
+  }
+  out_path->assign(static_cast<const char*>(path.bytes), path.length);
+  return SavePanelResponse::kSelected;
+}
+
+SavePanelHandler g_save_panel_handler = RunSavePanelWithSystem;
+void* g_save_panel_context = nullptr;
 
 bool IsAsciiSchemeCharacter(unichar unit, bool first) {
   const bool alpha = (unit >= 'A' && unit <= 'Z') ||
@@ -3129,6 +3177,12 @@ void InstallDefinitionPresentationHandlerForTesting(
   g_definition_presentation_context = handler == nullptr ? nullptr : context;
 }
 
+void InstallSavePanelHandlerForTesting(SavePanelHandler handler,
+                                       void* context) {
+  g_save_panel_handler = handler == nullptr ? RunSavePanelWithSystem : handler;
+  g_save_panel_context = handler == nullptr ? nullptr : context;
+}
+
 bool HandleQuickLookPressureForTesting(DaHandle handle, double x, double y,
                                        int64_t stage) {
   return DispatchQuickLookPressure(QuickLookOwnerForHandle(handle),
@@ -3190,6 +3244,7 @@ void ResetBridgeForTesting() {
   InstallSecureEventInputHandlersForTesting(nullptr, nullptr, nullptr,
                                             nullptr);
   InstallDefinitionPresentationHandlerForTesting(nullptr, nullptr);
+  InstallSavePanelHandlerForTesting(nullptr, nullptr);
   InstallAccessibilityDisplayPreferencesQueryForTesting(nullptr);
   g_accept_async_releases.store(true, std::memory_order_release);
   ClearLastError();
@@ -3703,7 +3758,7 @@ int32_t da_application_remove_user_notification(const char* identifier,
 }
 
 int32_t da_application_set_dock_badge_label(const char* label,
-                                            size_t label_length) {
+                                             size_t label_length) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
   if (thread_status != DA_STATUS_OK) {
@@ -3738,6 +3793,127 @@ int32_t da_application_set_dock_badge_label(const char* label,
             ? exception.reason.UTF8String
             : "Dock badge update failed");
   }
+}
+
+int32_t da_application_run_save_panel(
+    const char* title, size_t title_length, const char* message,
+    size_t message_length, const char* prompt, size_t prompt_length,
+    const char* default_name, size_t default_name_length,
+    const char* allowed_extension, size_t allowed_extension_length,
+    int32_t can_create_directories, DaSavePanelResult* out_result) {
+  dart_appkit::ClearLastError();
+  dart_appkit::g_save_panel_path.clear();
+  if (out_result == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_result must not be null");
+  }
+  *out_result = {};
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (title_length > DA_SAVE_PANEL_DISPLAY_TEXT_MAX_UTF8_BYTES ||
+      message_length > DA_SAVE_PANEL_DISPLAY_TEXT_MAX_UTF8_BYTES ||
+      prompt_length > DA_SAVE_PANEL_DISPLAY_TEXT_MAX_UTF8_BYTES ||
+      default_name_length > DA_SAVE_PANEL_DEFAULT_NAME_MAX_UTF8_BYTES ||
+      allowed_extension_length > DA_SAVE_PANEL_EXTENSION_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "save panel input exceeds its UTF-8 byte limit");
+  }
+  if (can_create_directories != 0 && can_create_directories != 1) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "save panel directory-creation flag must be zero or one");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_title = dart_appkit::CopyUtf8(title, title_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  NSString* copied_message =
+      dart_appkit::CopyUtf8(message, message_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  NSString* copied_prompt =
+      dart_appkit::CopyUtf8(prompt, prompt_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  NSString* copied_default_name =
+      dart_appkit::CopyUtf8(default_name, default_name_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  NSString* copied_extension = dart_appkit::CopyUtf8(
+      allowed_extension, allowed_extension_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  if (copied_title.length == 0 || copied_default_name.length == 0 ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_title) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_message) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_prompt) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_default_name) ||
+      [copied_default_name containsString:@"/"] ||
+      [copied_default_name isEqualToString:@"."] ||
+      [copied_default_name isEqualToString:@".."]) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "save panel requires safe title, message, prompt, and filename text");
+  }
+  for (size_t index = 0; index < allowed_extension_length; ++index) {
+    const unsigned char byte =
+        static_cast<unsigned char>(allowed_extension[index]);
+    const bool accepted = (byte >= 'a' && byte <= 'z') ||
+                          (byte >= '0' && byte <= '9') || byte == '+' ||
+                          byte == '-' || byte == '_';
+    if (!accepted) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "save panel extension must be bounded lowercase ASCII");
+    }
+  }
+  const auto copied_bytes = [](NSString* value) {
+    NSData* data = [value dataUsingEncoding:NSUTF8StringEncoding];
+    if (data == nil || data.length == 0) return std::string();
+    return std::string(static_cast<const char*>(data.bytes), data.length);
+  };
+  const dart_appkit::SavePanelRequestSnapshot request{
+      .title = copied_bytes(copied_title),
+      .message = copied_bytes(copied_message),
+      .prompt = copied_bytes(copied_prompt),
+      .default_file_name = copied_bytes(copied_default_name),
+      .allowed_file_extension = copied_bytes(copied_extension),
+      .can_create_directories = can_create_directories != 0,
+  };
+  std::string selected_path;
+  @try {
+    const dart_appkit::SavePanelResponse response =
+        dart_appkit::g_save_panel_handler(
+            request, &selected_path, dart_appkit::g_save_panel_context);
+    if (response == dart_appkit::SavePanelResponse::kCancelled) {
+      return DA_STATUS_OK;
+    }
+    if (response != dart_appkit::SavePanelResponse::kSelected) {
+      return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                       "save panel presentation failed");
+    }
+  } @catch (NSException* exception) {
+    (void)exception;
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     "save panel presentation failed");
+  }
+  if (selected_path.empty() || selected_path.front() != '/' ||
+      selected_path.size() > DA_SAVE_PANEL_PATH_MAX_UTF8_BYTES ||
+      selected_path.find('\0') != std::string::npos) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        "save panel returned an invalid local destination");
+  }
+  NSString* validated_path = [[NSString alloc]
+      initWithBytes:selected_path.data()
+             length:selected_path.size()
+           encoding:NSUTF8StringEncoding];
+  if (validated_path == nil) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        "save panel returned an invalid UTF-8 destination");
+  }
+  dart_appkit::g_save_panel_path = std::move(selected_path);
+  out_result->path = dart_appkit::g_save_panel_path.data();
+  out_result->path_length = dart_appkit::g_save_panel_path.size();
+  out_result->selected = 1;
+  return DA_STATUS_OK;
 }
 
 int32_t da_global_hot_key_register(uint16_t key_code, uint64_t modifiers,

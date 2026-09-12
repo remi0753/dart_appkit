@@ -11,6 +11,8 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
         NativeDropDestinationConfiguration,
         NativeFolderServicesProviderConfiguration,
         NativeScreenSnapshot,
+        NativeSavePanelConfiguration,
+        NativeSavePanelResult,
         NativeServicesTextRequestorConfiguration,
         dartAppKitScreenSelectionMain,
         dartAppKitExternalUrlPolicyForbidCredentials,
@@ -2094,6 +2096,97 @@ Future<void> _testPasteboardApi() async {
   await raw.close();
 }
 
+Future<void> _testSavePanelApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..savePanelResult = const NativeSavePanelResult.selected(
+      '/tmp/Chosen 日本語.json',
+    );
+  final AppKitApplication app = await _attach(bindings, raw);
+  final SavePanelConfiguration configuration = SavePanelConfiguration(
+    title: 'Save report',
+    message: 'Choose a destination.',
+    prompt: 'Save',
+    defaultFileName: 'report-日本語.json',
+    allowedFileExtension: 'json',
+    canCreateDirectories: false,
+  );
+  final SavePanelResult selected = app.chooseSaveDestination(configuration);
+  final NativeSavePanelConfiguration native =
+      bindings.lastSavePanelConfiguration!;
+  _expect(
+    selected.disposition == SavePanelDisposition.selected &&
+        selected.isSelected &&
+        selected.path == '/tmp/Chosen 日本語.json',
+    'selected destination is copied to the public result',
+  );
+  _expect(
+    bindings.savePanelRunCount == 1 &&
+        native.title == configuration.title &&
+        native.message == configuration.message &&
+        native.prompt == configuration.prompt &&
+        native.defaultFileName == configuration.defaultFileName &&
+        native.allowedFileExtension == configuration.allowedFileExtension &&
+        !native.canCreateDirectories,
+    'caller-owned presentation reaches the native boundary unchanged',
+  );
+
+  bindings.savePanelResult = const NativeSavePanelResult.cancelled();
+  final SavePanelResult cancelled = app.chooseSaveDestination(
+    SavePanelConfiguration(title: 'Export', defaultFileName: 'result.txt'),
+  );
+  _expect(
+    cancelled.disposition == SavePanelDisposition.cancelled &&
+        !cancelled.isSelected &&
+        cancelled.path == null,
+    'cancellation contains no destination',
+  );
+
+  bindings.failNextOperation = 'runSavePanel';
+  final AppKitNativeException failure =
+      await _expectThrows<AppKitNativeException>(
+        () => app.chooseSaveDestination(configuration),
+      );
+  _expect(
+    failure.status == 7 && bindings.savePanelRunCount == 2,
+    'native failure is typed and publishes no new result',
+  );
+
+  await _expectThrows<ArgumentError>(
+    () => SavePanelConfiguration(title: '', defaultFileName: 'result.txt'),
+  );
+  await _expectThrows<ArgumentError>(
+    () => SavePanelConfiguration(
+      title: 'Unsafe\nTitle',
+      defaultFileName: 'result.txt',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => SavePanelConfiguration(title: 'Export', defaultFileName: '../x'),
+  );
+  await _expectThrows<ArgumentError>(
+    () => SavePanelConfiguration(
+      title: 'Export',
+      defaultFileName: 'result.JSON',
+      allowedFileExtension: '.JSON',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => SavePanelConfiguration(
+      title: 'x' * (dartAppKitSavePanelDisplayTextMaximumUtf8Bytes + 1),
+      defaultFileName: 'result.txt',
+    ),
+  );
+
+  await app.terminate();
+  await _expectThrows<StateError>(
+    () => app.chooseSaveDestination(configuration),
+  );
+  await raw.close();
+}
+
 Future<void> _testExternalUrlApi() async {
   await _expectThrows<ArgumentError>(() => ExternalUrlSchemePolicy(scheme: ''));
   await _expectThrows<ArgumentError>(
@@ -3740,6 +3833,7 @@ Future<void> main() async {
     _testSecureEventInputApi,
   );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);
+  await _test('caller-configured save destination panel', _testSavePanelApi);
   await _test('allowlisted external URL opening', _testExternalUrlApi);
   await _test(
     'bounded user notification and Dock badge API',

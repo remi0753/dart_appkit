@@ -372,6 +372,19 @@ final class _DaPasteboardTextNative extends Struct {
   external int changeCount;
 }
 
+final class _DaSavePanelResultNative extends Struct {
+  external Pointer<Uint8> path;
+
+  @Size()
+  external int pathLength;
+
+  @Int32()
+  external int selected;
+
+  @Int32()
+  external int reserved;
+}
+
 typedef _AbiVersionNative = Uint32 Function();
 typedef _AbiVersionDart = int Function();
 typedef _SetEventPortNative = Int32 Function(Int64);
@@ -462,6 +475,34 @@ typedef _PasteboardReadNative = Int32 Function(
   Pointer<_DaPasteboardTextNative>,
 );
 typedef _PasteboardReadDart = int Function(Pointer<_DaPasteboardTextNative>);
+typedef _SavePanelRunNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Int32,
+  Pointer<_DaSavePanelResultNative>,
+);
+typedef _SavePanelRunDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  int,
+  Pointer<_DaSavePanelResultNative>,
+);
 typedef _PasteboardWriteNative = Int32 Function(
   Pointer<Uint8>,
   Size,
@@ -1177,6 +1218,16 @@ _ExternalUrlOpenWithPolicyDart? _lookupApplicationOpenExternalUrlWithPolicy(
   }
 }
 
+_SavePanelRunDart? _lookupSavePanelRun(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_SavePanelRunNative, _SavePanelRunDart>(
+      'da_application_run_save_panel',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _StringStatusDart? _lookupStringStatus(DynamicLibrary library, String symbol) {
   try {
     return library.lookupFunction<_StringStatusNative, _StringStatusDart>(
@@ -1641,6 +1692,7 @@ final class FfiNativeBindings
         NativeServicesTextRequestorBindings,
         NativeDropDestinationBindings,
         NativeFolderServicesProviderBindings,
+        NativeSavePanelBindings,
         NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
         NativeViewBadgeBindings,
@@ -1671,6 +1723,7 @@ final class FfiNativeBindings
       _applicationOpenExternalUrl = _lookupApplicationOpenExternalUrl(library),
       _applicationOpenExternalUrlWithPolicy =
           _lookupApplicationOpenExternalUrlWithPolicy(library),
+      _savePanelRun = _lookupSavePanelRun(library),
       _applicationPostUserNotification = _lookupThreeStringsStatus(
         library,
         'da_application_post_user_notification',
@@ -1890,6 +1943,7 @@ final class FfiNativeBindings
   final _NoArgsStatusDart? _debugRequestApplicationTermination;
   final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
   final _ExternalUrlOpenWithPolicyDart? _applicationOpenExternalUrlWithPolicy;
+  final _SavePanelRunDart? _savePanelRun;
   final _ThreeStringsStatusDart? _applicationPostUserNotification;
   final _Int64OutputDart? _applicationGetUserNotificationSettings;
   final _Int64OutputDart? _applicationRequestUserNotificationAuthorization;
@@ -2223,6 +2277,110 @@ final class FfiNativeBindings
       } finally {
         _free(output.cast<Void>());
       }
+    });
+  }
+
+  @override
+  NativeValueResult<NativeSavePanelResult> runSavePanel(
+    NativeSavePanelConfiguration configuration,
+  ) {
+    final _SavePanelRunDart? function = _savePanelRun;
+    if (function == null) {
+      return const NativeValueResult<NativeSavePanelResult>.failure(
+        8,
+        'legacy native bridge does not support save-destination panels',
+      );
+    }
+    return _withUtf8(configuration.title, (title, titleLength) {
+      return _withUtf8(configuration.message, (message, messageLength) {
+        return _withUtf8(configuration.prompt, (prompt, promptLength) {
+          return _withUtf8(configuration.defaultFileName, (
+            defaultName,
+            defaultNameLength,
+          ) {
+            return _withUtf8(configuration.allowedFileExtension, (
+              extension,
+              extensionLength,
+            ) {
+              final Pointer<_DaSavePanelResultNative> output = _allocate(
+                sizeOf<_DaSavePanelResultNative>(),
+              ).cast<_DaSavePanelResultNative>();
+              try {
+                output.ref
+                  ..path = nullptr
+                  ..pathLength = 0
+                  ..selected = 0
+                  ..reserved = 0;
+                final int status = function(
+                  title,
+                  titleLength,
+                  message,
+                  messageLength,
+                  prompt,
+                  promptLength,
+                  defaultName,
+                  defaultNameLength,
+                  extension,
+                  extensionLength,
+                  configuration.canCreateDirectories ? 1 : 0,
+                  output,
+                );
+                if (status != 0) {
+                  return NativeValueResult<NativeSavePanelResult>.failure(
+                    status,
+                    _lastErrorMessage(),
+                  );
+                }
+                final _DaSavePanelResultNative native = output.ref;
+                if (native.reserved != 0 ||
+                    native.selected != 0 && native.selected != 1 ||
+                    native.selected == 0 &&
+                        (native.path.address != 0 || native.pathLength != 0) ||
+                    native.selected == 1 &&
+                        (native.path.address == 0 ||
+                            native.pathLength == 0 ||
+                            native.pathLength >
+                                dartAppKitSavePanelPathMaximumUtf8Bytes)) {
+                  return const NativeValueResult<NativeSavePanelResult>.failure(
+                    7,
+                    'native bridge returned an invalid save-panel result',
+                  );
+                }
+                if (native.selected == 0) {
+                  return const NativeValueResult<NativeSavePanelResult>.success(
+                    NativeSavePanelResult.cancelled(),
+                  );
+                }
+                try {
+                  final String path = utf8.decode(
+                    native.path
+                        .asTypedList(native.pathLength)
+                        .toList(growable: false),
+                  );
+                  if (!path.startsWith('/') || path.contains('\u0000')) {
+                    return const NativeValueResult<
+                      NativeSavePanelResult
+                    >.failure(
+                      7,
+                      'native bridge returned an invalid save destination',
+                    );
+                  }
+                  return NativeValueResult<NativeSavePanelResult>.success(
+                    NativeSavePanelResult.selected(path),
+                  );
+                } on FormatException {
+                  return const NativeValueResult<NativeSavePanelResult>.failure(
+                    7,
+                    'native bridge returned an invalid UTF-8 save destination',
+                  );
+                }
+              } finally {
+                _free(output.cast<Void>());
+              }
+            });
+          });
+        });
+      });
     });
   }
 

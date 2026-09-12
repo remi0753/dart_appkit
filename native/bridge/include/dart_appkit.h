@@ -317,6 +317,10 @@ typedef struct DaTextViewConfiguration {
 
 #define DA_TEXT_EDITOR_MAX_TEXT_UTF8_BYTES ((size_t)(16u * 1024u * 1024u))
 #define DA_TEXT_EDITOR_MAX_STYLE_RUNS ((size_t)(64u * 1024u))
+#define DA_SAVE_PANEL_DISPLAY_TEXT_MAX_UTF8_BYTES ((size_t)4096u)
+#define DA_SAVE_PANEL_DEFAULT_NAME_MAX_UTF8_BYTES ((size_t)1024u)
+#define DA_SAVE_PANEL_EXTENSION_MAX_UTF8_BYTES ((size_t)64u)
+#define DA_SAVE_PANEL_PATH_MAX_UTF8_BYTES ((size_t)(32u * 1024u))
 
 typedef enum DaTextEditorUnderlineStyle {
   DA_TEXT_EDITOR_UNDERLINE_NONE = 0,
@@ -395,6 +399,20 @@ typedef struct DaPasteboardText {
   int32_t has_text;
   int64_t change_count;
 } DaPasteboardText;
+
+/**
+ * Borrowed result of one modal save-destination panel.
+ *
+ * A cancelled result has selected zero and a null/zero path. A selected path
+ * is an absolute local filesystem path borrowed until the next save-panel
+ * call on the same thread. The caller must copy it before that next call.
+ */
+typedef struct DaSavePanelResult {
+  const char* path;
+  size_t path_length;
+  int32_t selected;
+  int32_t reserved;
+} DaSavePanelResult;
 
 /**
  * Size-prefixed, content-free Secure Event Input ownership snapshot.
@@ -669,6 +687,22 @@ DA_EXPORT int32_t da_application_remove_user_notification(
  */
 DA_EXPORT int32_t da_application_set_dock_badge_label(
     const char* label, size_t label_length);
+
+/**
+ * Main thread only. Runs one caller-presented modal save-destination panel.
+ *
+ * All strings are copied before presentation. title and default_name are
+ * required; message and prompt may be empty. allowed_extension may be empty or
+ * one bounded lowercase ASCII filename extension without a leading dot.
+ * can_create_directories must be zero or one. This function selects a path but
+ * never creates, replaces, or writes the selected file.
+ */
+DA_EXPORT int32_t da_application_run_save_panel(
+    const char* title, size_t title_length, const char* message,
+    size_t message_length, const char* prompt, size_t prompt_length,
+    const char* default_name, size_t default_name_length,
+    const char* allowed_extension, size_t allowed_extension_length,
+    int32_t can_create_directories, DaSavePanelResult* out_result);
 
 /**
  * Main thread only. Registers one exclusive system-wide physical-key chord.

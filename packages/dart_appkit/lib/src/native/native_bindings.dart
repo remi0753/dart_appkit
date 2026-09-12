@@ -9,6 +9,10 @@ const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
 const int dartAppKitViewBadgeMaximumTextUtf8Bytes = 256;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
+const int dartAppKitSavePanelDisplayTextMaximumUtf8Bytes = 4096;
+const int dartAppKitSavePanelDefaultNameMaximumUtf8Bytes = 1024;
+const int dartAppKitSavePanelExtensionMaximumUtf8Bytes = 64;
+const int dartAppKitSavePanelPathMaximumUtf8Bytes = 32 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
 const int dartAppKitUserNotificationIdentifierMaximumUtf8Bytes = 128;
@@ -371,6 +375,38 @@ final class NativePasteboardTextSnapshot {
   final int changeCount;
 }
 
+enum NativeSavePanelDisposition { selected, cancelled }
+
+final class NativeSavePanelConfiguration {
+  const NativeSavePanelConfiguration({
+    required this.title,
+    required this.message,
+    required this.prompt,
+    required this.defaultFileName,
+    required this.allowedFileExtension,
+    required this.canCreateDirectories,
+  });
+
+  final String title;
+  final String message;
+  final String prompt;
+  final String defaultFileName;
+  final String allowedFileExtension;
+  final bool canCreateDirectories;
+}
+
+final class NativeSavePanelResult {
+  const NativeSavePanelResult.selected(this.path)
+    : disposition = NativeSavePanelDisposition.selected;
+
+  const NativeSavePanelResult.cancelled()
+    : disposition = NativeSavePanelDisposition.cancelled,
+      path = null;
+
+  final NativeSavePanelDisposition disposition;
+  final String? path;
+}
+
 final class NativeRect {
   const NativeRect({
     required this.x,
@@ -564,6 +600,13 @@ abstract interface class NativeTextEditorBindings {
   });
   NativeCallResult textEditorScrollSelectionToVisible(int handle);
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
+}
+
+/// Optional synchronous save-destination surface for older native bridges.
+abstract interface class NativeSavePanelBindings {
+  NativeValueResult<NativeSavePanelResult> runSavePanel(
+    NativeSavePanelConfiguration configuration,
+  );
 }
 
 /// Optional split-view observation surface kept separate for older bridges and

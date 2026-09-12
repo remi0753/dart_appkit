@@ -386,6 +386,27 @@ final class AppKitApplication {
     return _generalPasteboard ??= Pasteboard._(this);
   }
 
+  /// Runs one modal save-destination panel with caller-owned presentation.
+  SavePanelResult chooseSaveDestination(SavePanelConfiguration configuration) {
+    _ensureRunning();
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeSavePanelBindings) {
+      throw UnsupportedError(
+        'the native bridge does not support save-destination panels',
+      );
+    }
+    final NativeSavePanelResult result = _checkValue<NativeSavePanelResult>(
+      (bindings as NativeSavePanelBindings).runSavePanel(configuration._native),
+      'AppKitApplication.chooseSaveDestination',
+    );
+    return switch (result.disposition) {
+      NativeSavePanelDisposition.selected => SavePanelResult.selected(
+        result.path!,
+      ),
+      NativeSavePanelDisposition.cancelled => const SavePanelResult.cancelled(),
+    };
+  }
+
   Menu? get mainMenu {
     _ensureRunning();
     return _mainMenu;

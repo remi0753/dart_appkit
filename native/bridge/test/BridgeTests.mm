@@ -330,6 +330,26 @@ int32_t g_fake_secure_input_enable_status = noErr;
 int32_t g_fake_secure_input_disable_status = noErr;
 int g_fake_secure_input_enable_count = 0;
 int g_fake_secure_input_disable_count = 0;
+struct SavePanelCapture {
+  int invocation_count = 0;
+  dart_appkit::SavePanelRequestSnapshot request;
+  dart_appkit::SavePanelResponse response =
+      dart_appkit::SavePanelResponse::kCancelled;
+  std::string selected_path;
+};
+
+dart_appkit::SavePanelResponse CaptureSavePanel(
+    const dart_appkit::SavePanelRequestSnapshot& request,
+    std::string* out_path, void* context) {
+  auto* capture = static_cast<SavePanelCapture*>(context);
+  if (capture == nullptr || out_path == nullptr) {
+    return dart_appkit::SavePanelResponse::kFailure;
+  }
+  ++capture->invocation_count;
+  capture->request = request;
+  *out_path = capture->selected_path;
+  return capture->response;
+}
 
 int32_t FakeEnableSecureEventInput() {
   ++g_fake_secure_input_enable_count;
@@ -1587,6 +1607,142 @@ void TestPasteboardText() {
             DA_STATUS_INVALID_ARGUMENT);
   EXPECT_EQ(dart_appkit::ReadPasteboardText(nil, &snapshot),
             DA_STATUS_INTERNAL_ERROR);
+}
+
+void TestSavePanel() {
+  dart_appkit::ResetBridgeForTesting();
+  SavePanelCapture capture;
+  capture.response = dart_appkit::SavePanelResponse::kSelected;
+  capture.selected_path = "/tmp/Chosen \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e.json";
+  dart_appkit::InstallSavePanelHandlerForTesting(CaptureSavePanel, &capture);
+
+  const std::string title = "Save report";
+  const std::string message = "Choose a destination.";
+  const std::string prompt = "Save";
+  const std::string default_name =
+      "report-\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e.json";
+  const std::string extension = "json";
+  DaSavePanelResult result{};
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), message.data(), message.size(),
+                prompt.data(), prompt.size(), default_name.data(),
+                default_name.size(), extension.data(), extension.size(), 0,
+                &result),
+            DA_STATUS_OK);
+  EXPECT_EQ(capture.invocation_count, 1);
+  EXPECT_EQ(capture.request.title, title);
+  EXPECT_EQ(capture.request.message, message);
+  EXPECT_EQ(capture.request.prompt, prompt);
+  EXPECT_EQ(capture.request.default_file_name, default_name);
+  EXPECT_EQ(capture.request.allowed_file_extension, extension);
+  EXPECT_TRUE(!capture.request.can_create_directories);
+  EXPECT_EQ(result.selected, 1);
+  EXPECT_EQ(std::string(result.path, result.path_length),
+            capture.selected_path);
+
+  capture.response = dart_appkit::SavePanelResponse::kCancelled;
+  result = {
+      .path = "stale", .path_length = 5, .selected = 1, .reserved = 0};
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_OK);
+  EXPECT_EQ(capture.invocation_count, 2);
+  EXPECT_EQ(capture.request.message, std::string());
+  EXPECT_EQ(capture.request.prompt, std::string());
+  EXPECT_EQ(capture.request.allowed_file_extension, std::string());
+  EXPECT_TRUE(capture.request.can_create_directories);
+  EXPECT_EQ(result.selected, 0);
+  EXPECT_TRUE(result.path == nullptr);
+  EXPECT_EQ(result.path_length, static_cast<size_t>(0));
+
+  capture.response = dart_appkit::SavePanelResponse::kFailure;
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INTERNAL_ERROR);
+  EXPECT_EQ(capture.invocation_count, 3);
+
+  const int before_invalid = capture.invocation_count;
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_run_save_panel(
+                nullptr, 0, nullptr, 0, nullptr, 0, default_name.data(),
+                default_name.size(), nullptr, 0, 1, &result),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string unsafe_title = "Save\nreport";
+  EXPECT_EQ(da_application_run_save_panel(
+                unsafe_title.data(), unsafe_title.size(), nullptr, 0, nullptr,
+                0, default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string invalid_name = "../report.json";
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                invalid_name.data(), invalid_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INVALID_ARGUMENT);
+  const std::string invalid_extension = ".JSON";
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(),
+                invalid_extension.data(), invalid_extension.size(), 1,
+                &result),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_run_save_panel(
+                nullptr, DA_SAVE_PANEL_DISPLAY_TEXT_MAX_UTF8_BYTES + 1,
+                nullptr, 0, nullptr, 0, default_name.data(),
+                default_name.size(), nullptr, 0, 1, &result),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 2,
+                &result),
+            DA_STATUS_INVALID_ARGUMENT);
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_application_run_save_panel(
+                invalid_utf8, sizeof(invalid_utf8), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(capture.invocation_count, before_invalid);
+
+  capture.response = dart_appkit::SavePanelResponse::kSelected;
+  capture.selected_path = "relative.json";
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INTERNAL_ERROR);
+  capture.selected_path = std::string("/tmp/a\0b", 8);
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INTERNAL_ERROR);
+  capture.selected_path =
+      std::string("/tmp/") + std::string(invalid_utf8, sizeof(invalid_utf8));
+  EXPECT_EQ(da_application_run_save_panel(
+                title.data(), title.size(), nullptr, 0, nullptr, 0,
+                default_name.data(), default_name.size(), nullptr, 0, 1,
+                &result),
+            DA_STATUS_INTERNAL_ERROR);
+
+  std::atomic<int32_t> background_status{DA_STATUS_OK};
+  std::thread background([&]() {
+    DaSavePanelResult background_result{};
+    background_status.store(da_application_run_save_panel(
+        title.data(), title.size(), nullptr, 0, nullptr, 0,
+        default_name.data(), default_name.size(), nullptr, 0, 1,
+        &background_result));
+  });
+  background.join();
+  EXPECT_EQ(background_status.load(), DA_STATUS_WRONG_THREAD);
 }
 
 void TestExternalUrlOpening() {
@@ -4943,6 +5099,7 @@ int main() {
     TestApplicationAppearanceObservation();
     TestApplicationAccessibilityDisplayPreferencesObservation();
     TestPasteboardText();
+    TestSavePanel();
     TestExternalUrlOpening();
     TestUserNotificationsAndDockBadge();
     TestTrackedUserNotificationLifecycle();

@@ -29,7 +29,8 @@ COMMON_FLAGS := $(WARNINGS) -fvisibility=hidden -isysroot $(SDKROOT) \
 	-mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 OBJCXX_FLAGS := $(COMMON_FLAGS) -std=c++20 -fobjc-arc -fblocks
 APPKIT_LIBS := -framework AppKit -framework CoreFoundation \
-	-framework UserNotifications -framework Carbon
+	-framework UserNotifications -framework UniformTypeIdentifiers \
+	-framework Carbon
 
 BRIDGE_HEADERS := \
 	$(PROJECT_ROOT)/native/bridge/include/dart_appkit.h \

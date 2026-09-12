@@ -45,7 +45,8 @@ final class FakeNativeBindings
         NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
         NativeViewBadgeBindings,
-        NativeWindowPresentationBindings {
+        NativeWindowPresentationBindings,
+        NativeSavePanelBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
   int nextHandle = 100;
@@ -62,6 +63,10 @@ final class FakeNativeBindings
   final List<String> openedExternalUrls = <String>[];
   final List<String> openedExternalUrlSchemes = <String>[];
   final List<int> openedExternalUrlPolicyFlags = <int>[];
+  NativeSavePanelResult savePanelResult =
+      const NativeSavePanelResult.cancelled();
+  NativeSavePanelConfiguration? lastSavePanelConfiguration;
+  int savePanelRunCount = 0;
   final List<({String identifier, String title, String body})>
   postedUserNotifications =
       <({String identifier, String title, String body})>[];
@@ -314,6 +319,19 @@ final class FakeNativeBindings
       openedExternalUrls.add(url);
       openedExternalUrlSchemes.add(scheme);
       openedExternalUrlPolicyFlags.add(policyFlags);
+    }
+    return result;
+  }
+
+  @override
+  NativeValueResult<NativeSavePanelResult> runSavePanel(
+    NativeSavePanelConfiguration configuration,
+  ) {
+    final NativeValueResult<NativeSavePanelResult> result =
+        _value<NativeSavePanelResult>('runSavePanel', savePanelResult);
+    if (result.isSuccess) {
+      lastSavePanelConfiguration = configuration;
+      savePanelRunCount++;
     }
     return result;
   }

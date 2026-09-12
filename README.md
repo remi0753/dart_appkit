@@ -19,7 +19,8 @@ bounded asynchronous returned text, and copy-only bounded plain-text/local
 file-URL drop destinations, plus a bounded application folder Services
 provider,
 64 MiB-bounded plain-text pasteboard
-snapshots, allowlisted external URL opening, explicit native ownership,
+snapshots, a caller-configured bounded save-destination panel, allowlisted
+external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
 per-window key-event routing, mutable outer frames, current-screen resolution,
 interruptible overlay presentation, asynchronous native fullscreen state, a
@@ -172,6 +173,13 @@ window.dispose();
 view.dispose();
 await app.terminate();
 ```
+
+Callers can present one synchronous save-destination choice without giving the
+bridge ownership of file contents or product wording. `SavePanelConfiguration`
+copies the title, optional explanatory text, action label, default filename,
+optional lowercase extension, and directory-creation policy. The returned
+`SavePanelResult` distinguishes selection from cancellation; the caller remains
+responsible for validating and writing the selected local path.
 
 Actionable `MenuItem` instances also expose cache-on-success
 `isEnabled` and `isChecked` state. Checked state is suitable for projecting

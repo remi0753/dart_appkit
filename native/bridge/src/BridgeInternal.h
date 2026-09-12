@@ -118,6 +118,21 @@ struct DefinitionPresentationSnapshot {
 using DefinitionPresentationHandler = bool (*)(
     const DefinitionPresentationSnapshot& snapshot, void* context);
 
+struct SavePanelRequestSnapshot {
+  std::string title;
+  std::string message;
+  std::string prompt;
+  std::string default_file_name;
+  std::string allowed_file_extension;
+  bool can_create_directories = true;
+};
+
+enum class SavePanelResponse { kSelected, kCancelled, kFailure };
+
+using SavePanelHandler = SavePanelResponse (*)(
+    const SavePanelRequestSnapshot& request, std::string* out_path,
+    void* context);
+
 /** Returns the selected candidate index, or -1 when no candidate exists. */
 int ResolveScreenSelectionIndex(
     int32_t selection, const std::vector<ScreenSelectionCandidate>& candidates,
@@ -173,6 +188,8 @@ void InstallSecureEventInputHandlersForTesting(
     ApplicationActiveQuery active_query);
 void InstallDefinitionPresentationHandlerForTesting(
     DefinitionPresentationHandler handler, void* context);
+void InstallSavePanelHandlerForTesting(SavePanelHandler handler,
+                                       void* context);
 bool HandleQuickLookPressureForTesting(DaHandle handle, double x, double y,
                                        int64_t stage);
 
