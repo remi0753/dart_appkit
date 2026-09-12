@@ -26,7 +26,7 @@ The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.
 
 Manifest version 1 contains these required fields plus the optional `runner`,
-`services`, `dartHelpers`, and `nativeAssets` values:
+`services`, `scriptingDefinition`, `dartHelpers`, and `nativeAssets` values:
 
 ```json
 {
@@ -48,6 +48,7 @@ Manifest version 1 contains these required fields plus the optional `runner`,
       "menuItem": "New Example Window Here"
     }
   ],
+  "scriptingDefinition": {"path": "resources/Example.sdef"},
   "runner": {
     "activationPolicy": "regular",
     "activateOnLaunch": true,
@@ -91,6 +92,17 @@ inject selectors or arbitrary property-list keys. It emits `NSServices` only
 when the array is non-empty, validates the completed property list before
 signing, and records the same ordered declarations in
 `runtime-build-manifest.json`.
+
+The optional `scriptingDefinition` object contains exactly one normalized,
+project-relative `.sdef` path of at most 1024 UTF-8 bytes. The source must be
+non-empty and no larger than 1 MiB. Before staging, the builder validates it
+against the system scripting-definition DTD with `xmllint --valid`, copies it
+to the `Contents/Resources` root, emits exact `NSAppleScriptEnabled` and
+`OSAScriptingDefinition` keys, and records source path, bundle name, and byte
+count in `runtime-build-manifest.json`. Missing, absolute/remote/traversing,
+invalid, oversized, and colliding declarations fail before signing. The
+runtime defines packaging only; dictionary classes and command authority stay
+in an optional application-owned capability.
 
 Resource paths are normalized project-relative paths. Runtime-owned filenames
 cannot be replaced. `MacosRuntime.bundleResourcePath` accepts only normalized

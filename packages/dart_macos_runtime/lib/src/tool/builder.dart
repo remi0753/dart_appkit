@@ -688,6 +688,32 @@ final class RuntimeApplicationBuilder {
       await destination.parent.create(recursive: true);
       await source.copy(destination.path);
     }
+    int? scriptingDefinitionBytes;
+    final MacosScriptingDefinitionManifest? scriptingDefinition =
+        manifest.scriptingDefinition;
+    if (scriptingDefinition != null) {
+      final File source = await _existingFile(
+        _join(projectRoot.path, scriptingDefinition.path),
+        'scripting definition',
+      );
+      scriptingDefinitionBytes = await source.length();
+      if (scriptingDefinitionBytes <= 0 ||
+          scriptingDefinitionBytes >
+              MacosScriptingDefinitionManifest.maximumFileBytes) {
+        throw RuntimeBuilderException(
+          'scripting definition must be non-empty and no larger than '
+          '${MacosScriptingDefinitionManifest.maximumFileBytes} bytes',
+          exitCode: builderUsageExitCode,
+        );
+      }
+      await _runChecked(
+        'scripting definition validation',
+        '/usr/bin/xmllint',
+        <String>['--noout', '--valid', source.path],
+        projectRoot.path,
+      );
+      await source.copy(_join(resources.path, scriptingDefinition.bundleName));
+    }
     final File infoPlist = File(_join(contents.path, 'Info.plist'));
     await infoPlist.writeAsString(
       _infoPlist(manifest, sdkRevision),
@@ -732,6 +758,12 @@ final class RuntimeApplicationBuilder {
                     'menuItem': service.menuItem,
                   },
               ],
+            if (scriptingDefinition != null)
+              'scriptingDefinition': <String, Object>{
+                'source': scriptingDefinition.path,
+                'bundleName': scriptingDefinition.bundleName,
+                'bytes': scriptingDefinitionBytes!,
+              },
             'dartHelpers': <Map<String, Object>>[
               for (final MacosDartHelperManifest helper in manifest.dartHelpers)
                 <String, Object>{
@@ -943,7 +975,7 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
   <string>${_xml(manifest.minimumSystemVersion)}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
-${_servicesInfoPlist(manifest.services)}  <key>DMRDartSDKRevision</key>
+${_servicesInfoPlist(manifest.services)}${_scriptingDefinitionInfoPlist(manifest.scriptingDefinition)}  <key>DMRDartSDKRevision</key>
   <string>${_xml(sdkRevision)}</string>
   <key>DMRDiagnosticsEnabled</key>
   <${manifest.diagnostics.enabled ? 'true' : 'false'}/>
@@ -1000,6 +1032,17 @@ String _servicesInfoPlist(List<MacosApplicationServiceManifest> services) {
   }
   buffer.writeln('  </array>');
   return buffer.toString();
+}
+
+String _scriptingDefinitionInfoPlist(
+  MacosScriptingDefinitionManifest? scriptingDefinition,
+) {
+  if (scriptingDefinition == null) return '';
+  return '''  <key>NSAppleScriptEnabled</key>
+  <true/>
+  <key>OSAScriptingDefinition</key>
+  <string>${_xml(scriptingDefinition.bundleName)}</string>
+''';
 }
 
 String _xml(String value) => value

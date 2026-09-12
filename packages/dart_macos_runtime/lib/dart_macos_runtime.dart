@@ -12,7 +12,8 @@ export 'src/application_manifest.dart'
         MacosNativeCapabilityManifest,
         MacosRunnerActivationPolicy,
         MacosRunnerMessagePumpManifest,
-        MacosRunnerManifest;
+        MacosRunnerManifest,
+        MacosScriptingDefinitionManifest;
 export 'src/native_capability.dart'
     show MacosNativeCapability, MacosNativeCapabilityException;
 export 'src/runtime.dart'

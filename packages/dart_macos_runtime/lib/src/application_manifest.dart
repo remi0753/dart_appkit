@@ -108,6 +108,17 @@ final class MacosApplicationServiceManifest {
   final String menuItem;
 }
 
+final class MacosScriptingDefinitionManifest {
+  const MacosScriptingDefinitionManifest({required this.path});
+
+  static const int maximumPathUtf8Bytes = 1024;
+  static const int maximumFileBytes = 1024 * 1024;
+
+  final String path;
+
+  String get bundleName => path.split('/').last;
+}
+
 final class MacosApplicationManifest {
   const MacosApplicationManifest({
     required this.name,
@@ -117,6 +128,7 @@ final class MacosApplicationManifest {
     required this.minimumSystemVersion,
     required this.entrypoint,
     this.services = const <MacosApplicationServiceManifest>[],
+    this.scriptingDefinition,
     required this.dartHelpers,
     required this.resources,
     required this.nativeAssets,
@@ -145,7 +157,13 @@ final class MacosApplicationManifest {
         'nativeCapabilities',
         'diagnostics',
       },
-      const <String>{'dartHelpers', 'nativeAssets', 'runner', 'services'},
+      const <String>{
+        'dartHelpers',
+        'nativeAssets',
+        'runner',
+        'services',
+        'scriptingDefinition',
+      },
       'manifest',
     );
     if (root['schemaVersion'] != 1) {
@@ -229,6 +247,11 @@ final class MacosApplicationManifest {
           for (var index = 0; index < serviceValues.length; ++index)
             _applicationService(serviceValues[index], index),
         ];
+    final MacosScriptingDefinitionManifest? scriptingDefinition =
+        switch (root['scriptingDefinition']) {
+          null => null,
+          final Object value => _scriptingDefinition(value),
+        };
     final MacosRunnerActivationPolicy activationPolicy =
         switch (runner['activationPolicy']) {
           null => MacosRunnerActivationPolicy.regular,
@@ -347,6 +370,12 @@ final class MacosApplicationManifest {
         'manifest.resources contains a duplicate path',
       );
     }
+    if (scriptingDefinition != null &&
+        resources.contains(scriptingDefinition.bundleName)) {
+      throw const MacosApplicationManifestException(
+        'manifest.scriptingDefinition conflicts with a bundled resource',
+      );
+    }
     if (services.map((value) => value.kind).toSet().length != services.length) {
       throw const MacosApplicationManifestException(
         'manifest.services contains a duplicate kind',
@@ -396,6 +425,7 @@ final class MacosApplicationManifest {
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
       services: List<MacosApplicationServiceManifest>.unmodifiable(services),
+      scriptingDefinition: scriptingDefinition,
       dartHelpers: List<MacosDartHelperManifest>.unmodifiable(dartHelpers),
       resources: List<String>.unmodifiable(resources),
       nativeAssets: List<MacosNativeAssetManifest>.unmodifiable(nativeAssets),
@@ -436,6 +466,7 @@ final class MacosApplicationManifest {
   final String minimumSystemVersion;
   final String entrypoint;
   final List<MacosApplicationServiceManifest> services;
+  final MacosScriptingDefinitionManifest? scriptingDefinition;
   final List<MacosDartHelperManifest> dartHelpers;
   final List<String> resources;
   final List<MacosNativeAssetManifest> nativeAssets;
@@ -453,6 +484,24 @@ final class MacosApplicationManifest {
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
+}
+
+MacosScriptingDefinitionManifest _scriptingDefinition(Object? value) {
+  const String path = 'manifest.scriptingDefinition';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{'path'}, path);
+  final String source = _relativePath(
+    _string(object['path'], '$path.path'),
+    '$path.path',
+  );
+  if (!source.endsWith('.sdef') ||
+      utf8.encode(source).length >
+          MacosScriptingDefinitionManifest.maximumPathUtf8Bytes) {
+    throw const MacosApplicationManifestException(
+      'manifest.scriptingDefinition.path must be a bounded .sdef path',
+    );
+  }
+  return MacosScriptingDefinitionManifest(path: source);
 }
 
 MacosApplicationServiceManifest _applicationService(Object? value, int index) {

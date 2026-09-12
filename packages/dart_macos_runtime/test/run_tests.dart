@@ -39,6 +39,18 @@ T _expectThrows<T extends Object>(void Function() body) {
   throw StateError('expected $T but no error was thrown');
 }
 
+Future<T> _expectThrowsAsync<T extends Object>(
+  Future<void> Function() body,
+) async {
+  try {
+    await body();
+  } on Object catch (error) {
+    if (error is T) return error;
+    throw StateError('expected $T but caught ${error.runtimeType}');
+  }
+  throw StateError('expected $T but no error was thrown');
+}
+
 const String _validManifest = '''
 {
   "schemaVersion": 1,
@@ -71,6 +83,23 @@ String _withFolderServices(String manifest) =>
     }
   ],
   "dart":''');
+
+String _withScriptingDefinition(String manifest) => manifest.replaceFirst(
+  '"dart":',
+  '''"scriptingDefinition": {"path": "resources/Test.sdef"},
+  "dart":''',
+);
+
+const String _validSdef = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Test Terminology">
+  <suite name="Test Suite" code="DTas" description="Test suite.">
+    <class name="application" code="capp" description="The application.">
+      <cocoa class="NSApplication"/>
+    </class>
+  </suite>
+</dictionary>
+''';
 
 final class _FakeBindings implements RuntimeBindings {
   int runtimeVersion = 1;
@@ -114,6 +143,7 @@ final class _RecordedCommand {
 
 final class _FakeExecutor implements BuilderProcessExecutor {
   final List<_RecordedCommand> commands = <_RecordedCommand>[];
+  bool failScriptingDefinitionValidation = false;
 
   @override
   Future<BuilderCommandResult> run(
@@ -123,6 +153,12 @@ final class _FakeExecutor implements BuilderProcessExecutor {
     bool inheritStdio = false,
   }) async {
     commands.add(_RecordedCommand(executable, arguments, inheritStdio));
+    if (executable == '/usr/bin/xmllint' && failScriptingDefinitionValidation) {
+      return const BuilderCommandResult(
+        exitCode: 2,
+        stderrText: 'invalid scripting definition',
+      );
+    }
     if (inheritStdio) {
       return const BuilderCommandResult(exitCode: 23);
     }
@@ -172,6 +208,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         );
       }
     } else if (executable != '/bin/chmod' &&
+        executable != '/usr/bin/xmllint' &&
         executable != '/usr/bin/plutil' &&
         executable != '/usr/bin/codesign') {
       throw StateError('unexpected command: $executable $arguments');
@@ -196,6 +233,7 @@ final class _Fixture {
     _write('${project.path}/bin/main.dart', 'void main() {}\n');
     _write('${project.path}/bin/helper.dart', 'void main() {}\n');
     _write('${project.path}/assets/message.txt', 'hello\n');
+    _write('${project.path}/resources/Test.sdef', _validSdef);
     _write(
       '${project.path}/.dart_tool/package_config.json',
       '{"configVersion":2,"packages":[]}\n',
@@ -250,6 +288,20 @@ void _write(String path, String contents) {
 
 Future<void> main() async {
   await _test('strict manifest parsing', () {
+    final Directory sdefRoot = Directory.systemTemp.createTempSync(
+      'dart_macos_runtime_sdef.',
+    );
+    final String sdefPath = '${sdefRoot.path}/Test.sdef';
+    _write(sdefPath, _validSdef);
+    final ProcessResult sdefValidation = Process.runSync(
+      '/usr/bin/xmllint',
+      <String>['--noout', '--valid', sdefPath],
+    );
+    sdefRoot.deleteSync(recursive: true);
+    _expect(
+      sdefValidation.exitCode == 0,
+      'test scripting definition is valid: ${sdefValidation.stderr}',
+    );
     final MacosApplicationManifest manifest = MacosApplicationManifest.parse(
       _validManifest,
     );
@@ -257,6 +309,7 @@ Future<void> main() async {
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.services.isEmpty, 'services default empty');
+    _expect(manifest.scriptingDefinition == null, 'scripting default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
     _expect(
       manifest.runner.activationPolicy == MacosRunnerActivationPolicy.regular,
@@ -279,6 +332,43 @@ Future<void> main() async {
         _validManifest.replaceFirst(
           '"schemaVersion": 1,',
           '"schemaVersion": 1, "unknown": true,',
+        ),
+      );
+    });
+    final MacosApplicationManifest scriptingManifest =
+        MacosApplicationManifest.parse(
+          _withScriptingDefinition(_validManifest),
+        );
+    _expect(
+      scriptingManifest.scriptingDefinition?.path == 'resources/Test.sdef' &&
+          scriptingManifest.scriptingDefinition?.bundleName == 'Test.sdef',
+      'closed scripting definition declaration',
+    );
+    for (final String declaration in <String>[
+      'true',
+      '{}',
+      '{"path":"resources/Test.sdef","extra":true}',
+      '{"path":"resources/Test.xml"}',
+      '{"path":"/tmp/Test.sdef"}',
+      '{"path":"https://example.com/Test.sdef"}',
+      '{"path":"${'x' * 1020}.sdef"}',
+    ]) {
+      _expectThrows<MacosApplicationManifestException>(() {
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"scriptingDefinition": $declaration, "dart":',
+          ),
+        );
+      });
+    }
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _withScriptingDefinition(
+          _validManifest.replaceFirst(
+            '"assets/message.txt"',
+            '"assets/message.txt", "Test.sdef"',
+          ),
         ),
       );
     });
@@ -632,10 +722,14 @@ Future<void> main() async {
     );
     _expect(
       !buildManifest.containsKey('services') &&
+          !buildManifest.containsKey('scriptingDefinition') &&
           !File('$contents/Info.plist')
               .readAsStringSync()
-              .contains('<key>NSServices</key>'),
-      'legacy manifests do not gain Service metadata',
+              .contains('<key>NSAppleScriptEnabled</key>') &&
+          !File('$contents/Info.plist')
+              .readAsStringSync()
+              .contains('<key>OSAScriptingDefinition</key>'),
+      'legacy manifests do not gain Service or scripting metadata',
     );
     _expect(
       executor.commands.any(
@@ -651,11 +745,82 @@ Future<void> main() async {
     await fixture.root.delete(recursive: true);
   });
 
+  await _test('scripting definition staging failures are closed', () async {
+    final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _withScriptingDefinition(_validManifest),
+    );
+    final String source = '${fixture.project.path}/resources/Test.sdef';
+    await File(source).delete();
+    final _FakeExecutor missingExecutor = _FakeExecutor();
+    final RuntimeBuilderException missing =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(missingExecutor)
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--build-dir=${fixture.root.path}/build-missing-sdef',
+                ]),
+              ),
+        );
+    _expect(
+      missing.exitCode == builderIoErrorExitCode,
+      'missing scripting definition is an I/O failure',
+    );
+
+    _write(
+      source,
+      'x' * (MacosScriptingDefinitionManifest.maximumFileBytes + 1),
+    );
+    final RuntimeBuilderException oversized =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--build-dir=${fixture.root.path}/build-oversized-sdef',
+                ]),
+              ),
+        );
+    _expect(
+      oversized.exitCode == builderUsageExitCode,
+      'oversized scripting definition is rejected before validation',
+    );
+
+    _write(source, '<dictionary/>\n');
+    final _FakeExecutor invalidExecutor = _FakeExecutor()
+      ..failScriptingDefinitionValidation = true;
+    final RuntimeBuilderException invalid =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(invalidExecutor)
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--build-dir=${fixture.root.path}/build-invalid-sdef',
+                ]),
+              ),
+        );
+    _expect(
+      invalid.exitCode == 2 &&
+          !File(
+            '${fixture.root.path}/build-invalid-sdef/HelloWindow.app/'
+            'Contents/Resources/Test.sdef',
+          ).existsSync(),
+      'invalid scripting definition is not staged',
+    );
+    await fixture.root.delete(recursive: true);
+  });
+
   await _test('Developer JIT manifest-driven assembly', () async {
     final _Fixture fixture = await _Fixture.create();
     _write(
       '${fixture.project.path}/macos_application.json',
-      _withFolderServices(_validManifest).replaceFirst('"dart":', '''"runner": {
+      _withScriptingDefinition(_withFolderServices(_validManifest))
+          .replaceFirst('"dart":', '''"runner": {
     "activationPolicy": "prohibited",
     "activateOnLaunch": false,
     "terminateAfterLastWindowClosed": true,
@@ -693,6 +858,11 @@ Future<void> main() async {
     _expect(
       File('${bundle.path}/Contents/Resources/assets/message.txt').existsSync(),
       'declared resource is bundled',
+    );
+    _expect(
+      File('${bundle.path}/Contents/Resources/Test.sdef').readAsStringSync() ==
+          _validSdef,
+      'validated scripting definition is staged at the resource root',
     );
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
@@ -753,6 +923,13 @@ Future<void> main() async {
       infoPlist.contains(expectedServices),
       'folder Services are deterministic and XML escaped',
     );
+    _expect(
+      infoPlist.contains('<key>NSAppleScriptEnabled</key>\n  <true/>') &&
+          infoPlist.contains(
+            '<key>OSAScriptingDefinition</key>\n  <string>Test.sdef</string>',
+          ),
+      'scripting definition plist keys are exact',
+    );
     final ProcessResult plistLint = Process.runSync('/usr/bin/plutil', <String>[
       '-lint',
       '${bundle.path}/Contents/Info.plist',
@@ -770,6 +947,17 @@ Future<void> main() async {
             command.arguments.last.endsWith('/Contents/Info.plist'),
       ),
       'generated Info.plist is validated before signing',
+    );
+    _expect(
+      executor.commands.any(
+        (_RecordedCommand command) =>
+            command.executable == '/usr/bin/xmllint' &&
+            command.arguments.length == 3 &&
+            command.arguments[0] == '--noout' &&
+            command.arguments[1] == '--valid' &&
+            command.arguments.last.endsWith('/resources/Test.sdef'),
+      ),
+      'scripting definition is DTD-validated before staging',
     );
     final Map<String, Object?> buildManifest = jsonDecode(
       File('${bundle.path}/Contents/Resources/runtime-build-manifest.json')
@@ -793,6 +981,14 @@ Future<void> main() async {
               'New Terminal Window Here',
       'validated folder Services are recorded',
     );
+    final Map<String, Object?> scripting =
+        buildManifest['scriptingDefinition']! as Map<String, Object?>;
+    _expect(
+      scripting['source'] == 'resources/Test.sdef' &&
+          scripting['bundleName'] == 'Test.sdef' &&
+          scripting['bytes'] == utf8.encode(_validSdef).length,
+      'scripting definition source, resource name, and size are recorded',
+    );
     final _RecordedCommand launched = executor.commands.last;
     _expect(launched.inheritStdio, 'launch inherits stdio');
     _expect(launched.arguments.contains('--smoke'), 'arguments forwarded');
@@ -803,7 +999,7 @@ Future<void> main() async {
     final _Fixture fixture = await _Fixture.create();
     _write(
       '${fixture.project.path}/macos_application.json',
-      _withFolderServices(_validManifest),
+      _withScriptingDefinition(_withFolderServices(_validManifest)),
     );
     final _FakeExecutor executor = _FakeExecutor();
     final int result = await fixture
@@ -832,13 +1028,20 @@ Future<void> main() async {
       (buildManifest['services']! as List<Object?>).length == 2,
       'AOT build records folder Services',
     );
+    _expect(
+      (buildManifest['scriptingDefinition']!
+              as Map<String, Object?>)['bundleName'] ==
+          'Test.sdef',
+      'AOT build records the scripting definition',
+    );
     final String infoPlist = File('${bundle.path}/Contents/Info.plist')
         .readAsStringSync();
     _expect(
       infoPlist.indexOf('<string>openTab</string>') <
               infoPlist.indexOf('<string>openWindow</string>') &&
-          infoPlist.contains('<string>public.item</string>'),
-      'AOT Info.plist preserves declared Service order',
+          infoPlist.contains('<string>public.item</string>') &&
+          infoPlist.contains('<key>NSAppleScriptEnabled</key>'),
+      'AOT Info.plist preserves Services and scripting metadata',
     );
     _expect(
       executor.commands.any(

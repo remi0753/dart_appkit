@@ -162,6 +162,8 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - application-owned Dart helperを自己完結実行ファイルとして
   `Contents/Helpers` にbuild／stageする機能を実装。
 - bundle resource、Framework、helperの安全なpath lookupを実装。
+- boundedなscripting definitionのDTD検証／resource staging、標準plist宣言、
+  build manifest監査をoptional manifest境界として実装。
 - privacy-bounded lifecycle diagnosticsとad-hoc signingを実装。
 
 ### [x] B7 — ターミナル向け独立機能

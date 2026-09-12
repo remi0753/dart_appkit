@@ -73,6 +73,10 @@ the same generic AppKit-main application in Developer JIT or Release AOT form.
 Its optional closed folder-Service declarations generate deterministic
 `NSServices` metadata for the bridge's fixed new-tab/new-window provider
 messages and are copied into the runtime build manifest for audit.
+An optional closed scripting-definition declaration likewise validates and
+stages one bounded `.sdef`, emits only the standard Cocoa Scripting plist keys,
+and records the exact resource declaration without adding scripting classes to
+the generic host.
 The application does not compile a runner or depend on native implementation
 paths. `dart_appkit:run` remains available as the compatible lightweight JIT
 developer command. `dart_terminal_renderer_macos` demonstrates the production
