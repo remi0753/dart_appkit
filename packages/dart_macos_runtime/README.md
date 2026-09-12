@@ -39,6 +39,26 @@ executable architecture plus the required VM/compiler artifacts before using
 it for helpers and build hooks. Generate that SDK from the same pinned Engine
 checkout (for example, its `create_sdk` Ninja target) before a foreign build.
 
+Two independently verified thin Release AOT applications can be assembled in
+either input order:
+
+```sh
+dart run dart_macos_runtime:universal \
+  --input-app build/arm64/Example.app \
+  --input-app build/x86_64/Example.app \
+  --output-app build/universal/Example.app
+```
+
+The Universal assembler requires exactly one `arm64` and one `x86_64` input.
+It rejects symbolic links, overlapping paths, mismatched inventories,
+architecture-neutral byte drift, undeclared executable or Mach-O files,
+invalid thin signatures, and inconsistent build evidence. Every declared code
+entry is merged and revalidated as exactly `arm64 x86_64`; non-system absolute
+dependencies are rejected. It writes deterministic schema-version-2 evidence,
+ad-hoc signs nested code before the outer application, verifies the complete
+signature strictly, and publishes through a same-directory atomic rename. A
+failure before publication leaves any existing output unchanged.
+
 Both modes use the same manifest and `main(List<String>)` application entry.
 The builder generates the VM-retained AOT wrapper; application source does not
 need an embedder-specific pragma.

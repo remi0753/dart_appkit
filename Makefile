@@ -449,6 +449,8 @@ runtime-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && dart analyze
 	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && \
 		dart run test/run_tests.dart
+	@cd $(PROJECT_ROOT)/packages/dart_macos_runtime && \
+		dart run test/universal_assembler_tests.dart
 
 example-view-dart-test:
 	@cd $(PROJECT_ROOT)/packages/dart_appkit_example_view && dart pub get
