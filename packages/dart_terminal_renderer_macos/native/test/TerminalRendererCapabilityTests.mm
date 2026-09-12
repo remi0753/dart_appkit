@@ -210,8 +210,8 @@ int main(int argc, const char* argv[]) {
         image, "dtr_debug_live_text_input_client_count");
     Expect(version != nullptr && version() == DTR_ABI_VERSION,
            "renderer ABI version");
-    Expect(DTR_ABI_VERSION == 10,
-           "terminal accessibility snapshot requires renderer ABI v10");
+    Expect(DTR_ABI_VERSION == 11,
+           "terminal accessibility content origin requires renderer ABI v11");
 
     DtrFontCatalogSummaryV1 unsupported_summary = {};
     unsupported_summary.struct_size = sizeof(unsupported_summary);
@@ -1434,7 +1434,7 @@ int main(int argc, const char* argv[]) {
       accessibility_lines[1].first_column_boundary = 4;
       accessibility_lines[1].column_boundary_count = 2;
       const uint32_t accessibility_boundaries[] = {0, 1, 1, 3, 0, 1};
-      DtrAccessibilitySnapshotHeaderV1 accessibility = {};
+      DtrAccessibilitySnapshotHeaderV2 accessibility = {};
       accessibility.struct_size = sizeof(accessibility);
       accessibility.version = DTR_ACCESSIBILITY_SNAPSHOT_VERSION;
       accessibility.operation =
@@ -1455,6 +1455,8 @@ int main(int argc, const char* argv[]) {
       accessibility.cursor_column = 1;
       accessibility.cell_width = 10;
       accessibility.cell_height = 20;
+      accessibility.content_origin_x = 12;
+      accessibility.content_origin_y = 8;
       accessibility.lines_offset = sizeof(accessibility);
       accessibility.column_boundaries_offset =
           sizeof(accessibility) + sizeof(accessibility_lines);
@@ -1521,16 +1523,44 @@ int main(int argc, const char* argv[]) {
           [owner.window convertRectFromScreen:selection_screen];
       NSRect selection_local = [view convertRect:selection_window fromView:nil];
       NSPoint link_window =
-          [view convertPoint:NSMakePoint(15, 10) toView:nil];
+          [view convertPoint:NSMakePoint(27, 18) toView:nil];
       NSPoint link_screen = [owner.window convertPointToScreen:link_window];
-      Expect(std::abs(selection_local.origin.x - 10) < 0.01 &&
-                 std::abs(selection_local.origin.y) < 0.01 &&
+      NSPoint left_padding_window =
+          [view convertPoint:NSMakePoint(11, 18) toView:nil];
+      NSPoint left_padding_screen =
+          [owner.window convertPointToScreen:left_padding_window];
+      NSPoint top_padding_window =
+          [view convertPoint:NSMakePoint(27, 7) toView:nil];
+      NSPoint top_padding_screen =
+          [owner.window convertPointToScreen:top_padding_window];
+      NSPoint after_grid_window =
+          [view convertPoint:NSMakePoint(52, 18) toView:nil];
+      NSPoint after_grid_screen =
+          [owner.window convertPointToScreen:after_grid_window];
+      NSRect multiline_screen =
+          [(id)view accessibilityFrameForRange:NSMakeRange(1, 4)];
+      NSRect multiline_window =
+          [owner.window convertRectFromScreen:multiline_screen];
+      NSRect multiline_local =
+          [view convertRect:multiline_window fromView:nil];
+      Expect(std::abs(selection_local.origin.x - 22) < 0.01 &&
+                 std::abs(selection_local.origin.y - 8) < 0.01 &&
                  std::abs(selection_local.size.width - 20) < 0.01 &&
                  std::abs(selection_local.size.height - 20) < 0.01 &&
+                 std::abs(multiline_local.origin.x - 12) < 0.01 &&
+                 std::abs(multiline_local.origin.y - 8) < 0.01 &&
+                 std::abs(multiline_local.size.width - 40) < 0.01 &&
+                 std::abs(multiline_local.size.height - 40) < 0.01 &&
                  NSEqualRanges(
                      [(id)view accessibilityRangeForPosition:link_screen],
-                     NSMakeRange(1, 2)),
-             "range and point geometry use the shared wide-cell map");
+                     NSMakeRange(1, 2)) &&
+                 [(id)view accessibilityRangeForPosition:left_padding_screen]
+                         .location == NSNotFound &&
+                 [(id)view accessibilityRangeForPosition:top_padding_screen]
+                         .location == NSNotFound &&
+                 [(id)view accessibilityRangeForPosition:after_grid_screen]
+                         .location == NSNotFound,
+             "range and point geometry use one padded wide-cell origin");
       const uint64_t initial_value_notifications =
           [[(id)view
               valueForKey:@"terminalAccessibilityValueNotificationCount"]
@@ -1556,6 +1586,33 @@ int main(int argc, const char* argv[]) {
                      initial_selection_notifications,
              "new identical generation emits no redundant notification");
       accessibility.generation = 3;
+      accessibility.content_origin_x = 16;
+      accessibility.content_origin_y = 9;
+      write_accessibility_packet();
+      Expect(da_view_perform_custom_operation(
+                 view_handle, accessibility_packet.data(),
+                 accessibility_packet.size()) == DA_STATUS_OK &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilityValueNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_value_notifications + 1 &&
+                 [[(id)view
+                     valueForKey:
+                         @"terminalAccessibilitySelectionNotificationCount"]
+                         unsignedLongLongValue] ==
+                     initial_selection_notifications,
+             "content-origin change emits only one value notification");
+      NSRect shifted_selection_screen =
+          [(id)view accessibilityFrameForRange:NSMakeRange(1, 2)];
+      NSRect shifted_selection_window =
+          [owner.window convertRectFromScreen:shifted_selection_screen];
+      NSRect shifted_selection_local =
+          [view convertRect:shifted_selection_window fromView:nil];
+      Expect(std::abs(shifted_selection_local.origin.x - 26) < 0.01 &&
+                 std::abs(shifted_selection_local.origin.y - 9) < 0.01,
+             "updated content origin moves range geometry exactly once");
+      accessibility.generation = 4;
       accessibility.flags = DTR_ACCESSIBILITY_HAS_CURSOR;
       accessibility.selection_location = 5;
       accessibility.selection_length = 0;
@@ -1567,7 +1624,7 @@ int main(int argc, const char* argv[]) {
                      valueForKey:
                          @"terminalAccessibilityValueNotificationCount"]
                          unsignedLongLongValue] ==
-                     initial_value_notifications &&
+                     initial_value_notifications + 1 &&
                  [[(id)view
                      valueForKey:
                          @"terminalAccessibilitySelectionNotificationCount"]
@@ -1580,12 +1637,47 @@ int main(int argc, const char* argv[]) {
                  view_handle, accessibility_packet.data(),
                  accessibility_packet.size()) == DA_STATUS_INVALID_ARGUMENT,
              "duplicate accessibility generation is rejected");
+      auto expect_invalid_accessibility_header =
+          [&](DtrAccessibilitySnapshotHeaderV2 invalid,
+              const char* description) {
+            invalid.generation = 5;
+            std::vector<uint8_t> packet = accessibility_packet;
+            memcpy(packet.data(), &invalid, sizeof(invalid));
+            Expect(da_view_perform_custom_operation(
+                       view_handle, packet.data(), packet.size()) ==
+                           DA_STATUS_INVALID_ARGUMENT &&
+                       [[(id)view accessibilityValue]
+                           isEqualToString:@"A😀\nB"] &&
+                       NSEqualRanges([(id)view accessibilitySelectedTextRange],
+                                     NSMakeRange(5, 0)),
+                   description);
+          };
+      DtrAccessibilitySnapshotHeaderV2 negative_origin = accessibility;
+      negative_origin.content_origin_x = -1;
+      expect_invalid_accessibility_header(
+          negative_origin,
+          "negative accessibility content origin preserves native state");
+      DtrAccessibilitySnapshotHeaderV2 nonfinite_origin = accessibility;
+      nonfinite_origin.content_origin_y = std::nan("");
+      expect_invalid_accessibility_header(
+          nonfinite_origin,
+          "nonfinite accessibility content origin preserves native state");
+      DtrAccessibilitySnapshotHeaderV2 oversized_origin = accessibility;
+      oversized_origin.content_origin_x = DTR_MAX_METAL_DIMENSION + 1;
+      expect_invalid_accessibility_header(
+          oversized_origin,
+          "oversized accessibility content origin preserves native state");
+      DtrAccessibilitySnapshotHeaderV2 unsupported_snapshot = accessibility;
+      unsupported_snapshot.version = DTR_ACCESSIBILITY_SNAPSHOT_VERSION + 1;
+      expect_invalid_accessibility_header(
+          unsupported_snapshot,
+          "unsupported accessibility snapshot version preserves native state");
       std::vector<uint8_t> malformed_accessibility = accessibility_packet;
       uint32_t malformed_boundary = 1;
       memcpy(malformed_accessibility.data() +
                  accessibility.column_boundaries_offset,
              &malformed_boundary, sizeof(malformed_boundary));
-      accessibility.generation = 4;
+      accessibility.generation = 5;
       memcpy(malformed_accessibility.data(), &accessibility,
              sizeof(accessibility));
       Expect(da_view_perform_custom_operation(
@@ -1604,7 +1696,7 @@ int main(int argc, const char* argv[]) {
           DTR_ACCESSIBILITY_SNAPSHOT_VERSION;
       accessibility_acceptance.operation =
           DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_ACCEPTANCE;
-      accessibility_acceptance.generation = 3;
+      accessibility_acceptance.generation = 4;
       Expect(da_view_perform_custom_operation(
                  view_handle,
                  reinterpret_cast<const uint8_t*>(&accessibility_acceptance),

@@ -5,7 +5,7 @@
 
 #include "dart_appkit_native_extension.h"
 
-#define DTR_ABI_VERSION 10u
+#define DTR_ABI_VERSION 11u
 #define DTR_FONT_CATALOG_SUMMARY_VERSION 1u
 #define DTR_RESOLVED_FONT_VERSION 1u
 #define DTR_SHAPE_BUFFER_VERSION 1u
@@ -43,7 +43,7 @@
 #define DTR_MAX_TEXT_INPUT_BYTES (64u * 1024u)
 #define DTR_MAX_TEXT_INPUT_EVENTS 256u
 #define DTR_MAX_TEXT_INPUT_QUEUE_BYTES (1024u * 1024u)
-#define DTR_ACCESSIBILITY_SNAPSHOT_VERSION 1u
+#define DTR_ACCESSIBILITY_SNAPSHOT_VERSION 2u
 #define DTR_MAX_ACCESSIBILITY_UTF8_BYTES (4u * 1024u * 1024u)
 #define DTR_MAX_ACCESSIBILITY_UTF16_UNITS (2u * 1024u * 1024u)
 #define DTR_MAX_ACCESSIBILITY_LINES 4096u
@@ -469,9 +469,10 @@ typedef struct DtrTextInputAcceptanceV1 {
 
 // Complete copied accessibility document for one physical terminal viewport.
 // Text is UTF-8 while every range and column boundary is measured in UTF-16
-// code units. Sections are canonical and contiguous in header, line,
-// row-relative column-boundary, and text order.
-typedef struct DtrAccessibilitySnapshotHeaderV1 {
+// code units. Cell metrics and content origin are finite logical View points.
+// Sections are canonical and contiguous in header, line, row-relative
+// column-boundary, and text order.
+typedef struct DtrAccessibilitySnapshotHeaderV2 {
   uint32_t struct_size;
   uint32_t version;
   uint32_t operation;
@@ -491,12 +492,14 @@ typedef struct DtrAccessibilitySnapshotHeaderV1 {
   uint32_t reserved0;
   double cell_width;
   double cell_height;
+  double content_origin_x;
+  double content_origin_y;
   uint32_t lines_offset;
   uint32_t column_boundaries_offset;
   uint32_t text_offset;
   uint32_t total_size;
   uint32_t reserved[4];
-} DtrAccessibilitySnapshotHeaderV1;
+} DtrAccessibilitySnapshotHeaderV2;
 
 typedef struct DtrAccessibilityLineV1 {
   uint32_t row;

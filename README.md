@@ -83,7 +83,10 @@ The application does not compile a runner or depend on native implementation
 paths. `dart_appkit:run` remains available as the compatible lightweight JIT
 developer command. `dart_terminal_renderer_macos` demonstrates the production
 package boundary for a terminal-specific `MTKView`: its build hook, native ABI,
-and implementation remain outside both the application and generic hosts.
+and implementation remain outside both the application and generic hosts. Its
+copied read-only accessibility snapshot includes cell metrics and a bounded
+logical content origin so range frames and point lookup remain aligned with a
+padded terminal without synchronous Dart reentry.
 `dart_terminal_applescript_macos` provides the same dependency-owned boundary
 for a process-global Cocoa Scripting dictionary: a bounded immutable hierarchy
 is published from Dart, while suspended native commands are polled and

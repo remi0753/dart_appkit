@@ -70,7 +70,7 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
   CoreText font／shape／top-down raster、Metal readback／submission、atlas reset、failure state、
   renderer metrics、Dart facade、bounded `NSTextInputClient` event、candidate geometry、
   deterministic input-source matrix、読み取り専用AppKit accessibilityである。
-  Terminal renderer capability ABIはversion 10である。
+  Terminal renderer capability ABIはversion 11である。
 
 ## 実装済みの基盤
 
@@ -205,10 +205,11 @@ Flutter相当のクロスプラットフォームWidget／レンダリングエ�
 - IME candidate queryがDartへ同期再入せず最新のnative copyを使える、generation付き
   `publishCaretRect` を実装。terminal byte encodingとcomposition policyはDart ownerに残す。
 - 同じViewを読み取り専用AppKit accessibility text areaとして実装し、visible text、UTF-16
-  physical line／terminal-column境界、selection、cursor、cell geometryを含むboundedな
+  physical line／terminal-column境界、selection、cursor、cell geometry、logical content originを含むboundedな
   `TerminalAccessibilityViewSnapshot` をDartから原子的に公開できるようにした。
 - accessibility queryはnative snapshotだけを参照し、range／line／point／screen frameを
-  提供する。値が変わった場合だけnotificationを発行し、first responder時のfocused stateも
+  提供する。pointはpadding／grid外を拒否し、range frameはcontent originを一度だけ加える。
+  値またはgeometryが変わった場合だけnotificationを発行し、first responder時のfocused stateも
   AppKit selector acceptanceで検証した。
 - `dart_pty_macos` に、AppKit非依存のPTY生成、非同期read/write、bounded queue、
   backpressure、resize、signal、graceful/forced close、exit/reapを実装。
@@ -254,8 +255,9 @@ atlasのallocation／packing／eviction、terminal stateからframeへの変換�
   consumer-completed ACK、configurable event-turn budget、EOF時outstanding ownershipを検証。
 - terminal text inputについて、staged raw／preedit／commit／cancel、candidate geometry更新、
   overflow／bound、ASCII・CJK・emoji・modifier・repeatのdeterministic input-source matrixを検証。
-- terminal accessibility snapshotのDart/native二重validation、stale／malformed拒否、AppKit
-  selector、range geometry、notification、first-responder focusを文字列をDartへ戻さず検証。
+- terminal accessibility snapshotのDart/native二重validation、stale／malformed／unsupported version拒否、
+  zero/nonzero content origin、padding/grid外hit拒否、AppKit selector／range geometry／notification／
+  first-responder focusを文字列をDartへ戻さず検証。
 
 ## 未実装ロードマップ
 
@@ -919,7 +921,7 @@ cursor、selectionを含む画面を低遅延かつ安全に `TerminalMetalView`
   failureを取得できるbounded renderer metrics。
 - `NSTextInputClient` によるraw key／preedit／commit／cancel、bounded queue／overflow、
   generation付きcandidate caret cacheを型付きDart APIとして提供するterminal text-input境界。
-- visible text、UTF-16 line／terminal-column mapping、selection、cursor、cell geometryのbounded
+- visible text、UTF-16 line／terminal-column mapping、selection、cursor、cell geometry、logical content originのbounded
   snapshotを使い、同期Dart callなしでAppKitの読み取り専用accessibility text areaを提供する境界。
 
 未実装:

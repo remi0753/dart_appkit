@@ -33,7 +33,7 @@ _Static_assert(sizeof(DtrTextInputAcceptanceV1) == 32,
                "text input acceptance ABI size");
 _Static_assert(sizeof(DtrTextInputEventHeaderV1) == 96,
                "text input event ABI size");
-_Static_assert(sizeof(DtrAccessibilitySnapshotHeaderV1) == 120,
+_Static_assert(sizeof(DtrAccessibilitySnapshotHeaderV2) == 136,
                "accessibility snapshot header ABI size");
 _Static_assert(sizeof(DtrAccessibilityLineV1) == 20,
                "accessibility line ABI size");

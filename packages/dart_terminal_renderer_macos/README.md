@@ -30,8 +30,9 @@ generation-tagged cached caret rectangle, while raw/preedit/commit/cancel events
 cross a bounded copied queue after a scalar-only asynchronous Dart notification.
 The same view is a read-only AppKit accessibility text area. Dart publishes a
 bounded, generation-tagged copy of visible text, UTF-16 line and terminal-column
-boundaries, selection, cursor, and cell geometry; VoiceOver range and frame
-queries use only the native copy and never synchronously enter Dart.
+boundaries, selection, cursor, cell geometry, and the nonnegative logical
+content origin; VoiceOver point/range/frame queries use only the native copy,
+reject padding/out-of-grid hits, and never synchronously enter Dart.
 
 Creation failures classify device, embedded shader/function/pipeline, and
 bounded resource allocation without publishing a handle. Runtime state keeps
@@ -53,7 +54,7 @@ Applications declare the following native capability in their runtime manifest:
   "id": "dart_terminal_renderer_macos",
   "package": "dart_terminal_renderer_macos",
   "library": "libdart_terminal_renderer_macos.dylib",
-  "abiVersion": 10,
+  "abiVersion": 11,
   "abiVersionSymbol": "dtr_abi_version",
   "initializerSymbol": "dtr_initialize"
 }
@@ -75,9 +76,12 @@ Attach `TerminalAccessibilityClient` to the same view and publish immutable
 cursor, or cell metrics change. Text is limited to 4 MiB UTF-8 and 2 Mi UTF-16
 code units, with at most 4096 lines and bounded column-boundary tables. The
 facade verifies canonical line topology, surrogate-safe ranges, monotonic
-terminal-column mappings, and strictly increasing generations before the
-native view atomically replaces its copy. Publishing an identical value under
-a new generation does not emit redundant AppKit value or selection changes.
+terminal-column mappings, a finite 0...4096 logical-point content origin, and
+strictly increasing generations before the native view atomically replaces its
+copy. Range frames add the origin once; point lookup subtracts it and treats
+padding or coordinates beyond the published grid as not found. Publishing an
+identical value under a new generation does not emit redundant AppKit value or
+selection changes.
 
 Create bounded GPU resources with `TerminalMetalRenderer.open()`, bind them to
 that view with `bindToView`, reset complete atlas snapshots with `resetAtlas`,

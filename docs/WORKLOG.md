@@ -3414,3 +3414,31 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   `CI=true DART_SUPPRESS_ANALYTICS=true make test` は全native/runtime/package/Kernel/current+legacy FFIを通過し、
   consuming Dart Terminalの同じexact gateもgenerated evidence、276-file format、analysis、Phase 9 security
   stress、aggregate suiteまで通過した。
+
+## 2026-09-12 — Padded terminal accessibility content origin
+
+- Dart TerminalのPhase 10 accessibility passから、Phase 8で追加したterminal paddingがMetal／pointer／
+  IME caretには反映される一方、copied accessibility snapshotはcell width/heightしか持たず、native point
+  lookupとrange frameがView `(0, 0)`をterminal originとしていた不一致を確認した。generic `dart_appkit`
+  Viewにpadding ownerを追加せず、terminal renderer snapshotを唯一のgeometry copy boundaryとして拡張する。
+- Renderer capability ABIを11、accessibility snapshotをversion 2へ進め、finiteかつ0...4096 logical pointsの
+  `content_origin_x/y`を追加した。Dart encoderとnative providerが独立に検証し、unsupported layout、negative／
+  nonfinite／oversized origin、stale generation、malformed topologyはprior snapshotを置換せずfail closedする。
+- `accessibilityRangeForPosition:`はscreen→View変換後にoriginを引き、left/top paddingとpublished row/column
+  grid外をnot-foundにする。`accessibilityFrameForRange:`はsingle-line／multi-line／collapsed cursorのlocal
+  frameへoriginを一度だけ加える。origin-only変更はvalue/geometry notificationだけを増やし、selection
+  notificationは増やさない。
+- Native acceptanceは12×8 originのwide emoji hit/range、paddingとright-grid境界拒否、multi-line frame、
+  16×9へのorigin-only移動、identical generation deduplication、cursor-only notification、invalid origin／
+  version／topologyのatomic rejectionを実View/windowのscreen round tripで検証する。Dart testは136-byte
+  headerのexact offsets/bytes、default-zero source compatibility、negative／NaN／oversized originを検証する。
+- 最初のfocused runはC/C++ layoutとnative AppKit suiteを通過後、direct native-asset smokeに残ったABI 10
+  expectationで停止した。dylibが11を返して旧期待を正しく拒否した結果であり、smoke契約を11へ更新した
+  unchanged rerunはnative asset hook、Dart analysis、renderer Dart aggregateまで通過した。
+- PATH上の`clang-format`はChromium checkout専用wrapperで起動せず、Xcode付属formatterの全ファイル
+  dry-runは既存repository全体のstyle差を報告するため差分判定には利用できなかった。変更native codeは
+  projectの既存styleへ合わせ、C11/C++20/Objective-C++ warning-as-error build、focused test、diff checkを
+  authoritative formatting/compile gateとする。
+- Exact `CI=true DART_SUPPRESS_ANALYTICS=true make test` はscaffold、C11/C++20 header、native
+  bridge／Runner／runtime、renderer ABI 11とAppKit geometry、AppleScript、App Intents、PTY、全Dart
+  package analysis/test、Kernel、current/legacy FFIまで通過した。`git diff --check`もcleanである。

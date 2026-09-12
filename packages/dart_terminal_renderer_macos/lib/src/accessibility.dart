@@ -62,6 +62,8 @@ final class TerminalAccessibilityViewSnapshot {
     required this.cursorColumn,
     required this.cellWidth,
     required this.cellHeight,
+    this.contentOriginX = 0,
+    this.contentOriginY = 0,
   }) : lines = List<TerminalAccessibilityViewLine>.unmodifiable(lines) {
     if (generation <= 0 || generation > 0x7fffffffffffffff) {
       throw RangeError('accessibility generation must be a positive int64');
@@ -76,6 +78,16 @@ final class TerminalAccessibilityViewSnapshot {
         cellWidth <= 0 ||
         cellHeight <= 0) {
       throw ArgumentError('accessibility cell metrics must be finite/positive');
+    }
+    if (!contentOriginX.isFinite ||
+        !contentOriginY.isFinite ||
+        contentOriginX < 0 ||
+        contentOriginY < 0 ||
+        contentOriginX > maximumContentOrigin ||
+        contentOriginY > maximumContentOrigin) {
+      throw ArgumentError(
+        'accessibility content origin must be finite and bounded',
+      );
     }
     final List<int> textBytes = utf8.encode(text);
     if (textBytes.length > maximumUtf8Bytes ||
@@ -149,6 +161,7 @@ final class TerminalAccessibilityViewSnapshot {
   static const int maximumColumns = 4096;
   static const int maximumColumnBoundaries = 1048576 + 4096;
   static const int maximumPacketBytes = 9 * 1024 * 1024;
+  static const double maximumContentOrigin = 4096;
 
   final int generation;
   final int rows;
@@ -162,6 +175,8 @@ final class TerminalAccessibilityViewSnapshot {
   final int? cursorColumn;
   final double cellWidth;
   final double cellHeight;
+  final double contentOriginX;
+  final double contentOriginY;
 
   Uint8List encode() {
     final Uint8List textBytes = Uint8List.fromList(utf8.encode(text));
@@ -200,10 +215,12 @@ final class TerminalAccessibilityViewSnapshot {
       ..setUint32(64, cursorColumn ?? 0xffffffff, Endian.little)
       ..setFloat64(72, cellWidth, Endian.little)
       ..setFloat64(80, cellHeight, Endian.little)
-      ..setUint32(88, _headerBytes, Endian.little)
-      ..setUint32(92, boundariesOffset, Endian.little)
-      ..setUint32(96, textOffset, Endian.little)
-      ..setUint32(100, totalBytes, Endian.little);
+      ..setFloat64(88, contentOriginX, Endian.little)
+      ..setFloat64(96, contentOriginY, Endian.little)
+      ..setUint32(104, _headerBytes, Endian.little)
+      ..setUint32(108, boundariesOffset, Endian.little)
+      ..setUint32(112, textOffset, Endian.little)
+      ..setUint32(116, totalBytes, Endian.little);
     var firstBoundary = 0;
     for (var index = 0; index < lines.length; index++) {
       final TerminalAccessibilityViewLine line = lines[index];
@@ -227,11 +244,11 @@ final class TerminalAccessibilityViewSnapshot {
     return packet;
   }
 
-  static const int _version = 1;
+  static const int _version = 2;
   static const int _operationSnapshot = 7;
   static const int _hasSelection = 1 << 0;
   static const int _hasCursor = 1 << 1;
-  static const int _headerBytes = 120;
+  static const int _headerBytes = 136;
   static const int _lineBytes = 20;
 }
 
@@ -259,7 +276,7 @@ final class TerminalAccessibilityClient {
     final Uint8List payload = Uint8List(24);
     ByteData.sublistView(payload)
       ..setUint32(0, 24, Endian.little)
-      ..setUint32(4, 1, Endian.little)
+      ..setUint32(4, 2, Endian.little)
       ..setUint32(8, 8, Endian.little)
       ..setUint64(16, _lastGeneration, Endian.little);
     view.performCustomOperation(payload);

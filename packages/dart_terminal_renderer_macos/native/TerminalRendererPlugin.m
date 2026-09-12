@@ -783,6 +783,8 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 @property(nonatomic) uint32_t terminalAccessibilityCursorColumn;
 @property(nonatomic) double terminalAccessibilityCellWidth;
 @property(nonatomic) double terminalAccessibilityCellHeight;
+@property(nonatomic) double terminalAccessibilityContentOriginX;
+@property(nonatomic) double terminalAccessibilityContentOriginY;
 @property(nonatomic) uint64_t terminalAccessibilityValueNotificationCount;
 @property(nonatomic) uint64_t terminalAccessibilitySelectionNotificationCount;
 @property(nonatomic) uint64_t terminalAccessibilityFocusNotificationCount;
@@ -791,7 +793,7 @@ static DtrRasterizedGlyph* RasterizeGlyph(NSFont* font, uint32_t face_id,
 - (BOOL)updateTextInputGeometry:(DtrTextInputGeometryV1)geometry;
 - (void)detachTextInputClient;
 - (BOOL)updateAccessibilitySnapshot:
-            (DtrAccessibilitySnapshotHeaderV1)header
+            (DtrAccessibilitySnapshotHeaderV2)header
                            lines:(const DtrAccessibilityLineV1*)lines
                  columnBoundaries:(const uint32_t*)columnBoundaries
                              text:(const uint8_t*)text;
@@ -2035,11 +2037,23 @@ static NSString* TextInputPlainString(id value) {
   const NSPoint local = [self convertPoint:window_point fromView:nil];
   if (!isfinite(local.x) || !isfinite(local.y) || local.x < 0 || local.y < 0 ||
       self.terminalAccessibilityCellWidth <= 0 ||
-      self.terminalAccessibilityCellHeight <= 0) {
+      self.terminalAccessibilityCellHeight <= 0 ||
+      local.x < self.terminalAccessibilityContentOriginX ||
+      local.y < self.terminalAccessibilityContentOriginY) {
+    return NSMakeRange(NSNotFound, 0);
+  }
+  const CGFloat content_x =
+      local.x - self.terminalAccessibilityContentOriginX;
+  const CGFloat content_y =
+      local.y - self.terminalAccessibilityContentOriginY;
+  if (content_x >= self.terminalAccessibilityColumns *
+                       self.terminalAccessibilityCellWidth ||
+      content_y >= self.terminalAccessibilityRows *
+                       self.terminalAccessibilityCellHeight) {
     return NSMakeRange(NSNotFound, 0);
   }
   const NSUInteger row =
-      (NSUInteger)floor(local.y / self.terminalAccessibilityCellHeight);
+      (NSUInteger)floor(content_y / self.terminalAccessibilityCellHeight);
   if (row >= self.terminalAccessibilityRows) {
     return NSMakeRange(NSNotFound, 0);
   }
@@ -2051,7 +2065,7 @@ static NSString* TextInputPlainString(id value) {
     return NSMakeRange(NSNotFound, 0);
   }
   NSUInteger column =
-      (NSUInteger)floor(local.x / self.terminalAccessibilityCellWidth);
+      (NSUInteger)floor(content_x / self.terminalAccessibilityCellWidth);
   const NSUInteger last_column = line->column_boundary_count - 1;
   if (column > last_column) column = last_column;
   const NSUInteger index = line->utf16_start + boundaries[column];
@@ -2088,9 +2102,11 @@ static NSString* TextInputPlainString(id value) {
                                                     index:NSMaxRange(range)];
     if (end_column <= first_column) ++end_column;
   }
-  const CGFloat x = first_row == last_row
-                        ? first_column * self.terminalAccessibilityCellWidth
-                        : 0;
+  const CGFloat x =
+      self.terminalAccessibilityContentOriginX +
+      (first_row == last_row
+           ? first_column * self.terminalAccessibilityCellWidth
+           : 0);
   const CGFloat requested_width =
       (end_column - first_column) * self.terminalAccessibilityCellWidth;
   const CGFloat width =
@@ -2101,7 +2117,10 @@ static NSString* TextInputPlainString(id value) {
           : self.terminalAccessibilityColumns *
                 self.terminalAccessibilityCellWidth;
   NSRect local = NSMakeRect(
-      x, first_row * self.terminalAccessibilityCellHeight, width,
+      x,
+      self.terminalAccessibilityContentOriginY +
+          first_row * self.terminalAccessibilityCellHeight,
+      width,
       (last_row - first_row + 1) * self.terminalAccessibilityCellHeight);
   NSRect window_rect = [self convertRect:local toView:nil];
   return self.window == nil ? window_rect
@@ -2109,7 +2128,7 @@ static NSString* TextInputPlainString(id value) {
 }
 
 - (BOOL)updateAccessibilitySnapshot:
-            (DtrAccessibilitySnapshotHeaderV1)header
+            (DtrAccessibilitySnapshotHeaderV2)header
                            lines:(const DtrAccessibilityLineV1*)lines
                  columnBoundaries:(const uint32_t*)columnBoundaries
                              text:(const uint8_t*)text {
@@ -2124,7 +2143,12 @@ static NSString* TextInputPlainString(id value) {
       header.column_boundary_count >
           DTR_MAX_ACCESSIBILITY_COLUMN_BOUNDARIES ||
       !isfinite(header.cell_width) || !isfinite(header.cell_height) ||
-      header.cell_width <= 0 || header.cell_height <= 0 || lines == NULL ||
+      header.cell_width <= 0 || header.cell_height <= 0 ||
+      !isfinite(header.content_origin_x) ||
+      !isfinite(header.content_origin_y) || header.content_origin_x < 0 ||
+      header.content_origin_y < 0 ||
+      header.content_origin_x > DTR_MAX_METAL_DIMENSION ||
+      header.content_origin_y > DTR_MAX_METAL_DIMENSION || lines == NULL ||
       columnBoundaries == NULL || (header.utf8_length > 0 && text == NULL)) {
     return NO;
   }
@@ -2251,7 +2275,9 @@ static NSString* TextInputPlainString(id value) {
       self.terminalAccessibilityRows != header.rows ||
       self.terminalAccessibilityColumns != header.columns ||
       self.terminalAccessibilityCellWidth != header.cell_width ||
-      self.terminalAccessibilityCellHeight != header.cell_height;
+      self.terminalAccessibilityCellHeight != header.cell_height ||
+      self.terminalAccessibilityContentOriginX != header.content_origin_x ||
+      self.terminalAccessibilityContentOriginY != header.content_origin_y;
   const BOOL selection_changed =
       !NSEqualRanges(self.terminalAccessibilitySelection, selection) ||
       self.terminalAccessibilityHasSelection !=
@@ -2278,6 +2304,8 @@ static NSString* TextInputPlainString(id value) {
       has_cursor ? header.cursor_column : UINT32_MAX;
   self.terminalAccessibilityCellWidth = header.cell_width;
   self.terminalAccessibilityCellHeight = header.cell_height;
+  self.terminalAccessibilityContentOriginX = header.content_origin_x;
+  self.terminalAccessibilityContentOriginY = header.content_origin_y;
   if (value_changed) {
     SaturatingIncrementMetric(&_terminalAccessibilityValueNotificationCount);
     NSAccessibilityPostNotification(self,
@@ -2836,11 +2864,11 @@ static int32_t PerformTerminalMetalViewOperation(
                  : DA_STATUS_INTERNAL_ERROR;
     }
     case DTR_METAL_VIEW_OPERATION_ACCESSIBILITY_SNAPSHOT: {
-      if (payload_length < sizeof(DtrAccessibilitySnapshotHeaderV1) ||
+      if (payload_length < sizeof(DtrAccessibilitySnapshotHeaderV2) ||
           payload_length > DTR_MAX_ACCESSIBILITY_PACKET_BYTES) {
         return DA_STATUS_INVALID_ARGUMENT;
       }
-      DtrAccessibilitySnapshotHeaderV1 header;
+      DtrAccessibilitySnapshotHeaderV2 header;
       memcpy(&header, payload, sizeof(header));
       const uint64_t lines_end =
           (uint64_t)sizeof(header) +
