@@ -12,7 +12,8 @@ updates, lifecycle/window/input events, cached application light/dark
 appearance, exclusive owned system-wide physical-key registrations,
 balanced Secure Event Input ownership with automatic/manual view indication,
 view-local context menus, stage-2 pressure lookup requests, and bounded native
-dictionary definition presentation,
+dictionary definition presentation, cached plain-text Services requestors with
+bounded asynchronous returned text,
 64 MiB-bounded plain-text pasteboard
 snapshots, allowlisted external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
@@ -30,10 +31,11 @@ active/reopen/termination and user-close request events
 plus menu-item actions while preserving older records. Version 5 adds precision
 scroll input. Version 6 adds outer window-frame and native-fullscreen state.
 Version 7 adds a deduplicated application effective-appearance snapshot and
-change event. Version 8 adds an owned global-hot-key pressed event. Current
-Dart/native pairs negotiate version 9, which adds a generation-checked
-View-local Quick Look request with finite local coordinates. The Dart API
-strictly decodes all nine
+change event. Version 8 adds an owned global-hot-key pressed event, and version
+9 adds a generation-checked View-local Quick Look request with finite local
+coordinates. Current Dart/native pairs negotiate version 10, which adds
+bounded plain text returned by a Service to its generation-checked View. The
+Dart API strictly decodes all ten
 versions and suppresses newer records for older negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded

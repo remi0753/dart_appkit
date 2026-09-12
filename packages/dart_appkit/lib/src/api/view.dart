@@ -41,6 +41,64 @@ final class DefinitionPresentation {
   }
 }
 
+/// One immutable native snapshot used by synchronous plain-text Services.
+final class ServicesTextRequestorConfiguration {
+  const ServicesTextRequestorConfiguration({
+    this.selectionText,
+    this.acceptsReturnedText = true,
+    this.maximumReturnedTextUtf8Bytes = maximumTextUtf8Bytes,
+  });
+
+  static const int maximumTextUtf8Bytes =
+      dartAppKitServicesMaximumTextUtf8Bytes;
+
+  final String? selectionText;
+  final bool acceptsReturnedText;
+  final int maximumReturnedTextUtf8Bytes;
+
+  NativeServicesTextRequestorConfiguration get _native {
+    if (selectionText == null && !acceptsReturnedText) {
+      throw ArgumentError(
+        'a Services requestor must send a selection, accept returned text, or both',
+      );
+    }
+    RangeError.checkValueInInterval(
+      maximumReturnedTextUtf8Bytes,
+      1,
+      maximumTextUtf8Bytes,
+      'maximumReturnedTextUtf8Bytes',
+    );
+    final String? selection = selectionText;
+    if (selection != null &&
+        utf8.encode(selection).length > maximumTextUtf8Bytes) {
+      throw ArgumentError.value(
+        selection,
+        'selectionText',
+        'exceeds the Services UTF-8 byte limit',
+      );
+    }
+    return NativeServicesTextRequestorConfiguration(
+      selectionText: selection,
+      acceptsReturnedText: acceptsReturnedText,
+      maximumReturnedTextUtf8Bytes: maximumReturnedTextUtf8Bytes,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ServicesTextRequestorConfiguration &&
+      other.selectionText == selectionText &&
+      other.acceptsReturnedText == acceptsReturnedText &&
+      other.maximumReturnedTextUtf8Bytes == maximumReturnedTextUtf8Bytes;
+
+  @override
+  int get hashCode => Object.hash(
+    selectionText,
+    acceptsReturnedText,
+    maximumReturnedTextUtf8Bytes,
+  );
+}
+
 /// Immutable behavior selected when a plain or simple text [View] is created.
 final class ViewConfiguration {
   const ViewConfiguration({
@@ -98,6 +156,8 @@ base class View extends _NativeResource {
   View._(this._application, int handle, this.viewConfiguration)
     : _quickLookEventController =
           StreamController<ViewQuickLookRequestedEvent>.broadcast(sync: true),
+      _servicesTextEventController =
+          StreamController<ViewServicesTextReceivedEvent>.broadcast(sync: true),
       super(_application._bindings, handle) {
     _application._registerView(this);
   }
@@ -107,14 +167,51 @@ base class View extends _NativeResource {
   /// Package-owned base behavior, or `null` for provider/container views.
   final ViewConfiguration? viewConfiguration;
   final StreamController<ViewQuickLookRequestedEvent> _quickLookEventController;
+  final StreamController<ViewServicesTextReceivedEvent>
+  _servicesTextEventController;
 
   SecureInputIndicatorState _secureInputIndicatorState =
       SecureInputIndicatorState.hidden;
   Menu? _contextMenu;
   bool _quickLookRequestsEnabled = false;
+  ServicesTextRequestorConfiguration? _servicesTextRequestor;
 
   Stream<ViewQuickLookRequestedEvent> get onQuickLookRequested =>
       _quickLookEventController.stream;
+
+  Stream<ViewServicesTextReceivedEvent> get onServicesTextReceived =>
+      _servicesTextEventController.stream;
+
+  ServicesTextRequestorConfiguration? get servicesTextRequestor {
+    ensureAlive();
+    return _servicesTextRequestor;
+  }
+
+  set servicesTextRequestor(ServicesTextRequestorConfiguration? value) {
+    ensureAlive();
+    if (value == _servicesTextRequestor) {
+      return;
+    }
+    if (value != null && _application.eventProtocolVersion < 10) {
+      throw UnsupportedError(
+        'Services returned text requires native event protocol 10',
+      );
+    }
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeServicesTextRequestorBindings) {
+      throw const AppKitNativeException(
+        operation: 'View.servicesTextRequestor',
+        status: 8,
+        nativeMessage: 'native bridge does not support Services requestors',
+      );
+    }
+    _checkCall(
+      (bindings as NativeServicesTextRequestorBindings)
+          .viewSetServicesTextRequestor(_handle, value?._native),
+      'View.servicesTextRequestor',
+    );
+    _servicesTextRequestor = value;
+  }
 
   bool get quickLookRequestsEnabled {
     ensureAlive();
@@ -247,6 +344,12 @@ base class View extends _NativeResource {
     }
   }
 
+  void _dispatchServicesText(ViewServicesTextReceivedEvent event) {
+    if (!isDisposed) {
+      _servicesTextEventController.add(event);
+    }
+  }
+
   void _contextMenuDisposed(Menu menu) {
     if (identical(_contextMenu, menu)) {
       _contextMenu = null;
@@ -264,5 +367,6 @@ base class View extends _NativeResource {
     menu?._detachContextView(this);
     _application._unregisterView(this);
     unawaited(_quickLookEventController.close());
+    unawaited(_servicesTextEventController.close());
   }
 }

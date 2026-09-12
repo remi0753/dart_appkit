@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 9;
+const int dartAppKitCurrentEventProtocolVersion = 10;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
@@ -51,6 +51,8 @@ const int dartAppKitDefaultViewAutoresizingMask =
 const double dartAppKitTextViewFontMaximumSize = 512;
 const int dartAppKitTextViewFontFamilyMaximumUtf8Bytes = 256;
 const int dartAppKitDefinitionMaximumTextUtf8Bytes = 4096;
+const int dartAppKitServicesMaximumTextUtf8Bytes =
+    dartAppKitPasteboardMaximumTextUtf8Bytes;
 const double dartAppKitTextViewPaddingMaximumExtent = 4096;
 const int dartAppKitTextEditorMaximumTextUtf8Bytes = 16 * 1024 * 1024;
 const int dartAppKitTextEditorMaximumStyleRuns = 64 * 1024;
@@ -93,6 +95,18 @@ final class NativeDefinitionPresentation {
   final String? fontFamily;
   final double baselineX;
   final double baselineY;
+}
+
+final class NativeServicesTextRequestorConfiguration {
+  const NativeServicesTextRequestorConfiguration({
+    required this.selectionText,
+    required this.acceptsReturnedText,
+    required this.maximumReturnedTextUtf8Bytes,
+  });
+
+  final String? selectionText;
+  final bool acceptsReturnedText;
+  final int maximumReturnedTextUtf8Bytes;
 }
 
 final class NativeTextViewConfiguration {
@@ -526,6 +540,14 @@ abstract interface class NativeQuickLookBindings {
   NativeCallResult viewShowDefinition(
     int handle,
     NativeDefinitionPresentation presentation,
+  );
+}
+
+/// Optional cached plain-text Services requestor surface.
+abstract interface class NativeServicesTextRequestorBindings {
+  NativeCallResult viewSetServicesTextRequestor(
+    int handle,
+    NativeServicesTextRequestorConfiguration? configuration,
   );
 }
 

@@ -83,7 +83,7 @@ version and clears the registration if the ranges do not overlap.
 
 Version 1 remains
 `[version, type, source_handle, monotonic_micros, ...payload]`. Versions 2
-through 9 use
+through 10 use
 `[version, type, source_handle, source_generation, monotonic_ns, operation_id,
 ...payload]`. Version 3 adds window focus, visibility, occlusion,
 backing-scale, and screen events. Those types are suppressed before posting to
@@ -92,12 +92,13 @@ user-close request, and menu-action records; these are suppressed for v1-v3.
 Version 5 adds precision scroll records, version 6 adds outer-frame and
 native-fullscreen state records, version 7 adds application effective-
 appearance records, and version 8 adds owned global-hot-key press records;
-version 9 adds View-local Quick Look requests with finite x/y coordinates.
+version 9 adds View-local Quick Look requests with finite x/y coordinates, and
+version 10 adds bounded plain text returned by a Service to its registered View.
 Each additive record is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
 operation ID zero, while deferred close and termination requests carry a
-positive reply identity. The Dart decoder accepts all nine versions, preserves
+positive reply identity. The Dart decoder accepts all ten versions, preserves
 the existing `monotonicMicros` API, and exposes exact negotiated metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts

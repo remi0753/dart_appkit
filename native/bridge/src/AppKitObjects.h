@@ -106,6 +106,11 @@
 
 @end
 
+/** Returns a cached View Services requestor for the window's first responder. */
+id DaServicesTextRequestorForWindow(NSWindow* window,
+                                    NSPasteboardType send_type,
+                                    NSPasteboardType return_type);
+
 @interface DaWindowOwner : NSObject <NSWindowDelegate> {
  @private
   BOOL _hasFocusState;

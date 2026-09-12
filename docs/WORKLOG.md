@@ -3290,3 +3290,38 @@ formerly gated Engine rows in `docs/VERIFICATION.md` are now verified.
   stale Phase 7 acceptance hashを意図どおり拒否し、再生成差分が同じsource hash 2箇所だけであることを
   確認した。最終exact gateは276-file format、analysis、generated reference/evidence、Phase 9 security
   stress、aggregate testsを含め成功した。`git diff --check`もcleanである。
+
+## 2026-09-12 — Cached plain-text Services requestor
+
+- AppKitの `validRequestorForSendType:returnType:` と `NSServicesMenuRequestor` のselection
+  write/readは同期responder callbackである。provider-owned custom Viewへsubclass overrideを要求せず、
+  known `DaWindow` がfirst responderを含む最も深い登録済みViewを選び、弱参照native requestorを返す
+  boundaryにした。innerが要求typeを満たさない場合は対応可能なouter登録Viewへfallbackする。
+- Size-prefixed snapshotはselection absentとpresent-emptyを区別し、returned text受理とpositive read上限を
+  独立に保持する。selectionとreturned textのhard maximumは既存pasteboardと同じ64 MiBで、inertな
+  send/return両方なし、unknown type、invalid UTF-8、invalid boolean/reserved/size、stale/wrong handle/threadを
+  fail closedする。disableとView releaseはcopyとhandle identityを先に無効化する。
+- 同期write callbackはcached `NSPasteboardTypeString`だけをservice pasteboardへ書き、同期read callbackは
+  configured bound内のplain textだけをcopyして、generation-checked `VIEW_SERVICES_TEXT_RECEIVED`をpostする。
+  Dartへの同期再入はない。Event protocol v10はこの1 string recordだけを追加し、v1-v9のfield orderと
+  older-sink filteringを維持する。後続drop/provider eventは同じversionへ後付けせず個別versionを使う。
+- Public Dartはimmutable `ServicesTextRequestorConfiguration`、cache-on-success
+  `View.servicesTextRequestor`、sync broadcast `onServicesTextReceived`を提供し、applicationとexact Viewへ
+  weak routingする。fake/current FFI/legacy optional fallback、failed update/release retry、late event、v9 rejectionを
+  testする。
+- 最初のnative focused runはreturn-onlyになったinnerの下でsend-only requestがouterへfallbackする正しい挙動を
+  testがnilと期待して1件停止した。distinct outer requestorを期待するassertionへ修正した次のrunはnativeと
+  encoderを通過した。続くDart analysisはsibling event型のunion promotion後に共通 `viewHandle` を参照した2箇所を
+  拒否したため、同じgeneration identityである基底 `sourceHandle` をroutingに使用した。Dart API全25 groupと
+  current/legacy FFI smokeはその修正後に通過した。
+- Final reviewでDart native-portのstring payloadがNUL終端であり、埋め込みNULを含む正当なreturned textを
+  切り詰めることを確認した。v10 payloadを長さ付き `Uint8` typed dataへ変更し、Dartで64 MiB上限とstrict UTF-8
+  decodeを適用する。encoder/native/Dart testは埋め込みNUL、不正UTF-8、oversizeを含めてexact byte semanticsを
+  検証する。
+- 同じreviewでreceive-only snapshotのFFIがselection absentを空文字のnon-null pointerとして渡し、native presence
+  contractと不一致になる経路を発見した。absenceはnull pointer/zero length、present-emptyはnon-null/zero lengthで
+  明示的に区別するよう修正した。追加smokeの最初のanalysisはrequired nullable fixture引数の省略を拒否し、
+  `selectionText: null`を明記した再実行で解消した。
+- Final focused validationはscaffold、native bridge、shared event encoder、Dart API全25 group、launcher、current/
+  legacy FFIを通過した。Developer JIT／Release AOT runnerは同じv10 bridgeをwarning-as-errorでlinkし、exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test`は全native/runtime/package/Kernel/FFI gateを通過した。

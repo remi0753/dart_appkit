@@ -39,6 +39,7 @@ final class FakeNativeBindings
         NativeMenuItemStateBindings,
         NativeViewContextMenuBindings,
         NativeQuickLookBindings,
+        NativeServicesTextRequestorBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -81,6 +82,8 @@ final class FakeNativeBindings
   final Map<int, bool> quickLookRequestEnabled = <int, bool>{};
   final Map<int, List<NativeDefinitionPresentation>> definitionPresentations =
       <int, List<NativeDefinitionPresentation>>{};
+  final Map<int, NativeServicesTextRequestorConfiguration>
+  servicesTextRequestors = <int, NativeServicesTextRequestorConfiguration>{};
   final Map<int, NativeScreenSnapshot> resolvedScreens =
       <int, NativeScreenSnapshot>{
         dartAppKitScreenSelectionMain: const NativeScreenSnapshot(
@@ -478,6 +481,22 @@ final class FakeNativeBindings
       definitionPresentations
           .putIfAbsent(handle, () => <NativeDefinitionPresentation>[])
           .add(presentation);
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult viewSetServicesTextRequestor(
+    int handle,
+    NativeServicesTextRequestorConfiguration? configuration,
+  ) {
+    final NativeCallResult result = _status('viewSetServicesTextRequestor');
+    if (result.isSuccess) {
+      if (configuration == null) {
+        servicesTextRequestors.remove(handle);
+      } else {
+        servicesTextRequestors[handle] = configuration;
+      }
     }
     return result;
   }
@@ -1282,6 +1301,7 @@ final class FakeNativeBindings
       viewContextMenus.removeWhere((int view, int menu) => menu == handle);
       quickLookRequestEnabled.remove(handle);
       definitionPresentations.remove(handle);
+      servicesTextRequestors.remove(handle);
       if (secureEventInputOwner == handle) {
         if (secureEventInputOwnedEnabled) {
           secureEventInputDisableCount++;

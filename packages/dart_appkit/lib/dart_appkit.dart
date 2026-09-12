@@ -46,6 +46,7 @@ export 'src/api.dart'
         SecureEventInputFailure,
         SecureEventInputSnapshot,
         SecureInputIndicatorState,
+        ServicesTextRequestorConfiguration,
         SplitView,
         SplitViewAxis,
         SplitViewChild,
@@ -70,6 +71,7 @@ export 'src/api.dart'
         View,
         ViewConfiguration,
         ViewQuickLookRequestedEvent,
+        ViewServicesTextReceivedEvent,
         Window,
         WindowBackingScaleChangedEvent,
         WindowClosedEvent,
@@ -99,5 +101,6 @@ export 'src/native/native_bindings.dart'
         dartAppKitStatusSecureEventInputFailed,
         dartAppKitMinimumEventProtocolVersion,
         dartAppKitPasteboardMaximumTextUtf8Bytes,
+        dartAppKitServicesMaximumTextUtf8Bytes,
         dartAppKitUserNotificationIdentifierMaximumUtf8Bytes,
         dartAppKitUserNotificationTextMaximumUtf8Bytes;

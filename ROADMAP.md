@@ -684,6 +684,9 @@ window/application操作を提供する。
   definition overlayへ表示する仕組みを実装した。
 - nativeからのtext readを64 MiB UTF-8に制限し、超過時はoutputを空のまま
   `limit exceeded` として失敗させ、partial dataを公開しないcontractを実装した。
+- generic／specialized／provider-owned Viewへ、bounded plain-text selectionと
+  returned-text上限をnative snapshotとして保持するServices requestorを実装した。同期AppKit
+  callbackはDartへ再入せず、returned textをgeneration-checked v10 eventで非同期配送する。
 
 未実装:
 

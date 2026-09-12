@@ -1020,6 +1020,21 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(9));
 
+  event.type = DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED;
+  event.characters = "service text";
+  const size_t before_version_ten_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_ten_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 10, 10,
+                                              &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(10));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(10));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1031,7 +1046,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 10, 10, &selected_version),
+      da_application_set_event_port_versioned(4242, 11, 11, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1692,7 +1707,8 @@ void TestQuickLookRequestsAndDefinitions() {
   EXPECT_EQ(capture.events[0].window, view);
   EXPECT_TRUE(std::abs(capture.events[0].x - 10.5) < 0.001);
   EXPECT_TRUE(std::abs(capture.events[0].y - 20.25) < 0.001);
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(9));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
   EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
       view, 11.0, 21.0, 2));
   EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
@@ -1793,6 +1809,166 @@ void TestQuickLookRequestsAndDefinitions() {
   EXPECT_TRUE(!dart_appkit::HandleQuickLookPressureForTesting(
       view, 10.0, 20.0, 2));
   EXPECT_EQ(da_release(menu), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
+void TestServicesTextRequestors() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  const DaHandle outer_handle = CreateView();
+  const DaHandle inner_handle = CreateView();
+  const DaHandle wrong_kind = CreateMenu("Wrong kind");
+  DaView* outer = NativeViewFor(outer_handle);
+  DaView* inner = NativeViewFor(inner_handle);
+  [outer addSubview:inner];
+  EXPECT_EQ(da_window_set_content_view(window_handle, outer_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_window_make_first_responder(window_handle, inner_handle),
+            DA_STATUS_OK);
+  DaWindow* window = OwnerFor(window_handle).window;
+
+  DaServicesTextRequestorConfiguration configuration = {
+      DA_SERVICES_TEXT_REQUESTOR_CONFIGURATION_VERSION_1_SIZE,
+      16,
+      1,
+      1,
+      0,
+      0,
+  };
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                outer_handle, "outer", 5, &configuration),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, "inner—選択", strlen("inner—選択"),
+                &configuration),
+            DA_STATUS_OK);
+
+  id<NSServicesMenuRequestor> requestor =
+      [window validRequestorForSendType:NSPasteboardTypeString
+                             returnType:NSPasteboardTypeString];
+  EXPECT_TRUE(requestor != nil);
+  EXPECT_TRUE(requestor ==
+              DaServicesTextRequestorForWindow(
+                  window, NSPasteboardTypeString, NSPasteboardTypeString));
+  EXPECT_TRUE(DaServicesTextRequestorForWindow(window, @"public.rtf", nil) ==
+              nil);
+
+  NSPasteboard* pasteboard = (NSPasteboard*)[[DaTestPasteboard alloc] init];
+  EXPECT_TRUE([requestor writeSelectionToPasteboard:pasteboard
+                                              types:@[
+                                                NSPasteboardTypeString
+                                              ]]);
+  DaPasteboardText snapshot{};
+  EXPECT_EQ(dart_appkit::ReadPasteboardText(pasteboard, &snapshot),
+            DA_STATUS_OK);
+  EXPECT_EQ(std::string(snapshot.text, snapshot.text_length),
+            std::string("inner—選択"));
+  EXPECT_TRUE(![requestor writeSelectionToPasteboard:pasteboard
+                                               types:@[ @"public.rtf" ]]);
+
+  int64_t change_count = 0;
+  const std::string returned_text("returned\0—text", 16);
+  EXPECT_EQ(dart_appkit::WritePasteboardText(
+                pasteboard, returned_text.data(), returned_text.size(),
+                &change_count),
+            DA_STATUS_OK);
+  EXPECT_TRUE([requestor readSelectionFromPasteboard:pasteboard]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+  EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED);
+  EXPECT_EQ(capture.events[0].window, inner_handle);
+  EXPECT_EQ(capture.events[0].characters, returned_text);
+  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(10));
+
+  configuration.maximum_returned_text_utf8_bytes = 3;
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, "new", 3, &configuration),
+            DA_STATUS_OK);
+  requestor = [window validRequestorForSendType:NSPasteboardTypeString
+                                     returnType:NSPasteboardTypeString];
+  EXPECT_EQ(dart_appkit::WritePasteboardText(pasteboard, "four", 4,
+                                             &change_count),
+            DA_STATUS_OK);
+  EXPECT_TRUE(![requestor readSelectionFromPasteboard:pasteboard]);
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(1));
+
+  configuration.has_selection = 0;
+  configuration.accepts_returned_text = 1;
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                &configuration),
+            DA_STATUS_OK);
+  id<NSServicesMenuRequestor> send_only_requestor =
+      DaServicesTextRequestorForWindow(window, NSPasteboardTypeString, nil);
+  EXPECT_TRUE(send_only_requestor != nil && send_only_requestor != requestor);
+  EXPECT_TRUE(DaServicesTextRequestorForWindow(
+                  window, nil, NSPasteboardTypeString) != nil);
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                nullptr),
+            DA_STATUS_OK);
+  id<NSServicesMenuRequestor> outer_requestor =
+      DaServicesTextRequestorForWindow(window, NSPasteboardTypeString,
+                                       NSPasteboardTypeString);
+  EXPECT_TRUE(outer_requestor == send_only_requestor);
+
+  DaServicesTextRequestorConfiguration invalid = configuration;
+  invalid.struct_size = 0;
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.maximum_returned_text_utf8_bytes = 0;
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.has_selection = 2;
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.reserved_0 = 1;
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, nullptr, 0, &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid = configuration;
+  invalid.accepts_returned_text = 0;
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, nullptr, 0,
+                                                &invalid),
+            DA_STATUS_INVALID_ARGUMENT);
+  configuration.has_selection = 1;
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, "x", DA_SERVICES_TEXT_MAX_UTF8_BYTES + 1,
+                &configuration),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(da_view_set_services_text_requestor(inner_handle, "x", 1,
+                                                nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  const char invalid_utf8[] = {static_cast<char>(0xc3), '('};
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, invalid_utf8, sizeof(invalid_utf8),
+                &configuration),
+            DA_STATUS_INVALID_UTF8);
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                wrong_kind, "bad", 3, &configuration),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    worker_status.store(da_view_set_services_text_requestor(
+        inner_handle, "bad", 3, &configuration));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+
+  EXPECT_EQ(da_release(inner_handle), DA_STATUS_OK);
+  EXPECT_TRUE(![requestor readSelectionFromPasteboard:pasteboard]);
+  EXPECT_EQ(da_view_set_services_text_requestor(
+                inner_handle, "stale", 5, &configuration),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_release(outer_handle), DA_STATUS_OK);
+  EXPECT_TRUE(![outer_requestor readSelectionFromPasteboard:pasteboard]);
+  EXPECT_EQ(da_release(wrong_kind), DA_STATUS_OK);
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
@@ -3825,6 +4001,7 @@ int main() {
     TestMenus();
     TestViewContextMenus();
     TestQuickLookRequestsAndDefinitions();
+    TestServicesTextRequestors();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestAttributedTextEditor();

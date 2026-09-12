@@ -519,11 +519,12 @@ final class AppKitApplication {
         }
       }
       View? view;
-      if (event is ViewQuickLookRequestedEvent) {
-        final WeakReference<View>? reference = _views[event.viewHandle];
+      if (event is ViewQuickLookRequestedEvent ||
+          event is ViewServicesTextReceivedEvent) {
+        final WeakReference<View>? reference = _views[event.sourceHandle];
         view = reference?.target;
         if (view == null) {
-          _views.remove(event.viewHandle);
+          _views.remove(event.sourceHandle);
         }
       }
       _events.add(event);
@@ -538,6 +539,9 @@ final class AppKitApplication {
       }
       if (view != null && event is ViewQuickLookRequestedEvent) {
         view._dispatchQuickLook(event);
+      }
+      if (view != null && event is ViewServicesTextReceivedEvent) {
+        view._dispatchServicesText(event);
       }
     } on Object catch (error, stackTrace) {
       _events.addError(error, stackTrace);

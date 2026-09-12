@@ -8,6 +8,7 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
         NativeRect,
         NativeDefinitionPresentation,
         NativeScreenSnapshot,
+        NativeServicesTextRequestorConfiguration,
         dartAppKitSecureInputIndicatorAutomatic,
         dartAppKitSecureInputIndicatorManual,
         dartAppKitScreenSelectionMain,
@@ -102,8 +103,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 9 &&
-        app.eventProtocolVersion == 9,
+        bindings.requestedMaximumEventProtocolVersion == 10 &&
+        app.eventProtocolVersion == 10,
     'current event protocol negotiation',
   );
 
@@ -1543,7 +1544,8 @@ Future<void> _testWindowStateEvents() async {
           ApplicationEvent() ||
           MenuItemInvokedEvent() ||
           GlobalHotKeyPressedEvent() ||
-          ViewQuickLookRequestedEvent():
+          ViewQuickLookRequestedEvent() ||
+          ViewServicesTextReceivedEvent():
         break;
     }
   }, onError: (Object error) => streamErrors.add(error));
@@ -2678,6 +2680,189 @@ Future<void> _testQuickLookApi() async {
   await raw.close();
 }
 
+Future<void> _testServicesTextRequestorApi() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final FakeNativeBindings bindings = FakeNativeBindings()
+    ..nextHandle = (10 << 32) | 1;
+  final AppKitApplication app = await _attach(bindings, raw);
+  final View view = View();
+  final int handle = testing.nativeViewHandleForTesting(view);
+  final List<Object> errors = <Object>[];
+  final List<String> applicationText = <String>[];
+  final List<String> viewText = <String>[];
+  final StreamSubscription<AppKitEvent> applicationEvents = app.events.listen((
+    AppKitEvent event,
+  ) {
+    if (event is ViewServicesTextReceivedEvent) {
+      applicationText.add(event.text);
+    }
+  }, onError: (Object error) => errors.add(error));
+  final StreamSubscription<ViewServicesTextReceivedEvent> viewEvents = view
+      .onServicesTextReceived
+      .listen((ViewServicesTextReceivedEvent event) {
+        _expect(
+          event.viewHandle == handle,
+          'view Services event preserves exact source identity',
+        );
+        viewText.add(event.text);
+      });
+
+  const ServicesTextRequestorConfiguration configuration =
+      ServicesTextRequestorConfiguration(
+        selectionText: 'selected—text',
+        maximumReturnedTextUtf8Bytes: 1024,
+      );
+  view.servicesTextRequestor = configuration;
+  final NativeServicesTextRequestorConfiguration nativeConfiguration =
+      bindings.servicesTextRequestors[handle]!;
+  _expect(
+    view.servicesTextRequestor == configuration &&
+        nativeConfiguration.selectionText == 'selected—text' &&
+        nativeConfiguration.acceptsReturnedText &&
+        nativeConfiguration.maximumReturnedTextUtf8Bytes == 1024 &&
+        ServicesTextRequestorConfiguration.maximumTextUtf8Bytes ==
+            64 * 1024 * 1024,
+    'immutable Services snapshot reaches native with explicit bounds',
+  );
+  final int updateCount = bindings.operations
+      .where((String value) => value == 'viewSetServicesTextRequestor')
+      .length;
+  view.servicesTextRequestor = configuration;
+  _expect(
+    bindings.operations
+            .where((String value) => value == 'viewSetServicesTextRequestor')
+            .length ==
+        updateCount,
+    'equal Services snapshots suppress native work',
+  );
+
+  raw.add(<Object?>[
+    10,
+    43,
+    handle,
+    10,
+    1000000,
+    0,
+    Uint8List.fromList(<int>[
+      0x72,
+      0x65,
+      0x74,
+      0x75,
+      0x72,
+      0x6e,
+      0x65,
+      0x64,
+      0,
+      0xe2,
+      0x80,
+      0x94,
+      0x74,
+      0x65,
+      0x78,
+      0x74,
+    ]),
+  ]);
+  _expect(
+    applicationText.single == 'returned\u0000—text' &&
+        viewText.single == 'returned\u0000—text',
+    'returned Services text reaches application and exact View once',
+  );
+  raw.add(<Object?>[9, 43, handle, 10, 1001000, 0, Uint8List(0)]);
+  raw.add(<Object?>[10, 43, handle, 11, 1002000, 0, Uint8List(0)]);
+  raw.add(<Object?>[10, 43, handle, 10, 1003000, 0, 7]);
+  raw.add(<Object?>[
+    10,
+    43,
+    handle,
+    10,
+    1003500,
+    0,
+    Uint8List.fromList(<int>[0xc3]),
+  ]);
+  _expect(
+    errors.length == 4 && applicationText.length == 1 && viewText.length == 1,
+    'old-version, stale-generation, non-byte, and malformed UTF-8 service '
+    'events fail closed',
+  );
+
+  bindings.failNextOperation = 'viewSetServicesTextRequestor';
+  await _expectThrows<AppKitNativeException>(
+    () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
+      selectionText: 'replacement',
+    ),
+  );
+  _expect(
+    view.servicesTextRequestor == configuration &&
+        bindings.servicesTextRequestors[handle] == nativeConfiguration,
+    'failed Services update preserves wrapper and native snapshots',
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
+      acceptsReturnedText: false,
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
+      maximumReturnedTextUtf8Bytes: 0,
+    ),
+  );
+  await _expectThrows<RangeError>(
+    () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
+      maximumReturnedTextUtf8Bytes:
+          ServicesTextRequestorConfiguration.maximumTextUtf8Bytes + 1,
+    ),
+  );
+
+  view.servicesTextRequestor = null;
+  _expect(
+    view.servicesTextRequestor == null &&
+        !bindings.servicesTextRequestors.containsKey(handle),
+    'Services requestor can be disabled explicitly',
+  );
+  view.servicesTextRequestor = configuration;
+
+  bindings.failNextOperation = 'release';
+  await _expectThrows<AppKitNativeException>(view.dispose);
+  raw.add(<Object?>[
+    10,
+    43,
+    handle,
+    10,
+    1004000,
+    0,
+    Uint8List.fromList('retryable'.codeUnits),
+  ]);
+  _expect(
+    applicationText.length == 2 && viewText.length == 2,
+    'failed View release preserves Services routing',
+  );
+  view.dispose();
+  _expect(
+    !bindings.servicesTextRequestors.containsKey(handle),
+    'successful View release clears native Services snapshot',
+  );
+  raw.add(<Object?>[
+    10,
+    43,
+    handle,
+    10,
+    1005000,
+    0,
+    Uint8List.fromList('late'.codeUnits),
+  ]);
+  _expect(
+    applicationText.length == 3 && viewText.length == 2,
+    'disposed View ignores late Services text while application observes it',
+  );
+
+  await viewEvents.cancel();
+  await applicationEvents.cancel();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testLegacyProtocolSelection() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -2700,6 +2885,11 @@ Future<void> _testLegacyProtocolSelection() async {
   await _expectThrows<UnsupportedError>(() => Menu(title: 'Unavailable'));
   await _expectThrows<UnsupportedError>(
     () => view.quickLookRequestsEnabled = true,
+  );
+  await _expectThrows<UnsupportedError>(
+    () => view.servicesTextRequestor = const ServicesTextRequestorConfiguration(
+      selectionText: 'selected',
+    ),
   );
   view.dispose();
   window.dispose();
@@ -2882,6 +3072,10 @@ Future<void> main() async {
   await _test('menu ownership and action routing', _testMenuApi);
   await _test('view context-menu ownership', _testViewContextMenuApi);
   await _test('Quick Look request and definition API', _testQuickLookApi);
+  await _test(
+    'cached plain-text Services requestor API',
+    _testServicesTextRequestorApi,
+  );
   await _test('legacy event protocol selection', _testLegacyProtocolSelection);
   await _test('raw event fault injection hooks', _testRawEventInjectionHooks);
   await _test(

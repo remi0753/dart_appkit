@@ -142,6 +142,35 @@ void main(List<String> arguments) {
       definition.message.isEmpty) {
     _fail('Quick Look symbols did not preserve their main-thread guards');
   }
+  final NativeCallResult servicesRequestor = bindings
+      .viewSetServicesTextRequestor(
+        1,
+        const NativeServicesTextRequestorConfiguration(
+          selectionText: 'selected',
+          acceptsReturnedText: true,
+          maximumReturnedTextUtf8Bytes: 1024,
+        ),
+      );
+  if (servicesRequestor.isSuccess ||
+      servicesRequestor.status != 5 ||
+      servicesRequestor.message.isEmpty) {
+    _fail('Services requestor symbol did not preserve its main-thread guard');
+  }
+  final NativeCallResult receiveOnlyServicesRequestor = bindings
+      .viewSetServicesTextRequestor(
+        1,
+        const NativeServicesTextRequestorConfiguration(
+          selectionText: null,
+          acceptsReturnedText: true,
+          maximumReturnedTextUtf8Bytes: 1024,
+        ),
+      );
+  if (receiveOnlyServicesRequestor.status != 5 ||
+      receiveOnlyServicesRequestor.message.isEmpty) {
+    _fail(
+      'receive-only Services requestor did not preserve its main-thread guard',
+    );
+  }
   final NativeValueResult<NativeScreenSnapshot> screen = bindings
       .applicationResolveScreen(dartAppKitScreenSelectionMain);
   final NativeCallResult presentationConfiguration = bindings

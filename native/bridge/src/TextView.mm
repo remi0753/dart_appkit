@@ -509,6 +509,16 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   return YES;
 }
 
+- (id)validRequestorForSendType:(NSPasteboardType)sendType
+                      returnType:(NSPasteboardType)returnType {
+  id requestor =
+      DaServicesTextRequestorForWindow(self, sendType, returnType);
+  return requestor != nil
+             ? requestor
+             : [super validRequestorForSendType:sendType
+                                     returnType:returnType];
+}
+
 - (void)sendEvent:(NSEvent*)event {
   const BOOL isKeyEvent = event.type == NSEventTypeKeyDown ||
                           event.type == NSEventTypeKeyUp;

@@ -20,6 +20,7 @@
 #include "ObjectRegistry.h"
 
 @class DaQuickLookRequestOwner;
+@class DaServicesTextRequestor;
 
 namespace {
 
@@ -33,6 +34,7 @@ DaHandle g_secure_event_input_handle = 0;
 NSHashTable<NSView*>* g_context_menu_views = nil;
 NSMutableArray<DaQuickLookRequestOwner*>* g_quick_look_request_owners = nil;
 id g_quick_look_event_monitor = nil;
+NSMutableArray<DaServicesTextRequestor*>* g_services_text_requestors = nil;
 
 int32_t EnableSecureEventInputWithSystem() {
   return static_cast<int32_t>(EnableSecureEventInput());
@@ -168,6 +170,16 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 @property(nonatomic, weak) NSView* view;
 @property(nonatomic, assign) DaHandle daHandle;
 @property(nonatomic, assign) NSInteger previousPressureStage;
+
+@end
+
+@interface DaServicesTextRequestor : NSObject <NSServicesMenuRequestor>
+
+@property(nonatomic, weak) NSView* view;
+@property(nonatomic, assign) DaHandle daHandle;
+@property(nonatomic, copy) NSString* selectionText;
+@property(nonatomic, assign) BOOL acceptsReturnedText;
+@property(nonatomic, assign) NSUInteger maximumReturnedTextUtf8Bytes;
 
 @end
 
@@ -412,7 +424,73 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 @implementation DaQuickLookRequestOwner
 @end
 
+@implementation DaServicesTextRequestor
+
+- (BOOL)writeSelectionToPasteboard:(NSPasteboard*)pasteboard
+                             types:(NSArray<NSPasteboardType>*)types {
+  NSString* selection = self.selectionText;
+  if (selection == nil || pasteboard == nil ||
+      ![types containsObject:NSPasteboardTypeString]) {
+    return NO;
+  }
+  [pasteboard clearContents];
+  return [pasteboard setString:selection forType:NSPasteboardTypeString];
+}
+
+- (BOOL)readSelectionFromPasteboard:(NSPasteboard*)pasteboard {
+  if (!self.acceptsReturnedText || self.view == nil || self.daHandle == 0 ||
+      pasteboard == nil) {
+    return NO;
+  }
+  DaPasteboardText snapshot{};
+  if (dart_appkit::ReadPasteboardTextWithLimit(
+          pasteboard, self.maximumReturnedTextUtf8Bytes, &snapshot) !=
+          DA_STATUS_OK ||
+      snapshot.has_text == 0) {
+    return NO;
+  }
+  dart_appkit::NativeEvent event;
+  event.type = DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED;
+  event.window = self.daHandle;
+  event.monotonic_nanos = dart_appkit::MonotonicNanos();
+  if (snapshot.text_length != 0) {
+    event.characters.assign(snapshot.text, snapshot.text_length);
+  }
+  return dart_appkit::PostEvent(event);
+}
+
+@end
+
 namespace {
+
+DaServicesTextRequestor* ServicesTextRequestorForView(NSView* view) {
+  for (DaServicesTextRequestor* requestor in
+       [g_services_text_requestors copy]) {
+    NSView* candidate = requestor.view;
+    if (candidate == nil) {
+      [g_services_text_requestors removeObject:requestor];
+    } else if (candidate == view) {
+      return requestor;
+    }
+  }
+  if (g_services_text_requestors.count == 0) {
+    g_services_text_requestors = nil;
+  }
+  return nil;
+}
+
+void RemoveServicesTextRequestorForView(NSView* view) {
+  DaServicesTextRequestor* requestor = ServicesTextRequestorForView(view);
+  if (requestor != nil) {
+    requestor.daHandle = 0;
+    requestor.view = nil;
+    requestor.selectionText = nil;
+    [g_services_text_requestors removeObject:requestor];
+  }
+  if (g_services_text_requestors.count == 0) {
+    g_services_text_requestors = nil;
+  }
+}
 
 DaQuickLookRequestOwner* QuickLookOwnerForHandle(DaHandle handle) {
   for (DaQuickLookRequestOwner* owner in
@@ -557,6 +635,56 @@ void RemoveQuickLookOwnerForView(NSView* view) {
 }
 
 }  // namespace
+
+id DaServicesTextRequestorForWindow(NSWindow* window,
+                                    NSPasteboardType send_type,
+                                    NSPasteboardType return_type) {
+  if (window == nil || (send_type == nil && return_type == nil)) {
+    return nil;
+  }
+  NSResponder* first_responder = window.firstResponder;
+  if (![first_responder isKindOfClass:NSView.class]) {
+    return nil;
+  }
+  NSView* responder_view = static_cast<NSView*>(first_responder);
+  DaServicesTextRequestor* best = nil;
+  NSUInteger best_depth = NSUIntegerMax;
+  for (DaServicesTextRequestor* requestor in
+       [g_services_text_requestors copy]) {
+    NSView* view = requestor.view;
+    if (view == nil) {
+      [g_services_text_requestors removeObject:requestor];
+      continue;
+    }
+    const BOOL send_supported =
+        send_type == nil ||
+        ([send_type isEqualToString:NSPasteboardTypeString] &&
+         requestor.selectionText != nil);
+    const BOOL return_supported =
+        return_type == nil ||
+        ([return_type isEqualToString:NSPasteboardTypeString] &&
+         requestor.acceptsReturnedText);
+    if (!send_supported || !return_supported || view.window != window ||
+        (view != responder_view &&
+         ![responder_view isDescendantOf:view])) {
+      continue;
+    }
+    NSUInteger depth = 0;
+    NSView* cursor = responder_view;
+    while (cursor != nil && cursor != view) {
+      cursor = cursor.superview;
+      ++depth;
+    }
+    if (cursor == view && depth < best_depth) {
+      best = requestor;
+      best_depth = depth;
+    }
+  }
+  if (g_services_text_requestors.count == 0) {
+    g_services_text_requestors = nil;
+  }
+  return best;
+}
 
 @implementation DaApplicationAppearanceObserver
 
@@ -1516,6 +1644,7 @@ void PrepareViewForRelease(NSView* view) {
   }
   view.menu = nil;
   RemoveQuickLookOwnerForView(view);
+  RemoveServicesTextRequestorForView(view);
   [g_context_menu_views removeObject:view];
   if (g_context_menu_views.count == 0) {
     g_context_menu_views = nil;
@@ -3882,6 +4011,81 @@ int32_t da_view_show_definition(
                                   atPoint:NSMakePoint(
                                               configuration->baseline_x,
                                               configuration->baseline_y)];
+  return DA_STATUS_OK;
+}
+
+int32_t da_view_set_services_text_requestor(
+    DaHandle view_handle, const char* selection_text,
+    size_t selection_text_length,
+    const DaServicesTextRequestorConfiguration* configuration) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  int32_t status = DA_STATUS_OK;
+  NSView* view = dart_appkit::View(view_handle, &status);
+  if (view == nil) {
+    return status;
+  }
+  if (configuration == nullptr) {
+    if (selection_text != nullptr || selection_text_length != 0) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "disabled Services requestor must not include selection text");
+    }
+    RemoveServicesTextRequestorForView(view);
+    return DA_STATUS_OK;
+  }
+  if (configuration->struct_size <
+          DA_SERVICES_TEXT_REQUESTOR_CONFIGURATION_VERSION_1_SIZE ||
+      (configuration->has_selection != 0 &&
+       configuration->has_selection != 1) ||
+      (configuration->accepts_returned_text != 0 &&
+       configuration->accepts_returned_text != 1) ||
+      configuration->reserved_0 != 0 || configuration->reserved_1 != 0 ||
+      configuration->maximum_returned_text_utf8_bytes == 0 ||
+      configuration->maximum_returned_text_utf8_bytes >
+          DA_SERVICES_TEXT_MAX_UTF8_BYTES ||
+      (configuration->has_selection == 0 &&
+       (selection_text != nullptr || selection_text_length != 0)) ||
+      (configuration->has_selection == 1 && selection_text_length != 0 &&
+       selection_text == nullptr) ||
+      (configuration->has_selection == 0 &&
+       configuration->accepts_returned_text == 0)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "Services requestor configuration or selection presence is invalid");
+  }
+  if (selection_text_length > DA_SERVICES_TEXT_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "Services selection exceeds the UTF-8 byte limit");
+  }
+  NSString* copied_selection = nil;
+  if (configuration->has_selection != 0) {
+    copied_selection = dart_appkit::CopyUtf8(selection_text,
+                                             selection_text_length, &status);
+    if (status != DA_STATUS_OK) {
+      return status;
+    }
+  }
+
+  DaServicesTextRequestor* requestor = ServicesTextRequestorForView(view);
+  if (requestor == nil) {
+    if (g_services_text_requestors == nil) {
+      g_services_text_requestors = [[NSMutableArray alloc] init];
+    }
+    requestor = [[DaServicesTextRequestor alloc] init];
+    requestor.view = view;
+    [g_services_text_requestors addObject:requestor];
+  }
+  requestor.daHandle = view_handle;
+  requestor.selectionText = copied_selection;
+  requestor.acceptsReturnedText =
+      configuration->accepts_returned_text != 0;
+  requestor.maximumReturnedTextUtf8Bytes =
+      configuration->maximum_returned_text_utf8_bytes;
   return DA_STATUS_OK;
 }
 

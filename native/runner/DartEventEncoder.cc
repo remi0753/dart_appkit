@@ -29,6 +29,14 @@ void SetString(Dart_CObject* object, const std::string& value) {
   object->value.as_string = value.c_str();
 }
 
+void SetUtf8Bytes(Dart_CObject* object, const std::string& value) {
+  object->type = Dart_CObject_kTypedData;
+  object->value.as_typed_data.type = Dart_TypedData_kUint8;
+  object->value.as_typed_data.length = value.size();
+  object->value.as_typed_data.values = reinterpret_cast<uint8_t*>(
+      const_cast<char*>(value.data()));
+}
+
 bool ValidScreen(const NativeEvent& event) {
   const bool finite =
       std::isfinite(event.screen_x) && std::isfinite(event.screen_y) &&
@@ -118,6 +126,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 6:
     case 7:
     case 8:
+    case 9:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -155,6 +164,13 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       length += 2;
       SetDouble(&values[payload_offset], event.x);
       SetDouble(&values[payload_offset + 1], event.y);
+      break;
+    case DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED:
+      if (event.characters.size() > DA_SERVICES_TEXT_MAX_UTF8_BYTES) {
+        return false;
+      }
+      length += 1;
+      SetUtf8Bytes(&values[payload_offset], event.characters);
       break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;

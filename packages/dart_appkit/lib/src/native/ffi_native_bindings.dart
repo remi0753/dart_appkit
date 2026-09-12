@@ -141,6 +141,26 @@ final class _DaDefinitionPresentationConfigurationNative extends Struct {
   external double baselineY;
 }
 
+final class _DaServicesTextRequestorConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  @Uint64()
+  external int maximumReturnedTextUtf8Bytes;
+
+  @Int32()
+  external int hasSelection;
+
+  @Int32()
+  external int acceptsReturnedText;
+
+  @Int32()
+  external int reserved0;
+
+  @Int32()
+  external int reserved1;
+}
+
 final class _DaTextViewColorConfigurationNative extends Struct {
   @Int32()
   external int kind;
@@ -545,6 +565,18 @@ typedef _ViewShowDefinitionDart = int Function(
   Pointer<Uint8>,
   int,
 );
+typedef _ViewSetServicesTextRequestorNative = Int32 Function(
+  Uint64,
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaServicesTextRequestorConfigurationNative>,
+);
+typedef _ViewSetServicesTextRequestorDart = int Function(
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaServicesTextRequestorConfigurationNative>,
+);
 typedef _TextViewCreateConfiguredNative = Int32 Function(
   Pointer<_DaTextViewConfigurationNative>,
   Pointer<Uint8>,
@@ -678,6 +710,19 @@ _ViewShowDefinitionDart? _lookupViewShowDefinition(DynamicLibrary library) {
   }
 }
 
+_ViewSetServicesTextRequestorDart? _lookupViewSetServicesTextRequestor(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _ViewSetServicesTextRequestorNative,
+      _ViewSetServicesTextRequestorDart
+    >('da_view_set_services_text_requestor');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
   DynamicLibrary library,
 ) {
@@ -793,6 +838,19 @@ void _writeDefinitionPresentation(
     ..fontSize = presentation.fontSize
     ..baselineX = presentation.baselineX
     ..baselineY = presentation.baselineY;
+}
+
+void _writeServicesTextRequestorConfiguration(
+  _DaServicesTextRequestorConfigurationNative output,
+  NativeServicesTextRequestorConfiguration configuration,
+) {
+  output
+    ..structSize = sizeOf<_DaServicesTextRequestorConfigurationNative>()
+    ..maximumReturnedTextUtf8Bytes = configuration.maximumReturnedTextUtf8Bytes
+    ..hasSelection = configuration.selectionText == null ? 0 : 1
+    ..acceptsReturnedText = configuration.acceptsReturnedText ? 1 : 0
+    ..reserved0 = 0
+    ..reserved1 = 0;
 }
 
 void _writeTextViewColor(
@@ -1378,6 +1436,7 @@ final class FfiNativeBindings
         NativeMenuItemStateBindings,
         NativeViewContextMenuBindings,
         NativeQuickLookBindings,
+        NativeServicesTextRequestorBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1514,6 +1573,9 @@ final class FfiNativeBindings
         'da_view_set_quick_look_request_enabled',
       ),
       _viewShowDefinition = _lookupViewShowDefinition(library),
+      _viewSetServicesTextRequestor = _lookupViewSetServicesTextRequestor(
+        library,
+      ),
       _splitViewCreate = _lookupIntCreateHandle(
         library,
         'da_split_view_create',
@@ -1662,6 +1724,7 @@ final class FfiNativeBindings
   final _TwoHandlesDart? _viewSetContextMenu;
   final _HandleBoolStatusDart? _viewSetQuickLookRequestEnabled;
   final _ViewShowDefinitionDart? _viewShowDefinition;
+  final _ViewSetServicesTextRequestorDart? _viewSetServicesTextRequestor;
   final _IntCreateHandleDart? _splitViewCreate;
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
@@ -2956,6 +3019,45 @@ final class FfiNativeBindings
       );
     } finally {
       _free(configuration.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult viewSetServicesTextRequestor(
+    int handle,
+    NativeServicesTextRequestorConfiguration? configuration,
+  ) {
+    final _ViewSetServicesTextRequestorDart? function =
+        _viewSetServicesTextRequestor;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support Services requestors',
+      );
+    }
+    if (configuration == null) {
+      return _callResult(function(handle, nullptr, 0, nullptr));
+    }
+    final Pointer<_DaServicesTextRequestorConfigurationNative>
+    nativeConfiguration = _allocate(
+      sizeOf<_DaServicesTextRequestorConfigurationNative>(),
+    ).cast<_DaServicesTextRequestorConfigurationNative>();
+    try {
+      _writeServicesTextRequestorConfiguration(
+        nativeConfiguration.ref,
+        configuration,
+      );
+      if (configuration.selectionText == null) {
+        return _callResult(function(handle, nullptr, 0, nativeConfiguration));
+      }
+      return _withUtf8(
+        configuration.selectionText!,
+        (Pointer<Uint8> selection, int selectionLength) => _callResult(
+          function(handle, selection, selectionLength, nativeConfiguration),
+        ),
+      );
+    } finally {
+      _free(nativeConfiguration.cast<Void>());
     }
   }
 

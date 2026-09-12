@@ -409,6 +409,29 @@ final class ViewQuickLookRequestedEvent extends AppKitEvent {
   final double y;
 }
 
+/// Bounded plain text returned by a macOS Service for one registered View.
+final class ViewServicesTextReceivedEvent extends AppKitEvent {
+  const ViewServicesTextReceivedEvent({
+    required int viewHandle,
+    required int monotonicMicros,
+    int protocolVersion = 10,
+    int sourceGeneration = 0,
+    int? monotonicNanoseconds,
+    int operationId = 0,
+    required this.text,
+  }) : super(
+         windowHandle: viewHandle,
+         monotonicMicros: monotonicMicros,
+         protocolVersion: protocolVersion,
+         sourceGeneration: sourceGeneration,
+         monotonicNanoseconds: monotonicNanoseconds,
+         operationId: operationId,
+       );
+
+  int get viewHandle => sourceHandle;
+  final String text;
+}
+
 final class ModifierKeys {
   const ModifierKeys(this.bits);
 
@@ -463,6 +486,7 @@ final class _EventCodec {
   static const int _menuItemInvoked = 40;
   static const int _globalHotKeyPressed = 41;
   static const int _viewQuickLookRequested = 42;
+  static const int _viewServicesTextReceived = 43;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -861,6 +885,27 @@ final class _EventCodec {
           x: _finiteNumber(message, payloadOffset, 'x'),
           y: _finiteNumber(message, payloadOffset + 1, 'y'),
         );
+      case _viewServicesTextReceived:
+        _requireVersionTen(version, 'view Services text received');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'view Services text received',
+        );
+        return ViewServicesTextReceivedEvent(
+          viewHandle: handle,
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          sourceGeneration: sourceGeneration,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          text: _boundedUtf8String(
+            message,
+            payloadOffset,
+            'text',
+            dartAppKitServicesMaximumTextUtf8Bytes,
+          ),
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -893,6 +938,12 @@ final class _EventCodec {
   static void _requireVersionNine(int version, String eventName) {
     if (version < 9) {
       throw FormatException('$eventName requires native event protocol 9');
+    }
+  }
+
+  static void _requireVersionTen(int version, String eventName) {
+    if (version < 10) {
+      throw FormatException('$eventName requires native event protocol 10');
     }
   }
 
@@ -1023,5 +1074,25 @@ final class _EventCodec {
       throw FormatException('$name must be a string');
     }
     return value;
+  }
+
+  static String _boundedUtf8String(
+    List<Object?> values,
+    int index,
+    String name,
+    int maximumUtf8Bytes,
+  ) {
+    final Object? value = values[index];
+    if (value is! Uint8List) {
+      throw FormatException('$name must be UTF-8 bytes');
+    }
+    if (value.length > maximumUtf8Bytes) {
+      throw FormatException('$name exceeds the UTF-8 byte limit');
+    }
+    try {
+      return utf8.decode(value, allowMalformed: false);
+    } on FormatException {
+      throw FormatException('$name must contain valid UTF-8');
+    }
   }
 }

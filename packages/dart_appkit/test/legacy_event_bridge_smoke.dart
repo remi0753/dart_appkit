@@ -226,6 +226,19 @@ void main(List<String> arguments) {
           8) {
     _fail('legacy bridge accepted additive Quick Look APIs');
   }
+  if (bindings
+          .viewSetServicesTextRequestor(
+            1,
+            const NativeServicesTextRequestorConfiguration(
+              selectionText: 'selected',
+              acceptsReturnedText: true,
+              maximumReturnedTextUtf8Bytes: 1024,
+            ),
+          )
+          .status !=
+      8) {
+    _fail('legacy bridge accepted additive Services requestor APIs');
+  }
   if (bindings.applicationResolveScreen(dartAppKitScreenSelectionMain).status !=
           8 ||
       bindings

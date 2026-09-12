@@ -152,6 +152,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 8;
     case DA_EVENT_VIEW_QUICK_LOOK_REQUESTED:
       return protocol_version >= 9;
+    case DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED:
+      return protocol_version >= 10;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:
