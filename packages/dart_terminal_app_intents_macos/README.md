@@ -24,3 +24,7 @@ The exported `dtai_debug_enqueue_action` symbol is an in-process deterministic
 acceptance seam. It admits only the same three action codes through the same
 queue and is available to tests via `package:dart_terminal_app_intents_macos/testing.dart`;
 it does not invoke or modify Siri, Shortcuts, or user-owned automation.
+
+Packaged acceptance can open that already-staged image through
+`openTerminalAppIntentsMacosSelfAutomation()` without moving an FFI boundary
+into the consuming application source.
