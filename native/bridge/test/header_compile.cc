@@ -32,7 +32,7 @@ static_assert(sizeof(DaWindowPresentationConfiguration) == 24);
 static_assert(std::is_standard_layout_v<DaSecureEventInputSnapshot>);
 static_assert(sizeof(DaSecureEventInputSnapshot) == 24);
 static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1);
-static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 12);
+static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 13);
 static_assert(DA_KEY_EVENT_ROUTING_DART_AND_APPKIT == 0);
 static_assert(DA_KEY_EVENT_ROUTING_DART_ONLY == 1);
 static_assert(DA_SPLIT_AXIS_HORIZONTAL == 0);
@@ -59,6 +59,10 @@ int da_header_compiles_as_cpp() {
   auto* external_url_open = &da_application_open_external_url;
   auto* external_url_open_with_policy =
       &da_application_open_external_url_with_policy;
+  auto* notification_settings = &da_application_get_user_notification_settings;
+  auto* notification_authorization =
+      &da_application_request_user_notification_authorization;
+  auto* tracked_notification = &da_application_post_tracked_user_notification;
   auto* key_event_routing = &da_window_set_key_event_routing;
   auto* global_hot_key_register = &da_global_hot_key_register;
   auto* secure_event_input_create = &da_secure_event_input_create;
@@ -84,6 +88,9 @@ int da_header_compiles_as_cpp() {
                  custom_view_operation != nullptr &&
                  external_url_open != nullptr &&
                  external_url_open_with_policy != nullptr &&
+                 notification_settings != nullptr &&
+                 notification_authorization != nullptr &&
+                 tracked_notification != nullptr &&
                  key_event_routing != nullptr &&
                  global_hot_key_register != nullptr &&
                  secure_event_input_create != nullptr &&

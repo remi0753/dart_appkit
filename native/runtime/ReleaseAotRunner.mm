@@ -47,6 +47,11 @@
   return exit_code_;
 }
 
+- (void)applicationWillFinishLaunching:(NSNotification*)notification {
+  (void)notification;
+  dart_appkit::StartUserNotificationObservation();
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
   (void)notification;
   message_pump_ = std::make_unique<dart_appkit::DartMessagePump>();

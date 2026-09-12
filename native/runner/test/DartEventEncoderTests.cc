@@ -238,6 +238,18 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectUtf8Bytes(
         values[7],
         std::string("\x01\0\0\0\x0b\0\0\0file:///tmp", 19));
+  } else if (g_expected_case == 17) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(10));
+    ExpectInt(values[0], 13);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectInt(values[6], DA_USER_NOTIFICATION_EVENT_DELIVERY);
+    ExpectInt(values[7], 73);
+    ExpectInt(values[8], DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED);
+    ExpectInt(values[9], DA_USER_NOTIFICATION_FAILURE_NONE);
   } else {
     EXPECT_TRUE(false);
   }
@@ -370,6 +382,16 @@ int main() {
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 12, event));
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 11, event));
 
+  event.type = DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
+  event.user_notification_event_kind = DA_USER_NOTIFICATION_EVENT_DELIVERY;
+  event.user_notification_token = 73;
+  event.user_notification_authorization =
+      DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED;
+  event.user_notification_failure = DA_USER_NOTIFICATION_FAILURE_NONE;
+  g_expected_case = 17;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 13, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
+
   const int accepted_posts = g_post_count;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
   event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
@@ -433,7 +455,7 @@ int main() {
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
   event.type = DA_EVENT_KEY_DOWN;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 13, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 14, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

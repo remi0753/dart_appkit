@@ -47,6 +47,11 @@ struct NativeEvent {
   int64_t momentum_phase = DA_SCROLL_PHASE_NONE;
   int64_t drop_content_kind = DA_DROP_CONTENT_PLAIN_TEXT;
   int64_t folder_service_disposition = DA_FOLDER_SERVICE_NEW_TABS;
+  int64_t user_notification_event_kind = DA_USER_NOTIFICATION_EVENT_SETTINGS;
+  int64_t user_notification_token = 0;
+  int64_t user_notification_authorization =
+      DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN;
+  int64_t user_notification_failure = DA_USER_NOTIFICATION_FAILURE_NONE;
 
   std::string characters;
   std::string characters_ignoring_modifiers;
@@ -60,6 +65,17 @@ enum class UserNotificationOperation { kPost, kRemove };
 using UserNotificationHandler = bool (*)(
     UserNotificationOperation operation, std::string_view identifier,
     std::string_view title, std::string_view body, void* context);
+
+enum class UserNotificationLifecycleOperation {
+  kGetSettings,
+  kRequestAuthorization,
+  kPost,
+};
+
+using UserNotificationLifecycleHandler = bool (*)(
+    UserNotificationLifecycleOperation operation, int64_t request_token,
+    int64_t response_token, std::string_view identifier, std::string_view title,
+    std::string_view body, void* context);
 
 using SecureEventInputStatusHandler = int32_t (*)();
 using SecureEventInputEnabledHandler = bool (*)();
@@ -117,6 +133,14 @@ void StopApplicationAppearanceObservation();
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
 void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
                                               void* context);
+void InstallUserNotificationLifecycleHandlerForTesting(
+    UserNotificationLifecycleHandler handler, void* context);
+bool PostUserNotificationLifecycleEventForTesting(int64_t event_kind,
+                                                  int64_t token,
+                                                  int64_t authorization,
+                                                  int64_t failure);
+void StartUserNotificationObservation();
+void StopUserNotificationObservation();
 void InstallSecureEventInputHandlersForTesting(
     SecureEventInputStatusHandler enable_handler,
     SecureEventInputStatusHandler disable_handler,
@@ -160,6 +184,8 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 11;
     case DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED:
       return protocol_version >= 12;
+    case DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED:
+      return protocol_version >= 13;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

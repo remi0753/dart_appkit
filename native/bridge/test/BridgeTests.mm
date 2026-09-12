@@ -311,6 +311,16 @@ struct RecordedUserNotification {
 };
 std::vector<RecordedUserNotification> g_user_notifications;
 bool g_accept_user_notifications = true;
+struct RecordedUserNotificationLifecycle {
+  dart_appkit::UserNotificationLifecycleOperation operation;
+  int64_t request_token;
+  int64_t response_token;
+  std::string identifier;
+  std::string title;
+  std::string body;
+};
+std::vector<RecordedUserNotificationLifecycle> g_user_notification_lifecycle;
+bool g_accept_user_notification_lifecycle = true;
 std::vector<dart_appkit::DefinitionPresentationSnapshot>
     g_definition_presentations;
 bool g_accept_definition_presentations = true;
@@ -384,6 +394,20 @@ bool RecordUserNotification(
       {operation, std::string(identifier), std::string(title),
        std::string(body)});
   return g_accept_user_notifications;
+}
+
+bool RecordUserNotificationLifecycle(
+    dart_appkit::UserNotificationLifecycleOperation operation,
+    int64_t request_token, int64_t response_token, std::string_view identifier,
+    std::string_view title, std::string_view body, void* context) {
+  if (context != &g_user_notification_lifecycle) {
+    ++g_failures;
+    return false;
+  }
+  g_user_notification_lifecycle.push_back(
+      {operation, request_token, response_token, std::string(identifier),
+       std::string(title), std::string(body)});
+  return g_accept_user_notification_lifecycle;
 }
 
 bool RecordDefinitionPresentation(
@@ -1208,6 +1232,24 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(12));
 
+  event.type = DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
+  event.user_notification_event_kind = DA_USER_NOTIFICATION_EVENT_SETTINGS;
+  event.user_notification_token = 9;
+  event.user_notification_authorization =
+      DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED;
+  event.user_notification_failure = DA_USER_NOTIFICATION_FAILURE_NONE;
+  const size_t before_version_thirteen_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_thirteen_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 13, 13, &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(13));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(13));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1219,7 +1261,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 13, 13, &selected_version),
+      da_application_set_event_port_versioned(4242, 14, 14, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1686,6 +1728,97 @@ void TestUserNotificationsAndDockBadge() {
   dart_appkit::InstallUserNotificationHandlerForTesting(nullptr, nullptr);
 }
 
+void TestTrackedUserNotificationLifecycle() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  g_user_notification_lifecycle.clear();
+  g_accept_user_notification_lifecycle = true;
+  dart_appkit::InstallUserNotificationLifecycleHandlerForTesting(
+      RecordUserNotificationLifecycle, &g_user_notification_lifecycle);
+
+  int64_t settings_token = 0;
+  int64_t authorization_token = 0;
+  int64_t delivery_token = 0;
+  EXPECT_EQ(da_application_get_user_notification_settings(&settings_token),
+            DA_STATUS_OK);
+  EXPECT_EQ(da_application_request_user_notification_authorization(
+                &authorization_token),
+            DA_STATUS_OK);
+  EXPECT_TRUE(settings_token > 0 && authorization_token > settings_token);
+
+  const std::string identifier = "pane-7-session-3-notification-2";
+  const std::string title = "Build complete";
+  const std::string body = "The bounded task finished.";
+  EXPECT_EQ(da_application_post_tracked_user_notification(
+                identifier.data(), identifier.size(), title.data(),
+                title.size(), body.data(), body.size(), 71, &delivery_token),
+            DA_STATUS_OK);
+  EXPECT_TRUE(delivery_token > authorization_token);
+  EXPECT_EQ(g_user_notification_lifecycle.size(), static_cast<size_t>(3));
+  EXPECT_TRUE(g_user_notification_lifecycle[0].operation ==
+              dart_appkit::UserNotificationLifecycleOperation::kGetSettings);
+  EXPECT_TRUE(
+      g_user_notification_lifecycle[1].operation ==
+      dart_appkit::UserNotificationLifecycleOperation::kRequestAuthorization);
+  EXPECT_TRUE(g_user_notification_lifecycle[2].operation ==
+              dart_appkit::UserNotificationLifecycleOperation::kPost);
+  EXPECT_EQ(g_user_notification_lifecycle[2].response_token,
+            static_cast<int64_t>(71));
+  EXPECT_EQ(g_user_notification_lifecycle[2].identifier, identifier);
+  EXPECT_EQ(g_user_notification_lifecycle[2].title, title);
+  EXPECT_EQ(g_user_notification_lifecycle[2].body, body);
+
+  EXPECT_TRUE(dart_appkit::PostUserNotificationLifecycleEventForTesting(
+      DA_USER_NOTIFICATION_EVENT_SETTINGS, settings_token,
+      DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED,
+      DA_USER_NOTIFICATION_FAILURE_NONE));
+  EXPECT_TRUE(dart_appkit::PostUserNotificationLifecycleEventForTesting(
+      DA_USER_NOTIFICATION_EVENT_AUTHORIZATION, authorization_token,
+      DA_USER_NOTIFICATION_AUTHORIZATION_DENIED,
+      DA_USER_NOTIFICATION_FAILURE_DENIED));
+  EXPECT_TRUE(dart_appkit::PostUserNotificationLifecycleEventForTesting(
+      DA_USER_NOTIFICATION_EVENT_DELIVERY, delivery_token,
+      DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED,
+      DA_USER_NOTIFICATION_FAILURE_NONE));
+  EXPECT_TRUE(dart_appkit::PostUserNotificationLifecycleEventForTesting(
+      DA_USER_NOTIFICATION_EVENT_DEFAULT_RESPONSE, 71,
+      DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN,
+      DA_USER_NOTIFICATION_FAILURE_NONE));
+  EXPECT_EQ(capture.events.size(), static_cast<size_t>(4));
+  EXPECT_EQ(capture.events[2].user_notification_event_kind,
+            static_cast<int64_t>(DA_USER_NOTIFICATION_EVENT_DELIVERY));
+  EXPECT_EQ(capture.events[2].user_notification_token, delivery_token);
+  EXPECT_EQ(capture.events[3].user_notification_token,
+            static_cast<int64_t>(71));
+
+  int64_t invalid_output = 99;
+  EXPECT_EQ(da_application_get_user_notification_settings(nullptr),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_application_post_tracked_user_notification(
+                identifier.data(), identifier.size(), title.data(),
+                title.size(), body.data(), body.size(), 0, &invalid_output),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(invalid_output, static_cast<int64_t>(0));
+
+  g_accept_user_notification_lifecycle = false;
+  invalid_output = 99;
+  EXPECT_EQ(da_application_get_user_notification_settings(&invalid_output),
+            DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(invalid_output, static_cast<int64_t>(0));
+  g_accept_user_notification_lifecycle = true;
+
+  std::atomic<int32_t> worker_status{DA_STATUS_OK};
+  std::thread worker([&]() {
+    int64_t worker_token = 0;
+    worker_status.store(
+        da_application_get_user_notification_settings(&worker_token));
+  });
+  worker.join();
+  EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
+  dart_appkit::InstallUserNotificationLifecycleHandlerForTesting(nullptr,
+                                                                 nullptr);
+}
+
 void TestMenus() {
   Capture capture;
   ResetWithCurrentCapture(&capture);
@@ -2051,7 +2184,8 @@ void TestServicesTextRequestors() {
   EXPECT_EQ(capture.events[0].type, DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED);
   EXPECT_EQ(capture.events[0].window, inner_handle);
   EXPECT_EQ(capture.events[0].characters, returned_text);
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
 
   configuration.maximum_returned_text_utf8_bytes = 3;
   EXPECT_EQ(da_view_set_services_text_requestor(
@@ -2212,7 +2346,8 @@ void TestDropDestinations() {
   EXPECT_EQ(capture.events[0].characters, dropped_text);
   EXPECT_TRUE(std::isfinite(capture.events[0].x));
   EXPECT_TRUE(std::isfinite(capture.events[0].y));
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
 
   pasteboard.text = @"fallback";
   pasteboard.advertisesFileUrls = YES;
@@ -2446,7 +2581,8 @@ void TestApplicationFolderServicesProvider() {
   EXPECT_EQ(capture.events[0].window, static_cast<DaHandle>(0));
   EXPECT_EQ(capture.events[0].folder_service_disposition,
             DA_FOLDER_SERVICE_NEW_TABS);
-  EXPECT_EQ(capture.protocol_versions[0], static_cast<uint32_t>(12));
+  EXPECT_EQ(capture.protocol_versions[0],
+            static_cast<uint32_t>(DA_EVENT_PROTOCOL_VERSION_CURRENT));
   const std::vector<std::string> tab_urls =
       ReadFileUrlPacket(capture.events[0].characters);
   EXPECT_EQ(tab_urls.size(), static_cast<size_t>(2));
@@ -4631,6 +4767,7 @@ int main() {
     TestPasteboardText();
     TestExternalUrlOpening();
     TestUserNotificationsAndDockBadge();
+    TestTrackedUserNotificationLifecycle();
     TestMenus();
     TestViewContextMenus();
     TestQuickLookRequestsAndDefinitions();

@@ -37,11 +37,13 @@ change event. Version 8 adds an owned global-hot-key pressed event, and version
 9 adds a generation-checked View-local Quick Look request with finite local
 coordinates. Version 10 adds bounded plain text returned by a Service to its
 generation-checked View. Version 11 adds a performed text/file-URL drop for a
-generation-checked View. Current Dart/native pairs negotiate version 12,
-which adds typed new-tab/new-window requests containing canonical local
-directory URLs from the application Services provider. The Dart API strictly
-decodes all twelve
-versions and suppresses newer records for older negotiated sinks.
+generation-checked View. Version 12 adds typed new-tab/new-window requests
+containing canonical local directory URLs from the application Services
+provider. Current Dart/native pairs negotiate version 13, which adds
+content-free notification settings, authorization, delivery, cancellation,
+and default-response events with opaque positive tokens. The Dart API strictly
+decodes all thirteen versions and suppresses newer records for older negotiated
+sinks.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other
@@ -308,16 +310,23 @@ its 4096-byte limit and malformed, control, invisible, backslash, and unsafe
 escape rejection, and the native boundary repeats those checks.
 
 Local notification policy is also application-owned. Construct a bounded
-`AppKitUserNotification`, then call `postUserNotification` or
-`removeUserNotification` on the attached application. Identifiers are at most
-128 ASCII bytes, title and body are individually at most 4096 UTF-8 bytes, and
-unsafe display controls and invisible formatting characters are rejected at
-both Dart and native boundaries. Posting requests alert authorization
-asynchronously and replaces an outstanding request with the same identifier;
-removing it also prevents a still-pending authorization callback from posting
-stale content. The bridge deliberately does not decide rate, focus, pane, or
-title-fallback policy. `dockBadgeLabel` similarly exposes only a copied,
-32-byte-bounded label or `null` to clear it.
+`AppKitUserNotification`, then use the compatibility `postUserNotification`
+path or the tracked lifecycle API on the attached application. Identifiers are
+at most 128 ASCII bytes, title and body are individually at most 4096 UTF-8
+bytes, and unsafe display controls and invisible formatting characters are
+rejected at both Dart and native boundaries. Posting requests alert
+authorization asynchronously and replaces an outstanding request with the
+same identifier; removing it also prevents a still-pending authorization
+callback from posting stale content. `refreshUserNotificationSettings` and
+`requestUserNotificationAuthorization` return request tokens whose asynchronous
+results arrive on `onUserNotificationChanged`. `postTrackedUserNotification`
+separates delivery success, denial/system failure, cancellation, and a later
+default-selection response; its application-provided response token is opaque
+to native code. Both runners install the notification-center delegate before
+launch completion, and shutdown rejects late callback generations. The bridge
+deliberately does not decide rate, focus, pane, response, or title-fallback
+policy. `dockBadgeLabel` similarly exposes only a copied, 32-byte-bounded label
+or `null` to clear it.
 
 Application entrypoints use `main(List<String> arguments)`. UI calls belong on
 the embedded root isolate. Ordinary in-process workers are not part of the

@@ -93,7 +93,8 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       event.type == DA_EVENT_APPLICATION_REOPEN_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED ||
-      event.type == DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED;
+      event.type == DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED ||
+      event.type == DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
   const bool reply_required =
       event.type == DA_EVENT_WINDOW_CLOSE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_TERMINATE_REQUESTED;
@@ -130,6 +131,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 9:
     case 10:
     case 11:
+    case 12:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -207,6 +209,34 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       length += 2;
       SetInt64(&values[payload_offset], event.folder_service_disposition);
       SetUtf8Bytes(&values[payload_offset + 1], event.characters);
+      break;
+    case DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED:
+      if (event.user_notification_event_kind <
+              DA_USER_NOTIFICATION_EVENT_SETTINGS ||
+          event.user_notification_event_kind >
+              DA_USER_NOTIFICATION_EVENT_DEFAULT_RESPONSE ||
+          event.user_notification_token <= 0 ||
+          event.user_notification_authorization <
+              DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED ||
+          event.user_notification_authorization >
+              DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN ||
+          event.user_notification_failure < DA_USER_NOTIFICATION_FAILURE_NONE ||
+          event.user_notification_failure >
+              DA_USER_NOTIFICATION_FAILURE_CANCELLED ||
+          (event.user_notification_event_kind ==
+               DA_USER_NOTIFICATION_EVENT_DEFAULT_RESPONSE &&
+           (event.user_notification_authorization !=
+                DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN ||
+            event.user_notification_failure !=
+                DA_USER_NOTIFICATION_FAILURE_NONE))) {
+        return false;
+      }
+      length += 4;
+      SetInt64(&values[payload_offset], event.user_notification_event_kind);
+      SetInt64(&values[payload_offset + 1], event.user_notification_token);
+      SetInt64(&values[payload_offset + 2],
+               event.user_notification_authorization);
+      SetInt64(&values[payload_offset + 3], event.user_notification_failure);
       break;
     case DA_EVENT_WINDOW_RESIZED:
       length += 2;

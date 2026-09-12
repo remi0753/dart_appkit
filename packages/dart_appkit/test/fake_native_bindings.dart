@@ -42,6 +42,7 @@ final class FakeNativeBindings
         NativeServicesTextRequestorBindings,
         NativeDropDestinationBindings,
         NativeFolderServicesProviderBindings,
+        NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
@@ -64,6 +65,14 @@ final class FakeNativeBindings
   postedUserNotifications =
       <({String identifier, String title, String body})>[];
   final List<String> removedUserNotifications = <String>[];
+  int nextUserNotificationRequestToken = 1;
+  int userNotificationSettingsRequestCount = 0;
+  int userNotificationAuthorizationRequestCount = 0;
+  final List<
+    ({String identifier, String title, String body, int responseToken})
+  >
+  trackedUserNotifications =
+      <({String identifier, String title, String body, int responseToken})>[];
   String? dockBadgeLabel;
   String? pasteboardText;
   int pasteboardChangeCount = 0;
@@ -330,6 +339,50 @@ final class FakeNativeBindings
       'applicationRemoveUserNotification',
     );
     if (result.isSuccess) removedUserNotifications.add(identifier);
+    return result;
+  }
+
+  NativeValueResult<int> _userNotificationRequest(String operation) {
+    final int token = nextUserNotificationRequestToken++;
+    return _value<int>(operation, token);
+  }
+
+  @override
+  NativeValueResult<int> applicationGetUserNotificationSettings() {
+    final NativeValueResult<int> result = _userNotificationRequest(
+      'applicationGetUserNotificationSettings',
+    );
+    if (result.isSuccess) userNotificationSettingsRequestCount++;
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> applicationRequestUserNotificationAuthorization() {
+    final NativeValueResult<int> result = _userNotificationRequest(
+      'applicationRequestUserNotificationAuthorization',
+    );
+    if (result.isSuccess) userNotificationAuthorizationRequestCount++;
+    return result;
+  }
+
+  @override
+  NativeValueResult<int> applicationPostTrackedUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+    required int responseToken,
+  }) {
+    final NativeValueResult<int> result = _userNotificationRequest(
+      'applicationPostTrackedUserNotification',
+    );
+    if (result.isSuccess) {
+      trackedUserNotifications.add((
+        identifier: identifier,
+        title: title,
+        body: body,
+        responseToken: responseToken,
+      ));
+    }
     return result;
   }
 

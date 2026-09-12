@@ -412,6 +412,26 @@ typedef _ThreeStringsStatusDart = int Function(
   Pointer<Uint8>,
   int,
 );
+typedef _TrackedUserNotificationNative = Int32 Function(
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Pointer<Uint8>,
+  Size,
+  Int64,
+  Pointer<Int64>,
+);
+typedef _TrackedUserNotificationDart = int Function(
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  Pointer<Uint8>,
+  int,
+  int,
+  Pointer<Int64>,
+);
 typedef _PasteboardReadNative = Int32 Function(
   Pointer<_DaPasteboardTextNative>,
 );
@@ -1147,6 +1167,27 @@ _ThreeStringsStatusDart? _lookupThreeStringsStatus(
   }
 }
 
+_Int64OutputDart? _lookupInt64Output(DynamicLibrary library, String symbol) {
+  try {
+    return library.lookupFunction<_Int64OutputNative, _Int64OutputDart>(symbol);
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TrackedUserNotificationDart? _lookupTrackedUserNotification(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TrackedUserNotificationNative,
+      _TrackedUserNotificationDart
+    >('da_application_post_tracked_user_notification');
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _HandleStatusDart? _lookupWindowRequestClose(DynamicLibrary library) {
   try {
     return library.lookupFunction<_HandleStatusNative, _HandleStatusDart>(
@@ -1556,6 +1597,7 @@ final class FfiNativeBindings
         NativeServicesTextRequestorBindings,
         NativeDropDestinationBindings,
         NativeFolderServicesProviderBindings,
+        NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
@@ -1587,6 +1629,17 @@ final class FfiNativeBindings
       _applicationPostUserNotification = _lookupThreeStringsStatus(
         library,
         'da_application_post_user_notification',
+      ),
+      _applicationGetUserNotificationSettings = _lookupInt64Output(
+        library,
+        'da_application_get_user_notification_settings',
+      ),
+      _applicationRequestUserNotificationAuthorization = _lookupInt64Output(
+        library,
+        'da_application_request_user_notification_authorization',
+      ),
+      _applicationPostTrackedUserNotification = _lookupTrackedUserNotification(
+        library,
       ),
       _applicationRemoveUserNotification = _lookupStringStatus(
         library,
@@ -1796,6 +1849,9 @@ final class FfiNativeBindings
   final _ExternalUrlOpenDart? _applicationOpenExternalUrl;
   final _ExternalUrlOpenWithPolicyDart? _applicationOpenExternalUrlWithPolicy;
   final _ThreeStringsStatusDart? _applicationPostUserNotification;
+  final _Int64OutputDart? _applicationGetUserNotificationSettings;
+  final _Int64OutputDart? _applicationRequestUserNotificationAuthorization;
+  final _TrackedUserNotificationDart? _applicationPostTrackedUserNotification;
   final _StringStatusDart? _applicationRemoveUserNotification;
   final _StringStatusDart? _applicationSetDockBadgeLabel;
   final _GlobalHotKeyRegisterDart? _globalHotKeyRegister;
@@ -2157,6 +2213,82 @@ final class FfiNativeBindings
               bodyLength,
             ),
           );
+        });
+      });
+    });
+  }
+
+  NativeValueResult<int> _notificationRequest(
+    _Int64OutputDart? function,
+    String legacyMessage,
+  ) {
+    if (function == null) {
+      return NativeValueResult<int>.failure(8, legacyMessage);
+    }
+    final Pointer<Int64> output = _allocate(sizeOf<Int64>()).cast<Int64>();
+    try {
+      output.value = 0;
+      return _valueResult<int>(function(output), output.value);
+    } finally {
+      _free(output.cast<Void>());
+    }
+  }
+
+  @override
+  NativeValueResult<int> applicationGetUserNotificationSettings() =>
+      _notificationRequest(
+        _applicationGetUserNotificationSettings,
+        'legacy native bridge does not support notification settings',
+      );
+
+  @override
+  NativeValueResult<int> applicationRequestUserNotificationAuthorization() =>
+      _notificationRequest(
+        _applicationRequestUserNotificationAuthorization,
+        'legacy native bridge does not support notification authorization',
+      );
+
+  @override
+  NativeValueResult<int> applicationPostTrackedUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+    required int responseToken,
+  }) {
+    final _TrackedUserNotificationDart? function =
+        _applicationPostTrackedUserNotification;
+    if (function == null) {
+      return const NativeValueResult<int>.failure(
+        8,
+        'legacy native bridge does not support tracked notifications',
+      );
+    }
+    return _withUtf8(identifier, (
+      Pointer<Uint8> identifierPointer,
+      int identifierLength,
+    ) {
+      return _withUtf8(title, (Pointer<Uint8> titlePointer, int titleLength) {
+        return _withUtf8(body, (Pointer<Uint8> bodyPointer, int bodyLength) {
+          final Pointer<Int64> output = _allocate(sizeOf<Int64>())
+              .cast<Int64>();
+          try {
+            output.value = 0;
+            return _valueResult<int>(
+              function(
+                identifierPointer,
+                identifierLength,
+                titlePointer,
+                titleLength,
+                bodyPointer,
+                bodyLength,
+                responseToken,
+                output,
+              ),
+              output.value,
+            );
+          } finally {
+            _free(output.cast<Void>());
+          }
         });
       });
     });

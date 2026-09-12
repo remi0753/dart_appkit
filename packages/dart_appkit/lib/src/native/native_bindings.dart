@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 12;
+const int dartAppKitCurrentEventProtocolVersion = 13;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
@@ -608,6 +608,18 @@ abstract interface class NativeFolderServicesProviderBindings {
   NativeCallResult applicationSetFolderServicesProvider(
     NativeFolderServicesProviderConfiguration? configuration,
   );
+}
+
+/// Optional asynchronous UserNotifications lifecycle surface.
+abstract interface class NativeUserNotificationLifecycleBindings {
+  NativeValueResult<int> applicationGetUserNotificationSettings();
+  NativeValueResult<int> applicationRequestUserNotificationAuthorization();
+  NativeValueResult<int> applicationPostTrackedUserNotification({
+    required String identifier,
+    required String title,
+    required String body,
+    required int responseToken,
+  });
 }
 
 /// Optional balanced Secure Event Input and view-indicator surface.

@@ -27,6 +27,44 @@
 @class DaDropDestinationSession;
 @class DaFolderServicesProvider;
 
+@interface DaTrackedUserNotification : NSObject
+@property(nonatomic) uint64_t epoch;
+@property(nonatomic) int64_t requestToken;
+@property(nonatomic) int64_t responseToken;
+@end
+
+@interface DaUserNotificationCenterDelegate
+    : NSObject <UNUserNotificationCenterDelegate>
+@end
+
+@implementation DaTrackedUserNotification
+@end
+
+namespace dart_appkit {
+void HandleUserNotificationCenterResponse(UNNotificationResponse* response);
+}
+
+@implementation DaUserNotificationCenterDelegate
+
+- (void)userNotificationCenter:(UNUserNotificationCenter*)center
+       willPresentNotification:(UNNotification*)notification
+         withCompletionHandler:
+             (void (^)(UNNotificationPresentationOptions options))completion {
+  (void)center;
+  (void)notification;
+  completion(UNNotificationPresentationOptionNone);
+}
+
+- (void)userNotificationCenter:(UNUserNotificationCenter*)center
+    didReceiveNotificationResponse:(UNNotificationResponse*)response
+             withCompletionHandler:(void (^)(void))completion {
+  (void)center;
+  dart_appkit::HandleUserNotificationCenterResponse(response);
+  completion();
+}
+
+@end
+
 namespace {
 
 int g_application_appearance_observation_context = 0;
@@ -1351,7 +1389,14 @@ int64_t g_pending_application_termination_operation_id = 0;
 bool g_programmatic_application_termination = false;
 DaApplicationAppearanceObserver* g_application_appearance_observer = nil;
 NSMutableDictionary<NSString*, NSNumber*>* g_pending_user_notifications = nil;
+NSMutableDictionary<NSString*, DaTrackedUserNotification*>*
+    g_tracked_user_notifications = nil;
+NSMutableDictionary<NSString*, NSNumber*>*
+    g_delivered_user_notification_responses = nil;
+NSMutableSet<NSNumber*>* g_pending_user_notification_requests = nil;
+DaUserNotificationCenterDelegate* g_user_notification_center_delegate = nil;
 uint64_t g_next_user_notification_token = 1;
+uint64_t g_user_notification_epoch = 1;
 constexpr NSUInteger kMaximumPendingUserNotifications = 256;
 constexpr uint64_t kStableModifierMask =
     DA_MODIFIER_CAPS_LOCK | DA_MODIFIER_SHIFT | DA_MODIFIER_CONTROL |
@@ -1361,9 +1406,16 @@ constexpr uint64_t kStableModifierMask =
 bool HandleUserNotificationWithSystem(
     UserNotificationOperation operation, std::string_view identifier,
     std::string_view title, std::string_view body, void* context);
+bool HandleUserNotificationLifecycleWithSystem(
+    UserNotificationLifecycleOperation operation, int64_t request_token,
+    int64_t response_token, std::string_view identifier, std::string_view title,
+    std::string_view body, void* context);
 UserNotificationHandler g_user_notification_handler =
     HandleUserNotificationWithSystem;
 void* g_user_notification_context = nullptr;
+UserNotificationLifecycleHandler g_user_notification_lifecycle_handler =
+    HandleUserNotificationLifecycleWithSystem;
+void* g_user_notification_lifecycle_context = nullptr;
 DefinitionPresentationHandler g_definition_presentation_handler = nullptr;
 void* g_definition_presentation_context = nullptr;
 
@@ -1523,6 +1575,22 @@ bool HandleUserNotificationWithSystem(
       [UNUserNotificationCenter currentNotificationCenter];
   if (operation == UserNotificationOperation::kRemove) {
     [g_pending_user_notifications removeObjectForKey:copied_identifier];
+    DaTrackedUserNotification* tracked =
+        g_tracked_user_notifications[copied_identifier];
+    if (tracked != nil) {
+      [g_tracked_user_notifications removeObjectForKey:copied_identifier];
+      NativeEvent event;
+      event.type = DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
+      event.monotonic_nanos = MonotonicNanos();
+      event.user_notification_event_kind = DA_USER_NOTIFICATION_EVENT_DELIVERY;
+      event.user_notification_token = tracked.requestToken;
+      event.user_notification_authorization =
+          DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN;
+      event.user_notification_failure = DA_USER_NOTIFICATION_FAILURE_CANCELLED;
+      (void)PostEvent(event);
+    }
+    [g_delivered_user_notification_responses
+        removeObjectForKey:copied_identifier];
     NSArray<NSString*>* identifiers = @[ copied_identifier ];
     [center removePendingNotificationRequestsWithIdentifiers:identifiers];
     [center removeDeliveredNotificationsWithIdentifiers:identifiers];
@@ -1575,6 +1643,255 @@ bool HandleUserNotificationWithSystem(
           }
         });
       }];
+    });
+  }];
+  return true;
+}
+
+int64_t UserNotificationAuthorizationStatus(UNAuthorizationStatus status) {
+  switch (status) {
+    case UNAuthorizationStatusNotDetermined:
+      return DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED;
+    case UNAuthorizationStatusDenied:
+      return DA_USER_NOTIFICATION_AUTHORIZATION_DENIED;
+    case UNAuthorizationStatusAuthorized:
+      return DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED;
+    case UNAuthorizationStatusProvisional:
+      return DA_USER_NOTIFICATION_AUTHORIZATION_PROVISIONAL;
+  }
+  return DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN;
+}
+
+bool PostUserNotificationLifecycleEvent(int64_t event_kind, int64_t token,
+                                        int64_t authorization,
+                                        int64_t failure) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.user_notification_event_kind = event_kind;
+  event.user_notification_token = token;
+  event.user_notification_authorization = authorization;
+  event.user_notification_failure = failure;
+  return PostEvent(event);
+}
+
+bool BeginUserNotificationRequest(int64_t request_token) {
+  if (g_pending_user_notification_requests == nil) {
+    g_pending_user_notification_requests = [[NSMutableSet alloc] init];
+  }
+  if (g_pending_user_notification_requests.count >=
+      kMaximumPendingUserNotifications) {
+    return false;
+  }
+  [g_pending_user_notification_requests addObject:@(request_token)];
+  return true;
+}
+
+bool TakeUserNotificationRequest(int64_t request_token, uint64_t epoch) {
+  if (epoch != g_user_notification_epoch ||
+      ![g_pending_user_notification_requests containsObject:@(request_token)]) {
+    return false;
+  }
+  [g_pending_user_notification_requests removeObject:@(request_token)];
+  return true;
+}
+
+bool IsAllowedUserNotificationAuthorization(int64_t status) {
+  return status == DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED ||
+         status == DA_USER_NOTIFICATION_AUTHORIZATION_PROVISIONAL ||
+         status == DA_USER_NOTIFICATION_AUTHORIZATION_EPHEMERAL;
+}
+
+void CompleteTrackedUserNotification(NSString* identifier,
+                                     DaTrackedUserNotification* record,
+                                     int64_t authorization, int64_t failure) {
+  if (record.epoch != g_user_notification_epoch ||
+      g_tracked_user_notifications[identifier] != record) {
+    return;
+  }
+  [g_tracked_user_notifications removeObjectForKey:identifier];
+  (void)PostUserNotificationLifecycleEvent(DA_USER_NOTIFICATION_EVENT_DELIVERY,
+                                           record.requestToken, authorization,
+                                           failure);
+}
+
+void ScheduleTrackedUserNotification(UNUserNotificationCenter* center,
+                                     NSString* identifier, NSString* title,
+                                     NSString* body,
+                                     DaTrackedUserNotification* record,
+                                     int64_t authorization) {
+  if (record.epoch != g_user_notification_epoch ||
+      g_tracked_user_notifications[identifier] != record) {
+    return;
+  }
+  UNMutableNotificationContent* content =
+      [[UNMutableNotificationContent alloc] init];
+  content.title = title;
+  content.body = body;
+  UNNotificationRequest* request =
+      [UNNotificationRequest requestWithIdentifier:identifier
+                                           content:content
+                                           trigger:nil];
+  [center addNotificationRequest:request
+           withCompletionHandler:^(NSError* error) {
+             dispatch_async(dispatch_get_main_queue(), ^{
+               if (error != nil) {
+                 CompleteTrackedUserNotification(
+                     identifier, record, authorization,
+                     DA_USER_NOTIFICATION_FAILURE_SYSTEM);
+                 return;
+               }
+               if (record.epoch != g_user_notification_epoch ||
+                   g_tracked_user_notifications[identifier] != record) {
+                 return;
+               }
+               [g_tracked_user_notifications removeObjectForKey:identifier];
+               if (g_delivered_user_notification_responses == nil) {
+                 g_delivered_user_notification_responses =
+                     [[NSMutableDictionary alloc] init];
+               }
+               g_delivered_user_notification_responses[identifier] =
+                   @(record.responseToken);
+               (void)PostUserNotificationLifecycleEvent(
+                   DA_USER_NOTIFICATION_EVENT_DELIVERY, record.requestToken,
+                   authorization, DA_USER_NOTIFICATION_FAILURE_NONE);
+             });
+           }];
+}
+
+void ContinueTrackedUserNotification(UNUserNotificationCenter* center,
+                                     NSString* identifier, NSString* title,
+                                     NSString* body,
+                                     DaTrackedUserNotification* record,
+                                     UNNotificationSettings* settings) {
+  const int64_t authorization =
+      UserNotificationAuthorizationStatus(settings.authorizationStatus);
+  if (authorization == DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED) {
+    [center
+        requestAuthorizationWithOptions:UNAuthorizationOptionAlert
+                      completionHandler:^(BOOL granted, NSError* error) {
+                        (void)granted;
+                        [center getNotificationSettingsWithCompletionHandler:^(
+                                    UNNotificationSettings* refreshed) {
+                          dispatch_async(dispatch_get_main_queue(), ^{
+                            const int64_t refreshed_authorization =
+                                UserNotificationAuthorizationStatus(
+                                    refreshed.authorizationStatus);
+                            if (error != nil) {
+                              CompleteTrackedUserNotification(
+                                  identifier, record, refreshed_authorization,
+                                  DA_USER_NOTIFICATION_FAILURE_SYSTEM);
+                            } else if (!IsAllowedUserNotificationAuthorization(
+                                           refreshed_authorization)) {
+                              CompleteTrackedUserNotification(
+                                  identifier, record, refreshed_authorization,
+                                  DA_USER_NOTIFICATION_FAILURE_DENIED);
+                            } else {
+                              ScheduleTrackedUserNotification(
+                                  center, identifier, title, body, record,
+                                  refreshed_authorization);
+                            }
+                          });
+                        }];
+                      }];
+    return;
+  }
+  if (!IsAllowedUserNotificationAuthorization(authorization)) {
+    CompleteTrackedUserNotification(identifier, record, authorization,
+                                    DA_USER_NOTIFICATION_FAILURE_DENIED);
+    return;
+  }
+  ScheduleTrackedUserNotification(center, identifier, title, body, record,
+                                  authorization);
+}
+
+bool HandleUserNotificationLifecycleWithSystem(
+    UserNotificationLifecycleOperation operation, int64_t request_token,
+    int64_t response_token, std::string_view identifier, std::string_view title,
+    std::string_view body, void* context) {
+  (void)context;
+  UNUserNotificationCenter* center =
+      [UNUserNotificationCenter currentNotificationCenter];
+  const uint64_t epoch = g_user_notification_epoch;
+  if (operation == UserNotificationLifecycleOperation::kGetSettings) {
+    if (!BeginUserNotificationRequest(request_token)) return false;
+    [center getNotificationSettingsWithCompletionHandler:^(
+                UNNotificationSettings* settings) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (!TakeUserNotificationRequest(request_token, epoch)) return;
+        (void)PostUserNotificationLifecycleEvent(
+            DA_USER_NOTIFICATION_EVENT_SETTINGS, request_token,
+            UserNotificationAuthorizationStatus(settings.authorizationStatus),
+            DA_USER_NOTIFICATION_FAILURE_NONE);
+      });
+    }];
+    return true;
+  }
+  if (operation == UserNotificationLifecycleOperation::kRequestAuthorization) {
+    if (!BeginUserNotificationRequest(request_token)) return false;
+    [center
+        requestAuthorizationWithOptions:UNAuthorizationOptionAlert
+                      completionHandler:^(BOOL granted, NSError* error) {
+                        [center getNotificationSettingsWithCompletionHandler:^(
+                                    UNNotificationSettings* settings) {
+                          dispatch_async(dispatch_get_main_queue(), ^{
+                            if (!TakeUserNotificationRequest(request_token,
+                                                             epoch))
+                              return;
+                            const int64_t authorization =
+                                UserNotificationAuthorizationStatus(
+                                    settings.authorizationStatus);
+                            const int64_t failure =
+                                error != nil
+                                    ? DA_USER_NOTIFICATION_FAILURE_SYSTEM
+                                    : (!granted &&
+                                               !IsAllowedUserNotificationAuthorization(
+                                                   authorization)
+                                           ? DA_USER_NOTIFICATION_FAILURE_DENIED
+                                           : DA_USER_NOTIFICATION_FAILURE_NONE);
+                            (void)PostUserNotificationLifecycleEvent(
+                                DA_USER_NOTIFICATION_EVENT_AUTHORIZATION,
+                                request_token, authorization, failure);
+                          });
+                        }];
+                      }];
+    return true;
+  }
+
+  NSString* copied_identifier = CopyStringView(identifier);
+  const NSUInteger tracked_count =
+      g_tracked_user_notifications.count +
+      g_delivered_user_notification_responses.count;
+  const bool replacing =
+      g_tracked_user_notifications[copied_identifier] != nil ||
+      g_delivered_user_notification_responses[copied_identifier] != nil;
+  if (!replacing && tracked_count >= kMaximumPendingUserNotifications) {
+    return false;
+  }
+  if (g_tracked_user_notifications == nil) {
+    g_tracked_user_notifications = [[NSMutableDictionary alloc] init];
+  }
+  DaTrackedUserNotification* previous =
+      g_tracked_user_notifications[copied_identifier];
+  if (previous != nil) {
+    CompleteTrackedUserNotification(copied_identifier, previous,
+                                    DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN,
+                                    DA_USER_NOTIFICATION_FAILURE_CANCELLED);
+  }
+  [g_delivered_user_notification_responses
+      removeObjectForKey:copied_identifier];
+  DaTrackedUserNotification* record = [[DaTrackedUserNotification alloc] init];
+  record.epoch = epoch;
+  record.requestToken = request_token;
+  record.responseToken = response_token;
+  g_tracked_user_notifications[copied_identifier] = record;
+  NSString* copied_title = CopyStringView(title);
+  NSString* copied_body = CopyStringView(body);
+  [center getNotificationSettingsWithCompletionHandler:^(
+              UNNotificationSettings* settings) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      ContinueTrackedUserNotification(center, copied_identifier, copied_title,
+                                      copied_body, record, settings);
     });
   }];
   return true;
@@ -2247,6 +2564,43 @@ int32_t EnqueueAsyncRelease(DaHandle handle) {
 
 }  // namespace
 
+void HandleUserNotificationCenterResponse(UNNotificationResponse* response) {
+  NSString* identifier = response.notification.request.identifier;
+  NSString* action = response.actionIdentifier;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSNumber* token = g_delivered_user_notification_responses[identifier];
+    if (token == nil) return;
+    [g_delivered_user_notification_responses removeObjectForKey:identifier];
+    if ([action isEqualToString:UNNotificationDefaultActionIdentifier]) {
+      (void)PostUserNotificationLifecycleEvent(
+          DA_USER_NOTIFICATION_EVENT_DEFAULT_RESPONSE, token.longLongValue,
+          DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN,
+          DA_USER_NOTIFICATION_FAILURE_NONE);
+    }
+  });
+}
+
+void StartUserNotificationObservation() {
+  if (pthread_main_np() == 0) return;
+  if (g_user_notification_center_delegate == nil) {
+    g_user_notification_center_delegate =
+        [[DaUserNotificationCenterDelegate alloc] init];
+  }
+  [UNUserNotificationCenter currentNotificationCenter].delegate =
+      g_user_notification_center_delegate;
+}
+
+void StopUserNotificationObservation() {
+  if (pthread_main_np() == 0) return;
+  if (g_user_notification_center_delegate == nil) return;
+  UNUserNotificationCenter* center =
+      [UNUserNotificationCenter currentNotificationCenter];
+  if (center.delegate == g_user_notification_center_delegate) {
+    center.delegate = nil;
+  }
+  g_user_notification_center_delegate = nil;
+}
+
 int ResolveScreenSelectionIndex(
     int32_t selection, const std::vector<ScreenSelectionCandidate>& candidates,
     double mouse_x, double mouse_y) {
@@ -2617,6 +2971,22 @@ void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
   g_user_notification_context = handler == nullptr ? nullptr : context;
 }
 
+void InstallUserNotificationLifecycleHandlerForTesting(
+    UserNotificationLifecycleHandler handler, void* context) {
+  g_user_notification_lifecycle_handler =
+      handler == nullptr ? HandleUserNotificationLifecycleWithSystem : handler;
+  g_user_notification_lifecycle_context =
+      handler == nullptr ? nullptr : context;
+}
+
+bool PostUserNotificationLifecycleEventForTesting(int64_t event_kind,
+                                                  int64_t token,
+                                                  int64_t authorization,
+                                                  int64_t failure) {
+  return PostUserNotificationLifecycleEvent(event_kind, token, authorization,
+                                            failure);
+}
+
 void InstallSecureEventInputHandlersForTesting(
     SecureEventInputStatusHandler enable_handler,
     SecureEventInputStatusHandler disable_handler,
@@ -2653,14 +3023,23 @@ void ShutdownBridge() {
   }
   g_accept_async_releases.store(false, std::memory_order_release);
   g_async_release_epoch.fetch_add(1, std::memory_order_acq_rel);
+  ++g_user_notification_epoch;
+  if (g_user_notification_epoch == 0) g_user_notification_epoch = 1;
   StopApplicationAppearanceObservation();
+  StopUserNotificationObservation();
   ClearFolderServicesProvider();
-  DisableEventPoster();
   g_defers_application_termination_requests = false;
   g_pending_application_termination_operation_id = 0;
   g_programmatic_application_termination = false;
   [g_pending_user_notifications removeAllObjects];
   g_pending_user_notifications = nil;
+  [g_tracked_user_notifications removeAllObjects];
+  g_tracked_user_notifications = nil;
+  [g_delivered_user_notification_responses removeAllObjects];
+  g_delivered_user_notification_responses = nil;
+  [g_pending_user_notification_requests removeAllObjects];
+  g_pending_user_notification_requests = nil;
+  DisableEventPoster();
   if (NSApp != nil) {
     NSApp.dockTile.badgeLabel = nil;
     [NSApp.dockTile display];
@@ -2688,6 +3067,7 @@ void ResetBridgeForTesting() {
   ShutdownBridge();
   ClearCustomViewClassesForTesting();
   InstallUserNotificationHandlerForTesting(nullptr, nullptr);
+  InstallUserNotificationLifecycleHandlerForTesting(nullptr, nullptr);
   InstallSecureEventInputHandlersForTesting(nullptr, nullptr, nullptr,
                                             nullptr);
   InstallDefinitionPresentationHandlerForTesting(nullptr, nullptr);
@@ -3026,6 +3406,135 @@ int32_t da_application_post_user_notification(
         exception.reason.UTF8String != nullptr
             ? exception.reason.UTF8String
             : "user notification submission failed");
+  }
+}
+
+int32_t da_application_get_user_notification_settings(
+    int64_t* out_request_token) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (out_request_token == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_request_token must not be null");
+  }
+  *out_request_token = 0;
+  const int64_t request_token = dart_appkit::NextOperationId();
+  @try {
+    if (!dart_appkit::g_user_notification_lifecycle_handler(
+            dart_appkit::UserNotificationLifecycleOperation::kGetSettings,
+            request_token, 0, {}, {}, {},
+            dart_appkit::g_user_notification_lifecycle_context)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_LIMIT_EXCEEDED,
+          "user notification lifecycle pending limit is exhausted");
+    }
+    *out_request_token = request_token;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "user notification settings request failed");
+  }
+}
+
+int32_t da_application_request_user_notification_authorization(
+    int64_t* out_request_token) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (out_request_token == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_request_token must not be null");
+  }
+  *out_request_token = 0;
+  const int64_t request_token = dart_appkit::NextOperationId();
+  @try {
+    if (!dart_appkit::g_user_notification_lifecycle_handler(
+            dart_appkit::UserNotificationLifecycleOperation::
+                kRequestAuthorization,
+            request_token, 0, {}, {}, {},
+            dart_appkit::g_user_notification_lifecycle_context)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_LIMIT_EXCEEDED,
+          "user notification lifecycle pending limit is exhausted");
+    }
+    *out_request_token = request_token;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "user notification authorization request failed");
+  }
+}
+
+int32_t da_application_post_tracked_user_notification(
+    const char* identifier, size_t identifier_length, const char* title,
+    size_t title_length, const char* body, size_t body_length,
+    int64_t response_token, int64_t* out_request_token) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (out_request_token == nullptr) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "out_request_token must not be null");
+  }
+  *out_request_token = 0;
+  if (response_token <= 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "tracked notification requires a positive response token");
+  }
+  if (identifier_length > DA_USER_NOTIFICATION_IDENTIFIER_MAX_UTF8_BYTES ||
+      title_length > DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES ||
+      body_length > DA_USER_NOTIFICATION_TEXT_MAX_UTF8_BYTES) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_LIMIT_EXCEEDED,
+        "user notification input exceeds a UTF-8 byte limit");
+  }
+  if (!dart_appkit::ValidUserNotificationIdentifier(identifier,
+                                                    identifier_length)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "user notification identifier must be bounded nonempty ASCII");
+  }
+  int32_t status = DA_STATUS_OK;
+  NSString* copied_title = dart_appkit::CopyUtf8(title, title_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  NSString* copied_body = dart_appkit::CopyUtf8(body, body_length, &status);
+  if (status != DA_STATUS_OK) return status;
+  if ((copied_title.length == 0 && copied_body.length == 0) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_title) ||
+      dart_appkit::ContainsUnsafeDisplayText(copied_body)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "user notification requires safe nonempty display text");
+  }
+  const int64_t request_token = dart_appkit::NextOperationId();
+  const std::string_view identifier_view(identifier, identifier_length);
+  const std::string_view title_view(title == nullptr ? "" : title,
+                                    title_length);
+  const std::string_view body_view(body == nullptr ? "" : body, body_length);
+  @try {
+    if (!dart_appkit::g_user_notification_lifecycle_handler(
+            dart_appkit::UserNotificationLifecycleOperation::kPost,
+            request_token, response_token, identifier_view, title_view,
+            body_view, dart_appkit::g_user_notification_lifecycle_context)) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_LIMIT_EXCEEDED,
+          "user notification lifecycle pending limit is exhausted");
+    }
+    *out_request_token = request_token;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(DA_STATUS_INTERNAL_ERROR,
+                                     exception.reason.UTF8String != nullptr
+                                         ? exception.reason.UTF8String
+                                         : "tracked user notification failed");
   }
 }
 

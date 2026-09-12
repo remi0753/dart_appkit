@@ -106,8 +106,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 12 &&
-        app.eventProtocolVersion == 12,
+        bindings.requestedMaximumEventProtocolVersion == 13 &&
+        app.eventProtocolVersion == 13,
     'current event protocol negotiation',
   );
 
@@ -2195,6 +2195,61 @@ Future<void> _testUserNotificationAndDockBadgeApi() async {
     title: 'Build complete',
     body: 'The bounded task finished.',
   );
+  final List<ApplicationUserNotificationChangedEvent> lifecycleEvents =
+      <ApplicationUserNotificationChangedEvent>[];
+  final List<Object> lifecycleErrors = <Object>[];
+  final StreamSubscription<ApplicationUserNotificationChangedEvent>
+  lifecycleSubscription = app.onUserNotificationChanged.listen(
+    lifecycleEvents.add,
+    onError: lifecycleErrors.add,
+  );
+  final int settingsToken = app.refreshUserNotificationSettings();
+  final int authorizationToken = app.requestUserNotificationAuthorization();
+  final int deliveryToken = app.postTrackedUserNotification(
+    notification,
+    responseToken: 99,
+  );
+  _expect(
+    settingsToken == 1 &&
+        authorizationToken == 2 &&
+        deliveryToken == 3 &&
+        bindings.userNotificationSettingsRequestCount == 1 &&
+        bindings.userNotificationAuthorizationRequestCount == 1 &&
+        bindings.trackedUserNotifications.single.responseToken == 99,
+    'notification lifecycle requests preserve independent opaque tokens',
+  );
+  raw
+    ..add(<Object?>[13, 46, 0, 0, 1000, 0, 0, settingsToken, 0, 0])
+    ..add(<Object?>[13, 46, 0, 0, 2000, 0, 1, authorizationToken, 2, 0])
+    ..add(<Object?>[13, 46, 0, 0, 3000, 0, 2, deliveryToken, 2, 0])
+    ..add(<Object?>[13, 46, 0, 0, 4000, 0, 3, 99, 5, 0]);
+  _expect(
+    lifecycleErrors.isEmpty &&
+        lifecycleEvents.length == 4 &&
+        lifecycleEvents[0].kind == AppKitUserNotificationEventKind.settings &&
+        lifecycleEvents[0].authorizationStatus ==
+            AppKitUserNotificationAuthorizationStatus.notDetermined &&
+        lifecycleEvents[1].kind ==
+            AppKitUserNotificationEventKind.authorization &&
+        lifecycleEvents[2].kind == AppKitUserNotificationEventKind.delivery &&
+        lifecycleEvents[3].kind ==
+            AppKitUserNotificationEventKind.defaultResponse &&
+        app.userNotificationAuthorizationStatus ==
+            AppKitUserNotificationAuthorizationStatus.authorized,
+    'protocol 13 decodes settings, authorization, delivery, and response',
+  );
+  await _expectThrows<RangeError>(
+    () => app.postTrackedUserNotification(notification, responseToken: 0),
+  );
+  bindings.failNextOperation = 'applicationPostTrackedUserNotification';
+  final AppKitNativeException trackedError =
+      await _expectThrows<AppKitNativeException>(
+        () => app.postTrackedUserNotification(notification, responseToken: 7),
+      );
+  _expect(
+    trackedError.status == 7 && bindings.trackedUserNotifications.length == 1,
+    'failed tracked admission publishes no fake request',
+  );
   app.postUserNotification(notification);
   _expect(
     bindings.postedUserNotifications.single ==
@@ -2248,6 +2303,12 @@ Future<void> _testUserNotificationAndDockBadgeApi() async {
   );
 
   await app.terminate();
+  await lifecycleSubscription.cancel();
+  await _expectThrows<StateError>(app.refreshUserNotificationSettings);
+  await _expectThrows<StateError>(app.requestUserNotificationAuthorization);
+  await _expectThrows<StateError>(
+    () => app.postTrackedUserNotification(notification, responseToken: 1),
+  );
   await _expectThrows<StateError>(() => app.postUserNotification(notification));
   await _expectThrows<StateError>(
     () => app.removeUserNotification(notification.identifier),

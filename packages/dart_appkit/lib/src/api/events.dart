@@ -100,6 +100,43 @@ final class ApplicationFolderServiceRequestedEvent extends ApplicationEvent {
   final List<Uri> directoryUrls;
 }
 
+enum AppKitUserNotificationEventKind {
+  settings,
+  authorization,
+  delivery,
+  defaultResponse,
+}
+
+enum AppKitUserNotificationAuthorizationStatus {
+  notDetermined,
+  denied,
+  authorized,
+  provisional,
+  ephemeral,
+  unknown,
+}
+
+enum AppKitUserNotificationFailure { none, denied, system, cancelled }
+
+/// One content-free asynchronous UserNotifications lifecycle observation.
+final class ApplicationUserNotificationChangedEvent extends ApplicationEvent {
+  const ApplicationUserNotificationChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 13,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.kind,
+    required this.token,
+    required this.authorizationStatus,
+    required this.failure,
+  });
+
+  final AppKitUserNotificationEventKind kind;
+  final int token;
+  final AppKitUserNotificationAuthorizationStatus authorizationStatus;
+  final AppKitUserNotificationFailure failure;
+}
+
 sealed class WindowEvent extends AppKitEvent {
   const WindowEvent({
     required super.windowHandle,
@@ -550,6 +587,7 @@ final class _EventCodec {
   static const int _viewServicesTextReceived = 43;
   static const int _viewDropPerformed = 44;
   static const int _applicationFolderServiceRequested = 45;
+  static const int _applicationUserNotificationChanged = 46;
 
   static AppKitEvent decode(Object? message) {
     if (message is! List<Object?>) {
@@ -1028,6 +1066,77 @@ final class _EventCodec {
             requireDirectories: true,
           ),
         );
+      case _applicationUserNotificationChanged:
+        _requireVersionThirteen(version, 'user notification changed');
+        _expectLength(message, payloadOffset + 4, 'user notification changed');
+        final AppKitUserNotificationEventKind kind = switch (_integer(
+          message,
+          payloadOffset,
+          'userNotificationEventKind',
+        )) {
+          0 => AppKitUserNotificationEventKind.settings,
+          1 => AppKitUserNotificationEventKind.authorization,
+          2 => AppKitUserNotificationEventKind.delivery,
+          3 => AppKitUserNotificationEventKind.defaultResponse,
+          final int value => throw FormatException(
+            'userNotificationEventKind has invalid value $value',
+          ),
+        };
+        final int token = _integer(
+          message,
+          payloadOffset + 1,
+          'userNotificationToken',
+        );
+        if (token <= 0) {
+          throw const FormatException('userNotificationToken must be positive');
+        }
+        final AppKitUserNotificationAuthorizationStatus authorization =
+            switch (_integer(
+              message,
+              payloadOffset + 2,
+              'userNotificationAuthorization',
+            )) {
+              0 => AppKitUserNotificationAuthorizationStatus.notDetermined,
+              1 => AppKitUserNotificationAuthorizationStatus.denied,
+              2 => AppKitUserNotificationAuthorizationStatus.authorized,
+              3 => AppKitUserNotificationAuthorizationStatus.provisional,
+              4 => AppKitUserNotificationAuthorizationStatus.ephemeral,
+              5 => AppKitUserNotificationAuthorizationStatus.unknown,
+              final int value => throw FormatException(
+                'userNotificationAuthorization has invalid value $value',
+              ),
+            };
+        final AppKitUserNotificationFailure failure = switch (_integer(
+          message,
+          payloadOffset + 3,
+          'userNotificationFailure',
+        )) {
+          0 => AppKitUserNotificationFailure.none,
+          1 => AppKitUserNotificationFailure.denied,
+          2 => AppKitUserNotificationFailure.system,
+          3 => AppKitUserNotificationFailure.cancelled,
+          final int value => throw FormatException(
+            'userNotificationFailure has invalid value $value',
+          ),
+        };
+        if (kind == AppKitUserNotificationEventKind.defaultResponse &&
+            (authorization !=
+                    AppKitUserNotificationAuthorizationStatus.unknown ||
+                failure != AppKitUserNotificationFailure.none)) {
+          throw const FormatException(
+            'default notification response has invalid status fields',
+          );
+        }
+        return ApplicationUserNotificationChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          kind: kind,
+          token: token,
+          authorizationStatus: authorization,
+          failure: failure,
+        );
       default:
         throw FormatException('unknown native event type $type');
     }
@@ -1081,6 +1190,12 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionThirteen(int version, String eventName) {
+    if (version < 13) {
+      throw FormatException('$eventName requires native event protocol 13');
+    }
+  }
+
   static void _requireVersionFive(int version, String eventName) {
     if (version < 5) {
       throw FormatException('$eventName requires native event protocol 5');
@@ -1125,7 +1240,8 @@ final class _EventCodec {
       type == _applicationReopenRequested ||
       type == _applicationTerminateRequested ||
       type == _applicationAppearanceChanged ||
-      type == _applicationFolderServiceRequested;
+      type == _applicationFolderServiceRequested ||
+      type == _applicationUserNotificationChanged;
 
   static bool _requiresReply(int type) =>
       type == _windowCloseRequested || type == _applicationTerminateRequested;

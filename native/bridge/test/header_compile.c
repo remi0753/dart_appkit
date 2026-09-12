@@ -27,7 +27,7 @@ _Static_assert(sizeof(DaSecureEventInputSnapshot) == 24,
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 12,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 13,
                "unexpected current event protocol version");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");
@@ -44,6 +44,13 @@ int da_header_compiles_as_c(void) {
   int32_t (*external_url_open_with_policy)(const char*, size_t, const char*,
                                            size_t, uint64_t, int32_t*) =
       da_application_open_external_url_with_policy;
+  int32_t (*notification_settings)(int64_t*) =
+      da_application_get_user_notification_settings;
+  int32_t (*notification_authorization)(int64_t*) =
+      da_application_request_user_notification_authorization;
+  int32_t (*tracked_notification)(const char*, size_t, const char*, size_t,
+                                  const char*, size_t, int64_t, int64_t*) =
+      da_application_post_tracked_user_notification;
   int32_t (*close_reply)(DaHandle, int64_t, int32_t) =
       da_window_reply_to_close_request;
   int32_t (*key_event_routing)(DaHandle, int32_t) =
@@ -118,6 +125,9 @@ int da_header_compiles_as_c(void) {
                  termination_reply != 0 && close_reply != 0 &&
                  external_url_open != 0 &&
                  external_url_open_with_policy != 0 &&
+                 notification_settings != 0 &&
+                 notification_authorization != 0 &&
+                 tracked_notification != 0 &&
                  key_event_routing != 0 &&
                  global_hot_key_register != 0 &&
                  secure_event_input_create != 0 &&

@@ -197,6 +197,8 @@ final class AppKitApplication {
   bool _terminated = false;
   bool _active = false;
   AppKitAppearance? _effectiveAppearance;
+  AppKitUserNotificationAuthorizationStatus?
+  _userNotificationAuthorizationStatus;
   bool _defersTerminationRequests = false;
   Pasteboard? _generalPasteboard;
   Menu? _mainMenu;
@@ -319,9 +321,20 @@ final class AppKitApplication {
             (AppKitEvent event) =>
                 event as ApplicationFolderServiceRequestedEvent,
           );
+  Stream<ApplicationUserNotificationChangedEvent>
+  get onUserNotificationChanged => events
+      .where(
+        (AppKitEvent event) => event is ApplicationUserNotificationChangedEvent,
+      )
+      .map(
+        (AppKitEvent event) => event as ApplicationUserNotificationChangedEvent,
+      );
   bool get isTerminated => _terminated;
   bool get isActive => _active;
   AppKitAppearance? get effectiveAppearance => _effectiveAppearance;
+  AppKitUserNotificationAuthorizationStatus?
+  get userNotificationAuthorizationStatus =>
+      _userNotificationAuthorizationStatus;
 
   FolderServicesProviderConfiguration? get folderServicesProvider {
     _ensureRunning();
@@ -465,6 +478,76 @@ final class AppKitApplication {
     );
   }
 
+  NativeUserNotificationLifecycleBindings
+  get _userNotificationLifecycleBindings {
+    final Object bindings = _bindings;
+    if (bindings is! NativeUserNotificationLifecycleBindings) {
+      throw UnsupportedError(
+        'the native bridge does not support notification lifecycle events',
+      );
+    }
+    return bindings;
+  }
+
+  /// Asynchronously refreshes system notification settings.
+  int refreshUserNotificationSettings() {
+    _ensureRunning();
+    return _notificationRequestToken(
+      _userNotificationLifecycleBindings
+          .applicationGetUserNotificationSettings(),
+      'AppKitApplication.refreshUserNotificationSettings',
+    );
+  }
+
+  /// Explicitly asks macOS for alert authorization.
+  int requestUserNotificationAuthorization() {
+    _ensureRunning();
+    return _notificationRequestToken(
+      _userNotificationLifecycleBindings
+          .applicationRequestUserNotificationAuthorization(),
+      'AppKitApplication.requestUserNotificationAuthorization',
+    );
+  }
+
+  /// Submits one tracked notification and returns its delivery request token.
+  int postTrackedUserNotification(
+    AppKitUserNotification notification, {
+    required int responseToken,
+  }) {
+    _ensureRunning();
+    RangeError.checkValueInInterval(
+      responseToken,
+      1,
+      0x7fffffffffffffff,
+      'responseToken',
+    );
+    return _notificationRequestToken(
+      _userNotificationLifecycleBindings.applicationPostTrackedUserNotification(
+        identifier: notification.identifier,
+        title: notification.title,
+        body: notification.body,
+        responseToken: responseToken,
+      ),
+      'AppKitApplication.postTrackedUserNotification',
+    );
+  }
+
+  int _notificationRequestToken(
+    NativeValueResult<int> result,
+    String operation,
+  ) {
+    _ensureRunning();
+    final int token = _checkValue<int>(result, operation);
+    if (token <= 0) {
+      throw AppKitNativeException(
+        operation: operation,
+        status: 7,
+        nativeMessage: 'native bridge returned an invalid request token',
+      );
+    }
+    return token;
+  }
+
   /// Removes pending and delivered native state for one application identity.
   void removeUserNotification(String identifier) {
     _ensureRunning();
@@ -592,6 +675,14 @@ final class AppKitApplication {
       }
       if (event case ApplicationAppearanceChangedEvent(:final appearance)) {
         _effectiveAppearance = appearance;
+      }
+      if (event
+          case ApplicationUserNotificationChangedEvent(
+            :final authorizationStatus,
+          )
+          when authorizationStatus !=
+              AppKitUserNotificationAuthorizationStatus.unknown) {
+        _userNotificationAuthorizationStatus = authorizationStatus;
       }
       Window? window;
       if (event is WindowEvent) {

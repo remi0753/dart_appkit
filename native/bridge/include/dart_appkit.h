@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)12)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)13)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -466,8 +466,35 @@ typedef enum DaEventType {
   DA_EVENT_VIEW_QUICK_LOOK_REQUESTED = 42,
   DA_EVENT_VIEW_SERVICES_TEXT_RECEIVED = 43,
   DA_EVENT_VIEW_DROP_PERFORMED = 44,
-  DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED = 45
+  DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED = 45,
+  DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED = 46
 } DaEventType;
+
+/** Stable UserNotifications authorization values used by protocol version 13. */
+typedef enum DaUserNotificationAuthorizationStatus {
+  DA_USER_NOTIFICATION_AUTHORIZATION_NOT_DETERMINED = 0,
+  DA_USER_NOTIFICATION_AUTHORIZATION_DENIED = 1,
+  DA_USER_NOTIFICATION_AUTHORIZATION_AUTHORIZED = 2,
+  DA_USER_NOTIFICATION_AUTHORIZATION_PROVISIONAL = 3,
+  DA_USER_NOTIFICATION_AUTHORIZATION_EPHEMERAL = 4,
+  DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN = 5
+} DaUserNotificationAuthorizationStatus;
+
+/** Stable lifecycle results carried by one notification event. */
+typedef enum DaUserNotificationEventKind {
+  DA_USER_NOTIFICATION_EVENT_SETTINGS = 0,
+  DA_USER_NOTIFICATION_EVENT_AUTHORIZATION = 1,
+  DA_USER_NOTIFICATION_EVENT_DELIVERY = 2,
+  DA_USER_NOTIFICATION_EVENT_DEFAULT_RESPONSE = 3
+} DaUserNotificationEventKind;
+
+/** Content-free failure classification for notification lifecycle events. */
+typedef enum DaUserNotificationFailure {
+  DA_USER_NOTIFICATION_FAILURE_NONE = 0,
+  DA_USER_NOTIFICATION_FAILURE_DENIED = 1,
+  DA_USER_NOTIFICATION_FAILURE_SYSTEM = 2,
+  DA_USER_NOTIFICATION_FAILURE_CANCELLED = 3
+} DaUserNotificationFailure;
 
 /** Stable scroll gesture phase values used by protocol version 5. */
 typedef enum DaScrollPhase {
@@ -597,6 +624,25 @@ DA_EXPORT int32_t da_application_open_external_url_with_policy(
 DA_EXPORT int32_t da_application_post_user_notification(
     const char* identifier, size_t identifier_length, const char* title,
     size_t title_length, const char* body, size_t body_length);
+
+/** Asynchronously reads settings and later posts a version-13 settings event.
+ */
+DA_EXPORT int32_t
+da_application_get_user_notification_settings(int64_t* out_request_token);
+
+/** Explicitly requests alert authorization and later posts its exact status. */
+DA_EXPORT int32_t da_application_request_user_notification_authorization(
+    int64_t* out_request_token);
+
+/**
+ * Submits one tracked alert. response_token must be positive and opaque.
+ * Exactly one delivery event follows unless shutdown suppresses late callbacks;
+ * a default selection later emits response_token. Inputs are copied on return.
+ */
+DA_EXPORT int32_t da_application_post_tracked_user_notification(
+    const char* identifier, size_t identifier_length, const char* title,
+    size_t title_length, const char* body, size_t body_length,
+    int64_t response_token, int64_t* out_request_token);
 
 /** Main thread only. Cancels pending and delivered notification identity. */
 DA_EXPORT int32_t da_application_remove_user_notification(
