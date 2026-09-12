@@ -45,16 +45,6 @@ final class SecureEventInputSnapshot {
   final int lastOsStatus;
 }
 
-enum SecureInputIndicatorState {
-  hidden(dartAppKitSecureInputIndicatorHidden),
-  automatic(dartAppKitSecureInputIndicatorAutomatic),
-  manual(dartAppKitSecureInputIndicatorManual);
-
-  const SecureInputIndicatorState(this._nativeValue);
-
-  final int _nativeValue;
-}
-
 /// Bridge-wide balanced owner for macOS Secure Event Input.
 ///
 /// The native owner automatically yields its reference while the application

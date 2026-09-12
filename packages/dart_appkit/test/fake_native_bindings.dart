@@ -44,6 +44,7 @@ final class FakeNativeBindings
         NativeFolderServicesProviderBindings,
         NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
+        NativeViewBadgeBindings,
         NativeWindowPresentationBindings {
   int reportedAbiVersion = dartAppKitAbiVersion;
   int mainThreadValue = 1;
@@ -88,7 +89,8 @@ final class FakeNativeBindings
   int secureEventInputLastOsStatus = 0;
   int secureEventInputEnableCount = 0;
   int secureEventInputDisableCount = 0;
-  final Map<int, int> secureInputIndicatorStates = <int, int>{};
+  final Map<int, NativeViewBadgeConfiguration> viewBadges =
+      <int, NativeViewBadgeConfiguration>{};
   final Map<int, int> viewContextMenus = <int, int>{};
   final Map<int, bool> quickLookRequestEnabled = <int, bool>{};
   final Map<int, List<NativeDefinitionPresentation>> definitionPresentations =
@@ -502,10 +504,17 @@ final class FakeNativeBindings
   }
 
   @override
-  NativeCallResult viewSetSecureInputIndicator(int handle, int state) {
-    final NativeCallResult result = _status('viewSetSecureInputIndicator');
+  NativeCallResult viewSetBadge(
+    int handle,
+    NativeViewBadgeConfiguration? configuration,
+  ) {
+    final NativeCallResult result = _status('viewSetBadge');
     if (result.isSuccess) {
-      secureInputIndicatorStates[handle] = state;
+      if (configuration == null) {
+        viewBadges.remove(handle);
+      } else {
+        viewBadges[handle] = configuration;
+      }
     }
     return result;
   }
@@ -1384,7 +1393,7 @@ final class FakeNativeBindings
       menuItemEnabled.remove(handle);
       menuItemChecked.remove(handle);
       globalHotKeys.remove(handle);
-      secureInputIndicatorStates.remove(handle);
+      viewBadges.remove(handle);
       viewContextMenus.remove(handle);
       viewContextMenus.removeWhere((int view, int menu) => menu == handle);
       quickLookRequestEnabled.remove(handle);

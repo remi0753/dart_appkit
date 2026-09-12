@@ -10,7 +10,8 @@ generic, text, registered native-provider, and two-child split views, explicit
 first-responder selection, menus and menu-item actions, periodic `Timer`
 updates, lifecycle/window/input events, cached application light/dark
 appearance, exclusive owned system-wide physical-key registrations,
-balanced Secure Event Input ownership with automatic/manual view indication,
+balanced Secure Event Input ownership, application-configured generic view
+badges,
 view-local context menus, stage-2 pressure lookup requests, and bounded native
 dictionary definition presentation, cached plain-text Services requestors with
 bounded asynchronous returned text, and copy-only bounded plain-text/local
@@ -216,9 +217,10 @@ application is active, yields only that owned reference when the application
 resigns active, and reacquires it on activation while the request remains
 desired. Its content-free snapshot distinguishes retained desire, bridge
 ownership, observed global state, and the last Carbon status. A view's
-`secureInputIndicatorState` adds a non-interactive top-right `SECURE AUTO` or
-`SECURE MANUAL` overlay without resizing the view or participating in terminal
-grid layout; `hidden` removes it. Detection and user policy remain consumer
+nullable `badge` accepts a `ViewBadge` containing bounded visible,
+accessibility-label, and accessibility-help strings. It adds a non-interactive
+top-right overlay without resizing the view or participating in content layout;
+`null` removes it. Meaning, wording, detection, and user policy remain consumer
 responsibilities.
 
 `TwoPaneSplitView.refreshFraction()` explicitly observes the current native

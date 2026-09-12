@@ -414,12 +414,27 @@ typedef struct DaSecureEventInputSnapshot {
 #define DA_SECURE_EVENT_INPUT_SNAPSHOT_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaSecureEventInputSnapshot))
 
-/** Non-interactive secure-input indication rendered over a view. */
-typedef enum DaSecureInputIndicatorState {
-  DA_SECURE_INPUT_INDICATOR_HIDDEN = 0,
-  DA_SECURE_INPUT_INDICATOR_AUTOMATIC = 1,
-  DA_SECURE_INPUT_INDICATOR_MANUAL = 2
-} DaSecureInputIndicatorState;
+#define DA_VIEW_BADGE_TEXT_MAX_UTF8_BYTES 256
+
+/**
+ * Size-prefixed, copied configuration for one non-interactive view badge.
+ * All three strings must be non-empty, display-safe UTF-8 within the shared
+ * byte limit. The bridge does not assign product meaning to their contents.
+ */
+typedef struct DaViewBadgeConfiguration {
+  uint64_t struct_size;
+  const char* text;
+  size_t text_length;
+  const char* accessibility_label;
+  size_t accessibility_label_length;
+  const char* accessibility_help;
+  size_t accessibility_help_length;
+  int32_t reserved0;
+  int32_t reserved1;
+} DaViewBadgeConfiguration;
+
+#define DA_VIEW_BADGE_CONFIGURATION_VERSION_1_SIZE \
+  ((uint64_t)sizeof(DaViewBadgeConfiguration))
 
 typedef enum DaStatus {
   DA_STATUS_OK = 0,
@@ -901,11 +916,12 @@ DA_EXPORT int32_t da_view_create_configured(
     const DaViewConfiguration* configuration, DaHandle* out_view);
 
 /**
- * Main thread only. Shows or removes a non-interactive secure-input badge.
- * The overlay does not participate in the target view's layout or resize it.
+ * Main thread only. Shows or updates a copied, non-interactive badge. Passing
+ * null removes it. The overlay does not participate in the target view's
+ * layout or resize it.
  */
-DA_EXPORT int32_t da_view_set_secure_input_indicator(DaHandle view,
-                                                     int32_t state);
+DA_EXPORT int32_t da_view_set_badge(
+    DaHandle view, const DaViewBadgeConfiguration* configuration);
 
 /**
  * Main thread only. Attaches a menu for view-local context presentation, or

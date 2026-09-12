@@ -7,9 +7,7 @@ const int dartAppKitCurrentEventProtocolVersion = 13;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;
-const int dartAppKitSecureInputIndicatorHidden = 0;
-const int dartAppKitSecureInputIndicatorAutomatic = 1;
-const int dartAppKitSecureInputIndicatorManual = 2;
+const int dartAppKitViewBadgeMaximumTextUtf8Bytes = 256;
 const int dartAppKitPasteboardMaximumTextUtf8Bytes = 64 * 1024 * 1024;
 const int dartAppKitExternalUrlMaximumUtf8Bytes = 4096;
 const int dartAppKitExternalUrlSchemeMaximumUtf8Bytes = 64;
@@ -91,6 +89,18 @@ final class NativeViewConfiguration {
   bool get isCompatibilityDefault =>
       acceptsFirstResponder &&
       autoresizingMask == dartAppKitDefaultViewAutoresizingMask;
+}
+
+final class NativeViewBadgeConfiguration {
+  const NativeViewBadgeConfiguration({
+    required this.text,
+    required this.accessibilityLabel,
+    required this.accessibilityHelp,
+  });
+
+  final String text;
+  final String accessibilityLabel;
+  final String accessibilityHelp;
 }
 
 final class NativeDefinitionPresentation {
@@ -624,14 +634,21 @@ abstract interface class NativeUserNotificationLifecycleBindings {
   });
 }
 
-/// Optional balanced Secure Event Input and view-indicator surface.
+/// Optional balanced Secure Event Input surface.
 abstract interface class NativeSecureEventInputBindings {
   NativeValueResult<int> secureEventInputCreate();
   NativeCallResult secureEventInputSetDesired(int handle, bool desired);
   NativeValueResult<NativeSecureEventInputSnapshot> secureEventInputGetSnapshot(
     int handle,
   );
-  NativeCallResult viewSetSecureInputIndicator(int handle, int state);
+}
+
+/// Optional bounded, non-interactive view-badge surface.
+abstract interface class NativeViewBadgeBindings {
+  NativeCallResult viewSetBadge(
+    int handle,
+    NativeViewBadgeConfiguration? configuration,
+  );
 }
 
 /// Optional current-screen and animated window-presentation surface.

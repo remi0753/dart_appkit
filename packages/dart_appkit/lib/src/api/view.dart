@@ -41,6 +41,57 @@ final class DefinitionPresentation {
   }
 }
 
+/// One immutable, non-interactive badge rendered over a [View].
+///
+/// The consuming application owns the meaning and wording of every string.
+final class ViewBadge {
+  const ViewBadge({
+    required this.text,
+    required this.accessibilityLabel,
+    required this.accessibilityHelp,
+  });
+
+  static const int maximumTextUtf8Bytes =
+      dartAppKitViewBadgeMaximumTextUtf8Bytes;
+
+  final String text;
+  final String accessibilityLabel;
+  final String accessibilityHelp;
+
+  NativeViewBadgeConfiguration get _native {
+    final Map<String, String> values = <String, String>{
+      'text': text,
+      'accessibilityLabel': accessibilityLabel,
+      'accessibilityHelp': accessibilityHelp,
+    };
+    for (final MapEntry<String, String> entry in values.entries) {
+      if (entry.value.isEmpty ||
+          !_isSafeDisplayText(entry.value, maximumTextUtf8Bytes)) {
+        throw ArgumentError.value(
+          entry.value,
+          entry.key,
+          'must be non-empty bounded text without controls or invisible scalars',
+        );
+      }
+    }
+    return NativeViewBadgeConfiguration(
+      text: text,
+      accessibilityLabel: accessibilityLabel,
+      accessibilityHelp: accessibilityHelp,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ViewBadge &&
+      other.text == text &&
+      other.accessibilityLabel == accessibilityLabel &&
+      other.accessibilityHelp == accessibilityHelp;
+
+  @override
+  int get hashCode => Object.hash(text, accessibilityLabel, accessibilityHelp);
+}
+
 /// One immutable native snapshot used by synchronous plain-text Services.
 final class ServicesTextRequestorConfiguration {
   const ServicesTextRequestorConfiguration({
@@ -261,8 +312,7 @@ base class View extends _NativeResource {
   _servicesTextEventController;
   final StreamController<ViewDropPerformedEvent> _dropEventController;
 
-  SecureInputIndicatorState _secureInputIndicatorState =
-      SecureInputIndicatorState.hidden;
+  ViewBadge? _badge;
   Menu? _contextMenu;
   bool _quickLookRequestsEnabled = false;
   ServicesTextRequestorConfiguration? _servicesTextRequestor;
@@ -412,27 +462,33 @@ base class View extends _NativeResource {
     value?._attachContextView(this);
   }
 
-  /// Current non-interactive badge shown over this view.
-  SecureInputIndicatorState get secureInputIndicatorState =>
-      _secureInputIndicatorState;
-
-  set secureInputIndicatorState(SecureInputIndicatorState state) {
+  /// Current non-interactive badge shown over this view, if any.
+  ViewBadge? get badge {
     ensureAlive();
+    return _badge;
+  }
+
+  set badge(ViewBadge? value) {
+    ensureAlive();
+    if (value == _badge) {
+      return;
+    }
     final NativeBindings bindings = _bindings;
-    if (bindings is! NativeSecureEventInputBindings) {
+    if (bindings is! NativeViewBadgeBindings) {
       throw const AppKitNativeException(
-        operation: 'View.secureInputIndicatorState',
+        operation: 'View.badge',
         status: 8,
-        nativeMessage: 'native bridge does not support secure-input indication',
+        nativeMessage: 'native bridge does not support view badges',
       );
     }
-    final NativeSecureEventInputBindings secureBindings =
-        bindings as NativeSecureEventInputBindings;
     _checkCall(
-      secureBindings.viewSetSecureInputIndicator(_handle, state._nativeValue),
-      'View.secureInputIndicatorState',
+      (bindings as NativeViewBadgeBindings).viewSetBadge(
+        _handle,
+        value?._native,
+      ),
+      'View.badge',
     );
-    _secureInputIndicatorState = state;
+    _badge = value;
   }
 
   /// Performs the opaque, synchronous operation registered by this custom

@@ -237,9 +237,10 @@ reference it acquired independently from Carbon's observable global enabled
 bit. Only the recorded owned transition may call disable, so another process's
 lease is never decremented. App activation notifications change the applied
 lease but preserve Dart's desired state, and registry shutdown prepares this
-owner before dropping it. The automatic/manual indicator is deliberately a
-separate generic-view overlay: it is accessibility-visible but ignores hit
-testing and places no constraints on terminal content size.
+owner before dropping it. The optional view badge is deliberately an unrelated
+generic mechanism: the application supplies bounded visible and accessibility
+strings, while the overlay ignores hit testing and places no constraints on
+content size.
 
 Native dependencies register named `NSView` factories through the separate
 versioned `da_native_extension_services_v1` table. Its size/version prefix and

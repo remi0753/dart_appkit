@@ -4724,28 +4724,86 @@ void TestSecureEventInputAndIndicator() {
   DaView* view = NativeViewFor(view_handle);
   view.frame = NSMakeRect(0.0, 0.0, 400.0, 240.0);
   const NSRect original_bounds = view.bounds;
-  EXPECT_EQ(da_view_set_secure_input_indicator(
-                view_handle, DA_SECURE_INPUT_INDICATOR_AUTOMATIC),
+  const std::string badge_text = "SYNC ACTIVE";
+  const std::string badge_label = "Synchronization active";
+  const std::string badge_help = "The current view is synchronized.";
+  const DaViewBadgeConfiguration badge_configuration = {
+      DA_VIEW_BADGE_CONFIGURATION_VERSION_1_SIZE,
+      badge_text.data(),
+      badge_text.size(),
+      badge_label.data(),
+      badge_label.size(),
+      badge_help.data(),
+      badge_help.size(),
+      0,
+      0,
+  };
+  EXPECT_EQ(da_view_set_badge(view_handle, &badge_configuration), DA_STATUS_OK);
+  EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(1));
+  NSView* badge = view.subviews.lastObject;
+  EXPECT_EQ(std::string(badge.accessibilityIdentifier.UTF8String),
+            std::string("dart_appkit.view_badge"));
+  EXPECT_EQ(std::string(badge.accessibilityLabel.UTF8String), badge_label);
+  EXPECT_EQ(std::string(badge.accessibilityHelp.UTF8String), badge_help);
+  EXPECT_EQ(std::string(
+                static_cast<NSTextField*>(badge.subviews.firstObject)
+                    .stringValue.UTF8String),
+            badge_text);
+  EXPECT_TRUE([badge hitTest:NSMakePoint(1.0, 1.0)] == nil);
+  EXPECT_TRUE(NSEqualRects(view.bounds, original_bounds));
+  const std::string replacement_text = "SYNC PAUSED";
+  const std::string replacement_label = "Synchronization paused";
+  const std::string replacement_help = "The current view is not synchronized.";
+  const DaViewBadgeConfiguration replacement_configuration = {
+      DA_VIEW_BADGE_CONFIGURATION_VERSION_1_SIZE,
+      replacement_text.data(),
+      replacement_text.size(),
+      replacement_label.data(),
+      replacement_label.size(),
+      replacement_help.data(),
+      replacement_help.size(),
+      0,
+      0,
+  };
+  EXPECT_EQ(da_view_set_badge(view_handle, &replacement_configuration),
             DA_STATUS_OK);
   EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(1));
-  NSView* indicator = view.subviews.lastObject;
-  EXPECT_EQ(std::string(indicator.accessibilityIdentifier.UTF8String),
-            std::string("dart_appkit.secure_input_indicator"));
-  EXPECT_TRUE([indicator.accessibilityLabel containsString:@"Automatic"]);
-  EXPECT_TRUE([indicator hitTest:NSMakePoint(1.0, 1.0)] == nil);
+  EXPECT_TRUE(view.subviews.lastObject == badge);
+  EXPECT_EQ(std::string(badge.accessibilityLabel.UTF8String),
+            replacement_label);
   EXPECT_TRUE(NSEqualRects(view.bounds, original_bounds));
-  EXPECT_EQ(da_view_set_secure_input_indicator(
-                view_handle, DA_SECURE_INPUT_INDICATOR_MANUAL),
-            DA_STATUS_OK);
-  EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(1));
-  EXPECT_TRUE(view.subviews.lastObject == indicator);
-  EXPECT_TRUE([indicator.accessibilityLabel containsString:@"Manual"]);
-  EXPECT_TRUE(NSEqualRects(view.bounds, original_bounds));
-  EXPECT_EQ(da_view_set_secure_input_indicator(view_handle, 99),
+
+  DaViewBadgeConfiguration invalid_configuration = badge_configuration;
+  invalid_configuration.struct_size =
+      DA_VIEW_BADGE_CONFIGURATION_VERSION_1_SIZE - 1;
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
+            DA_STATUS_UNSUPPORTED_VERSION);
+  invalid_configuration = badge_configuration;
+  invalid_configuration.text_length = 0;
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
             DA_STATUS_INVALID_ARGUMENT);
-  EXPECT_EQ(da_view_set_secure_input_indicator(
-                view_handle, DA_SECURE_INPUT_INDICATOR_HIDDEN),
-            DA_STATUS_OK);
+  invalid_configuration = badge_configuration;
+  invalid_configuration.text_length = DA_VIEW_BADGE_TEXT_MAX_UTF8_BYTES + 1;
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
+            DA_STATUS_LIMIT_EXCEEDED);
+  const char invalid_utf8[] = {static_cast<char>(0xff)};
+  invalid_configuration = badge_configuration;
+  invalid_configuration.text = invalid_utf8;
+  invalid_configuration.text_length = sizeof(invalid_utf8);
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
+            DA_STATUS_INVALID_UTF8);
+  const std::string unsafe_text = "SYNC\nACTIVE";
+  invalid_configuration = badge_configuration;
+  invalid_configuration.text = unsafe_text.data();
+  invalid_configuration.text_length = unsafe_text.size();
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+  invalid_configuration = badge_configuration;
+  invalid_configuration.reserved0 = 1;
+  EXPECT_EQ(da_view_set_badge(view_handle, &invalid_configuration),
+            DA_STATUS_INVALID_ARGUMENT);
+
+  EXPECT_EQ(da_view_set_badge(view_handle, nullptr), DA_STATUS_OK);
   EXPECT_EQ(view.subviews.count, static_cast<NSUInteger>(0));
 
   DaSecureEventInputSnapshot undersized{};

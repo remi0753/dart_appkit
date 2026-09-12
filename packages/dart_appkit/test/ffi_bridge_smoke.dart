@@ -102,17 +102,21 @@ void main(List<String> arguments) {
     _fail('global hot-key symbol did not preserve its main-thread guard');
   }
   final NativeValueResult<int> secureInput = bindings.secureEventInputCreate();
-  final NativeCallResult secureIndicator = bindings.viewSetSecureInputIndicator(
+  final NativeCallResult viewBadge = bindings.viewSetBadge(
     1,
-    dartAppKitSecureInputIndicatorAutomatic,
+    const NativeViewBadgeConfiguration(
+      text: 'SYNC ACTIVE',
+      accessibilityLabel: 'Synchronization active',
+      accessibilityHelp: 'The current view is synchronized.',
+    ),
   );
   if (secureInput.isSuccess ||
       secureInput.status != 5 ||
       secureInput.message.isEmpty ||
-      secureIndicator.isSuccess ||
-      secureIndicator.status != 5 ||
-      secureIndicator.message.isEmpty) {
-    _fail('secure-input symbols did not preserve their main-thread guards');
+      viewBadge.isSuccess ||
+      viewBadge.status != 5 ||
+      viewBadge.message.isEmpty) {
+    _fail('secure-input and view-badge symbols lost main-thread guards');
   }
   final NativeCallResult contextMenu = bindings.viewSetContextMenu(1, 2);
   if (contextMenu.isSuccess ||

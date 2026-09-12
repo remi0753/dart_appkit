@@ -115,6 +115,32 @@ final class _DaViewConfigurationNative extends Struct {
   external int reserved;
 }
 
+final class _DaViewBadgeConfigurationNative extends Struct {
+  @Uint64()
+  external int structSize;
+
+  external Pointer<Uint8> text;
+
+  @Size()
+  external int textLength;
+
+  external Pointer<Uint8> accessibilityLabel;
+
+  @Size()
+  external int accessibilityLabelLength;
+
+  external Pointer<Uint8> accessibilityHelp;
+
+  @Size()
+  external int accessibilityHelpLength;
+
+  @Int32()
+  external int reserved0;
+
+  @Int32()
+  external int reserved1;
+}
+
 final class _DaDefinitionPresentationConfigurationNative extends Struct {
   @Uint64()
   external int structSize;
@@ -617,6 +643,14 @@ typedef _ViewCreateConfiguredNative = Int32 Function(
 typedef _ViewCreateConfiguredDart = int Function(
   Pointer<_DaViewConfigurationNative>,
   Pointer<Uint64>,
+);
+typedef _ViewSetBadgeNative = Int32 Function(
+  Uint64,
+  Pointer<_DaViewBadgeConfigurationNative>,
+);
+typedef _ViewSetBadgeDart = int Function(
+  int,
+  Pointer<_DaViewBadgeConfigurationNative>,
 );
 typedef _ViewShowDefinitionNative = Int32 Function(
   Uint64,
@@ -1543,6 +1577,16 @@ _SecureEventInputSnapshotDart? _lookupSecureEventInputSnapshot(
   }
 }
 
+_ViewSetBadgeDart? _lookupViewSetBadge(DynamicLibrary library) {
+  try {
+    return library.lookupFunction<_ViewSetBadgeNative, _ViewSetBadgeDart>(
+      'da_view_set_badge',
+    );
+  } on ArgumentError {
+    return null;
+  }
+}
+
 _ScreenResolveDart? _lookupScreenResolve(DynamicLibrary library) {
   try {
     return library.lookupFunction<_ScreenResolveNative, _ScreenResolveDart>(
@@ -1599,6 +1643,7 @@ final class FfiNativeBindings
         NativeFolderServicesProviderBindings,
         NativeUserNotificationLifecycleBindings,
         NativeSecureEventInputBindings,
+        NativeViewBadgeBindings,
         NativeWindowPresentationBindings {
   FfiNativeBindings._(DynamicLibrary library, DynamicLibrary allocatorLibrary)
     : _abiVersion = library.lookupFunction<_AbiVersionNative, _AbiVersionDart>(
@@ -1732,10 +1777,7 @@ final class FfiNativeBindings
       ),
       _viewCreate = _lookupViewCreate(library),
       _viewCreateConfigured = _lookupViewCreateConfigured(library),
-      _viewSetSecureInputIndicator = _lookupHandleInt(
-        library,
-        'da_view_set_secure_input_indicator',
-      ),
+      _viewSetBadge = _lookupViewSetBadge(library),
       _viewSetContextMenu = _lookupTwoHandles(
         library,
         'da_view_set_context_menu',
@@ -1898,7 +1940,7 @@ final class FfiNativeBindings
   final _TwoHandlesDart? _windowMakeFirstResponder;
   final _CreateHandleDart? _viewCreate;
   final _ViewCreateConfiguredDart? _viewCreateConfigured;
-  final _HandleBoolStatusDart? _viewSetSecureInputIndicator;
+  final _ViewSetBadgeDart? _viewSetBadge;
   final _TwoHandlesDart? _viewSetContextMenu;
   final _HandleBoolStatusDart? _viewSetQuickLookRequestEnabled;
   final _ViewShowDefinitionDart? _viewShowDefinition;
@@ -3206,15 +3248,50 @@ final class FfiNativeBindings
   }
 
   @override
-  NativeCallResult viewSetSecureInputIndicator(int handle, int state) {
-    final _HandleBoolStatusDart? function = _viewSetSecureInputIndicator;
+  NativeCallResult viewSetBadge(
+    int handle,
+    NativeViewBadgeConfiguration? configuration,
+  ) {
+    final _ViewSetBadgeDart? function = _viewSetBadge;
     if (function == null) {
       return const NativeCallResult.failure(
         8,
-        'legacy native bridge does not support secure-input indication',
+        'legacy native bridge does not support view badges',
       );
     }
-    return _callResult(function(handle, state));
+    if (configuration == null) {
+      return _callResult(function(handle, nullptr));
+    }
+    return _withUtf8(configuration.text, (Pointer<Uint8> text, int textLength) {
+      return _withUtf8(configuration.accessibilityLabel, (
+        Pointer<Uint8> accessibilityLabel,
+        int accessibilityLabelLength,
+      ) {
+        return _withUtf8(configuration.accessibilityHelp, (
+          Pointer<Uint8> accessibilityHelp,
+          int accessibilityHelpLength,
+        ) {
+          final Pointer<_DaViewBadgeConfigurationNative> nativeConfiguration =
+              _allocate(sizeOf<_DaViewBadgeConfigurationNative>())
+                  .cast<_DaViewBadgeConfigurationNative>();
+          try {
+            nativeConfiguration.ref
+              ..structSize = sizeOf<_DaViewBadgeConfigurationNative>()
+              ..text = text
+              ..textLength = textLength
+              ..accessibilityLabel = accessibilityLabel
+              ..accessibilityLabelLength = accessibilityLabelLength
+              ..accessibilityHelp = accessibilityHelp
+              ..accessibilityHelpLength = accessibilityHelpLength
+              ..reserved0 = 0
+              ..reserved1 = 0;
+            return _callResult(function(handle, nativeConfiguration));
+          } finally {
+            _free(nativeConfiguration.cast<Void>());
+          }
+        });
+      });
+    });
   }
 
   @override

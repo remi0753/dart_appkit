@@ -202,12 +202,14 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
-@interface DaSecureInputIndicatorView : NSView {
+@interface DaViewBadge : NSView {
  @private
   NSTextField* _label;
 }
 
-@property(nonatomic, assign) DaSecureInputIndicatorState daState;
+- (void)applyText:(NSString*)text
+    accessibilityLabel:(NSString*)accessibilityLabel
+     accessibilityHelp:(NSString*)accessibilityHelp;
 
 @end
 
@@ -443,7 +445,7 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
-@implementation DaSecureInputIndicatorView
+@implementation DaViewBadge
 
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
@@ -473,7 +475,7 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
     ]];
     [self setAccessibilityElement:YES];
     [self setAccessibilityRole:NSAccessibilityGroupRole];
-    [self setAccessibilityIdentifier:@"dart_appkit.secure_input_indicator"];
+    [self setAccessibilityIdentifier:@"dart_appkit.view_badge"];
   }
   return self;
 }
@@ -487,18 +489,12 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
   return nil;
 }
 
-- (void)setDaState:(DaSecureInputIndicatorState)state {
-  _daState = state;
-  NSString* mode = state == DA_SECURE_INPUT_INDICATOR_MANUAL ? @"MANUAL"
-                                                             : @"AUTO";
-  _label.stringValue = [NSString stringWithFormat:@"SECURE %@", mode];
-  [self setAccessibilityLabel:
-            [NSString stringWithFormat:@"Secure Keyboard Entry — %@",
-                                       state == DA_SECURE_INPUT_INDICATOR_MANUAL
-                                           ? @"Manual"
-                                           : @"Automatic"]];
-  [self setAccessibilityHelp:
-            @"Keyboard input is protected from other applications."];
+- (void)applyText:(NSString*)text
+    accessibilityLabel:(NSString*)accessibilityLabel
+     accessibilityHelp:(NSString*)accessibilityHelp {
+  _label.stringValue = text;
+  [self setAccessibilityLabel:accessibilityLabel];
+  [self setAccessibilityHelp:accessibilityHelp];
 }
 
 @end
@@ -4933,45 +4929,93 @@ int32_t da_view_create(DaHandle* out_view) {
   return da_view_create_configured(&configuration, out_view);
 }
 
-int32_t da_view_set_secure_input_indicator(DaHandle view_handle,
-                                           int32_t state) {
+int32_t da_view_set_badge(
+    DaHandle view_handle, const DaViewBadgeConfiguration* configuration) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
   if (thread_status != DA_STATUS_OK) {
     return thread_status;
-  }
-  if (state < DA_SECURE_INPUT_INDICATOR_HIDDEN ||
-      state > DA_SECURE_INPUT_INDICATOR_MANUAL) {
-    return dart_appkit::SetLastError(
-        DA_STATUS_INVALID_ARGUMENT,
-        "state must be a DaSecureInputIndicatorState value");
   }
   int32_t status = DA_STATUS_OK;
   NSView* view = dart_appkit::View(view_handle, &status);
   if (view == nil) {
     return status;
   }
-  DaSecureInputIndicatorView* indicator = nil;
+  DaViewBadge* badge = nil;
   for (NSView* subview in view.subviews) {
-    if ([subview isKindOfClass:DaSecureInputIndicatorView.class]) {
-      indicator = static_cast<DaSecureInputIndicatorView*>(subview);
+    if ([subview isKindOfClass:DaViewBadge.class]) {
+      badge = static_cast<DaViewBadge*>(subview);
       break;
     }
   }
-  if (state == DA_SECURE_INPUT_INDICATOR_HIDDEN) {
-    [indicator removeFromSuperview];
+  if (configuration == nullptr) {
+    [badge removeFromSuperview];
     return DA_STATUS_OK;
   }
-  if (indicator == nil) {
-    indicator = [[DaSecureInputIndicatorView alloc] initWithFrame:NSZeroRect];
-    [view addSubview:indicator positioned:NSWindowAbove relativeTo:nil];
+  if (configuration->struct_size <
+      DA_VIEW_BADGE_CONFIGURATION_VERSION_1_SIZE) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_UNSUPPORTED_VERSION,
+        "view badge configuration is smaller than version 1");
+  }
+  if (configuration->reserved0 != 0 || configuration->reserved1 != 0) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "view badge configuration reserved fields must be zero");
+  }
+  const size_t lengths[] = {
+      configuration->text_length,
+      configuration->accessibility_label_length,
+      configuration->accessibility_help_length,
+  };
+  for (const size_t length : lengths) {
+    if (length == 0) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "view badge strings must not be empty");
+    }
+    if (length > DA_VIEW_BADGE_TEXT_MAX_UTF8_BYTES) {
+      return dart_appkit::SetLastError(
+          DA_STATUS_LIMIT_EXCEEDED,
+          "view badge string exceeds the UTF-8 byte limit");
+    }
+  }
+  NSString* text = dart_appkit::CopyUtf8(
+      configuration->text, configuration->text_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* accessibility_label = dart_appkit::CopyUtf8(
+      configuration->accessibility_label,
+      configuration->accessibility_label_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  NSString* accessibility_help = dart_appkit::CopyUtf8(
+      configuration->accessibility_help,
+      configuration->accessibility_help_length, &status);
+  if (status != DA_STATUS_OK) {
+    return status;
+  }
+  if (dart_appkit::ContainsUnsafeDisplayText(text) ||
+      dart_appkit::ContainsUnsafeDisplayText(accessibility_label) ||
+      dart_appkit::ContainsUnsafeDisplayText(accessibility_help)) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "view badge strings contain controls or invisible scalars");
+  }
+  if (badge == nil) {
+    badge = [[DaViewBadge alloc] initWithFrame:NSZeroRect];
+    [view addSubview:badge positioned:NSWindowAbove relativeTo:nil];
     [NSLayoutConstraint activateConstraints:@[
-      [indicator.topAnchor constraintEqualToAnchor:view.topAnchor constant:8.0],
-      [indicator.trailingAnchor constraintEqualToAnchor:view.trailingAnchor
-                                               constant:-8.0],
+      [badge.topAnchor constraintEqualToAnchor:view.topAnchor constant:8.0],
+      [badge.trailingAnchor constraintEqualToAnchor:view.trailingAnchor
+                                           constant:-8.0],
     ]];
   }
-  indicator.daState = static_cast<DaSecureInputIndicatorState>(state);
+  [badge applyText:text
+      accessibilityLabel:accessibility_label
+       accessibilityHelp:accessibility_help];
   return DA_STATUS_OK;
 }
 

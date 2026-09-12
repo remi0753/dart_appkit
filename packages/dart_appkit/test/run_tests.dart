@@ -12,8 +12,6 @@ import 'package:dart_appkit/src/native/native_bindings.dart'
         NativeFolderServicesProviderConfiguration,
         NativeScreenSnapshot,
         NativeServicesTextRequestorConfiguration,
-        dartAppKitSecureInputIndicatorAutomatic,
-        dartAppKitSecureInputIndicatorManual,
         dartAppKitScreenSelectionMain,
         dartAppKitExternalUrlPolicyForbidCredentials,
         dartAppKitExternalUrlPolicyRequireAuthority,
@@ -350,27 +348,57 @@ Future<void> _testSecureEventInputApi() async {
   secureInput.setDesired(false);
 
   final View view = View();
-  view.secureInputIndicatorState = SecureInputIndicatorState.automatic;
+  const ViewBadge primaryBadge = ViewBadge(
+    text: 'SYNC ACTIVE',
+    accessibilityLabel: 'Synchronization active',
+    accessibilityHelp: 'The current view is synchronized.',
+  );
+  view.badge = primaryBadge;
   _expect(
-    bindings.secureInputIndicatorStates.values.single ==
-        dartAppKitSecureInputIndicatorAutomatic,
-    'automatic indicator reaches native view',
+    bindings.viewBadges.values.single.text == 'SYNC ACTIVE',
+    'generic badge reaches the native view',
   );
-  view.secureInputIndicatorState = SecureInputIndicatorState.manual;
+  const ViewBadge alternateBadge = ViewBadge(
+    text: 'SYNC PAUSED',
+    accessibilityLabel: 'Synchronization paused',
+    accessibilityHelp: 'The current view is not synchronized.',
+  );
+  view.badge = alternateBadge;
   _expect(
-    view.secureInputIndicatorState == SecureInputIndicatorState.manual &&
-        bindings.secureInputIndicatorStates.values.single ==
-            dartAppKitSecureInputIndicatorManual,
-    'manual indicator is distinct and cached after success',
+    view.badge == alternateBadge &&
+        bindings.viewBadges.values.single.accessibilityLabel ==
+            'Synchronization paused',
+    'replacement badge is distinct and cached after success',
   );
-  bindings.failNextOperation = 'viewSetSecureInputIndicator';
-  await _expectThrows<AppKitNativeException>(
-    () => view.secureInputIndicatorState = SecureInputIndicatorState.automatic,
-  );
+  bindings.failNextOperation = 'viewSetBadge';
+  await _expectThrows<AppKitNativeException>(() => view.badge = primaryBadge);
   _expect(
-    view.secureInputIndicatorState == SecureInputIndicatorState.manual,
-    'failed indication does not corrupt Dart state',
+    view.badge == alternateBadge,
+    'failed badge update does not corrupt Dart state',
   );
+  await _expectThrows<ArgumentError>(
+    () => view.badge = const ViewBadge(
+      text: '',
+      accessibilityLabel: 'Empty badge',
+      accessibilityHelp: 'This value is rejected.',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.badge = const ViewBadge(
+      text: 'SYNC\nACTIVE',
+      accessibilityLabel: 'Unsafe badge',
+      accessibilityHelp: 'This value is rejected.',
+    ),
+  );
+  await _expectThrows<ArgumentError>(
+    () => view.badge = ViewBadge(
+      text: List<String>.filled(ViewBadge.maximumTextUtf8Bytes + 1, 'a').join(),
+      accessibilityLabel: 'Oversized badge',
+      accessibilityHelp: 'This value is rejected.',
+    ),
+  );
+  view.badge = null;
+  _expect(view.badge == null && bindings.viewBadges.isEmpty, 'badge clears');
 
   bindings.secureEventInputSystemEnabled = true;
   secureInput.dispose();
@@ -3617,7 +3645,7 @@ Future<void> main() async {
   );
   await _test('exclusive global hot-key ownership', _testGlobalHotKeyApi);
   await _test(
-    'balanced Secure Event Input ownership and indication',
+    'balanced Secure Event Input ownership and generic view badge',
     _testSecureEventInputApi,
   );
   await _test('plain-text pasteboard snapshots', _testPasteboardApi);

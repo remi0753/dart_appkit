@@ -64,8 +64,8 @@ int da_header_compiles_as_c(void) {
   int32_t (*secure_event_input_snapshot)(DaHandle,
                                          DaSecureEventInputSnapshot*) =
       da_secure_event_input_get_snapshot;
-  int32_t (*secure_input_indicator)(DaHandle, int32_t) =
-      da_view_set_secure_input_indicator;
+  int32_t (*view_badge)(DaHandle, const DaViewBadgeConfiguration*) =
+      da_view_set_badge;
   int32_t (*view_context_menu)(DaHandle, DaHandle) =
       da_view_set_context_menu;
   int32_t (*quick_look_enabled)(DaHandle, int32_t) =
@@ -133,7 +133,7 @@ int da_header_compiles_as_c(void) {
                  secure_event_input_create != 0 &&
                  secure_event_input_set_desired != 0 &&
                  secure_event_input_snapshot != 0 &&
-                 secure_input_indicator != 0 &&
+                 view_badge != 0 &&
                  view_context_menu != 0 &&
                  quick_look_enabled != 0 && show_definition != 0 &&
                  services_text_requestor != 0 &&

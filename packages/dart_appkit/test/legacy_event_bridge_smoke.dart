@@ -195,15 +195,21 @@ void main(List<String> arguments) {
   }
   if (bindings.secureEventInputCreate().status != 8 ||
       bindings.secureEventInputSetDesired(1, true).status != 8 ||
-      bindings.secureEventInputGetSnapshot(1).status != 8 ||
-      bindings
-              .viewSetSecureInputIndicator(
-                1,
-                dartAppKitSecureInputIndicatorAutomatic,
-              )
-              .status !=
-          8) {
+      bindings.secureEventInputGetSnapshot(1).status != 8) {
     _fail('legacy bridge accepted additive secure-input APIs');
+  }
+  if (bindings
+          .viewSetBadge(
+            1,
+            const NativeViewBadgeConfiguration(
+              text: 'SYNC ACTIVE',
+              accessibilityLabel: 'Synchronization active',
+              accessibilityHelp: 'The current view is synchronized.',
+            ),
+          )
+          .status !=
+      8) {
+    _fail('legacy bridge accepted the additive view-badge API');
   }
   if (bindings.viewSetContextMenu(1, 2).status != 8) {
     _fail('legacy bridge accepted additive view context-menu attachment');

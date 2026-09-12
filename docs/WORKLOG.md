@@ -3587,3 +3587,28 @@ tab/window semantics with generic application-injected actions.
 The folder Service action correction is complete. The parent remains open, and
 the next ordered subtask is replacing the product-specific Secure Input display
 with a bounded generic application-configured badge.
+
+## 2026-09-13 — Generic view badge
+
+- Replaced the Secure Input-shaped view indicator enum and setter with an
+  unrelated nullable `ViewBadge` / `DaViewBadgeConfiguration` mechanism. The
+  consumer supplies visible, accessibility-label, and accessibility-help text;
+  native code copies and validates every non-empty string against a 256-byte
+  UTF-8 and display-safety bound. Null removes the badge.
+- The single overlay remains non-hit-testing, accessibility-visible, and
+  constrained only to the target's top/trailing anchors. It cannot resize the
+  target. Secure Event Input ownership stays an independent generic resource.
+  The removed and replacement display symbols are both optional under ABI
+  version 1, so mismatched images report unsupported instead of calling a
+  missing symbol.
+- C/C++ header compilation, native malformed-input/layout/accessibility tests,
+  Dart immutable configuration/cache/failure tests, and current/legacy FFI
+  passed. The consumer's exact full gate and both Developer JIT and Release AOT
+  real-application secure-input integration suites passed. Product visible and
+  accessibility wording now exists only in the consumer.
+
+### Roadmap checkpoint
+
+The generic badge subtask is complete. The parent remains open, and the next
+ordered subtask is removing product fixtures/build descriptions/current docs
+and adding a regression source audit.

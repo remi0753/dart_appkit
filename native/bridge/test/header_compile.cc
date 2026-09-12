@@ -69,7 +69,7 @@ int da_header_compiles_as_cpp() {
   auto* secure_event_input_set_desired =
       &da_secure_event_input_set_desired;
   auto* secure_event_input_snapshot = &da_secure_event_input_get_snapshot;
-  auto* secure_input_indicator = &da_view_set_secure_input_indicator;
+  auto* view_badge = &da_view_set_badge;
   auto* screen_resolve = &da_application_resolve_screen;
   auto* window_present = &da_window_present;
   auto* window_hide = &da_window_hide;
@@ -96,7 +96,7 @@ int da_header_compiles_as_cpp() {
                  secure_event_input_create != nullptr &&
                  secure_event_input_set_desired != nullptr &&
                  secure_event_input_snapshot != nullptr &&
-                 secure_input_indicator != nullptr &&
+                 view_badge != nullptr &&
                  view_context_menu != nullptr &&
                  quick_look_enabled != nullptr &&
                  show_definition != nullptr &&

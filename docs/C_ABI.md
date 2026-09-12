@@ -408,12 +408,15 @@ process. Carbon failures return `DA_STATUS_SECURE_EVENT_INPUT_FAILED` with the
 numeric status in the last-error message while retaining ownership knowledge
 for a later retry.
 
-`da_view_set_secure_input_indicator` accepts hidden, automatic, or manual. It
-adds at most one accessible, non-hit-testing overlay to any registered view and
-removes it for hidden. The overlay is constrained only to the target's top and
-trailing anchors and therefore does not change its bounds or terminal grid
-geometry. These are additive symbols under ABI version 1; an older image is
-reported as unsupported by the optional Dart binding surface.
+`da_view_set_badge` accepts a nullable size-prefixed
+`DaViewBadgeConfiguration`. A non-null configuration copies non-empty,
+display-safe visible, accessibility-label, and accessibility-help strings of at
+most 256 UTF-8 bytes each. It adds or updates at most one accessible,
+non-hit-testing overlay on any registered view; null removes it. The overlay is
+constrained only to the target's top and trailing anchors and therefore does
+not change its bounds or content geometry. The bridge assigns no meaning to
+the supplied text. This optional symbol is feature-detected under ABI version
+1; an image without it is reported as unsupported by the Dart binding surface.
 
 ## Pasteboard policy
 
