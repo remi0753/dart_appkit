@@ -3641,3 +3641,31 @@ and adding a regression source audit.
 Generic source closure is complete. The parent remains open, and the final
 ordered subtask is running both repositories' exact full gates plus consumer
 Developer JIT and Release AOT bundle, audit, and integration acceptance.
+
+## 2026-09-13 — Ownership correction final acceptance
+
+- The consumer's final runtime gate first exposed a stale integration-tool
+  literal: emitted native events correctly used current protocol version 13,
+  while several assertions still expected version 12. The consumer now imports
+  this package's already-public `dartAppKitCurrentEventProtocolVersion` and
+  derives all current-protocol assertions from the generic contract. A focused
+  Developer JIT smoke rerun passed in the normal GUI environment.
+- The consumer's exact final runtime gate then passed end to end. It repeated
+  its full source/package tests and ownership audit, built and audited both
+  Developer JIT and Release AOT application bundles, and passed both variants
+  of all smoke, display, hierarchy, action, automation, configuration, theme,
+  content, restoration, clipboard, lifecycle, traffic, resource, and fault
+  integration suites.
+- This unchanged committed repository was retested with `CI=true
+  DART_SUPPRESS_ANALYTICS=true make test`. The 131-path/130-text-file generic
+  source audit, scaffold, native bridge/runner/runtime contracts, runtime
+  builder tests, example native asset, public Dart API and launcher tests,
+  current FFI smoke, and legacy event fallback all passed.
+
+### Roadmap checkpoint
+
+Every product package, semantic policy, fixture, build gate, and current
+documentation leak listed by the inventory has been removed or transferred.
+Both exact repository gates and both consumer runtime modes pass, so the final
+subtask and the ownership-correction parent are complete with no blocker or
+deferred work.
