@@ -106,8 +106,8 @@ Future<void> _testLifecycleAndErrors() async {
   _expect(bindings.eventPort == 4242, 'native event port registration');
   _expect(
     bindings.requestedMinimumEventProtocolVersion == 1 &&
-        bindings.requestedMaximumEventProtocolVersion == 14 &&
-        app.eventProtocolVersion == 14,
+        bindings.requestedMaximumEventProtocolVersion == 15 &&
+        app.eventProtocolVersion == 15,
     'current event protocol negotiation',
   );
 
@@ -2028,6 +2028,107 @@ Future<void> _testAccessibilityDisplayPreferencesEvents() async {
   await raw.close();
 }
 
+Future<void> _testApplicationSystemStateEvents() async {
+  final StreamController<Object?> raw = StreamController<Object?>.broadcast(
+    sync: true,
+  );
+  final AppKitApplication app = await _attach(FakeNativeBindings(), raw);
+  final List<AppKitEvent> events = <AppKitEvent>[];
+  final List<Object> errors = <Object>[];
+  var powerCount = 0;
+  var screenSetCount = 0;
+  var memoryPressureCount = 0;
+  final StreamSubscription<AppKitEvent> allEvents = app.events.listen(
+    events.add,
+    onError: errors.add,
+  );
+  final StreamSubscription<ApplicationPowerStateChangedEvent> powerEvents = app
+      .onPowerStateChanged
+      .listen(
+        (ApplicationPowerStateChangedEvent _) => powerCount++,
+        onError: (Object _) {},
+      );
+  final StreamSubscription<ApplicationScreenSetChangedEvent> screenSetEvents =
+      app.onScreenSetChanged.listen(
+        (ApplicationScreenSetChangedEvent _) => screenSetCount++,
+        onError: (Object _) {},
+      );
+  final StreamSubscription<ApplicationMemoryPressureChangedEvent>
+  memoryPressureEvents = app.onMemoryPressureChanged.listen(
+    (ApplicationMemoryPressureChangedEvent _) => memoryPressureCount++,
+    onError: (Object _) {},
+  );
+
+  raw
+    ..add(<Object?>[15, 35, 0, 0, 600000, 0, 0])
+    ..add(<Object?>[15, 35, 0, 0, 601000, 0, 1])
+    ..add(<Object?>[15, 36, 0, 0, 602000, 0])
+    ..add(<Object?>[15, 37, 0, 0, 603000, 0, 0])
+    ..add(<Object?>[15, 37, 0, 0, 604000, 0, 1])
+    ..add(<Object?>[15, 37, 0, 0, 605000, 0, 2]);
+
+  _expect(
+    events.length == 6 &&
+        powerCount == 2 &&
+        screenSetCount == 1 &&
+        memoryPressureCount == 3,
+    'system-state events reach the generic and typed streams',
+  );
+  final ApplicationPowerStateChangedEvent willSleep =
+      events[0] as ApplicationPowerStateChangedEvent;
+  final ApplicationPowerStateChangedEvent didWake =
+      events[1] as ApplicationPowerStateChangedEvent;
+  final ApplicationMemoryPressureChangedEvent normal =
+      events[3] as ApplicationMemoryPressureChangedEvent;
+  final ApplicationMemoryPressureChangedEvent warning =
+      events[4] as ApplicationMemoryPressureChangedEvent;
+  final ApplicationMemoryPressureChangedEvent critical =
+      events[5] as ApplicationMemoryPressureChangedEvent;
+  _expect(
+    willSleep.state == AppKitApplicationPowerState.willSleep &&
+        willSleep.monotonicMicros == 600 &&
+        willSleep.protocolVersion == 15 &&
+        willSleep.sourceHandle == 0 &&
+        willSleep.operationId == 0 &&
+        didWake.state == AppKitApplicationPowerState.didWake &&
+        events[2] is ApplicationScreenSetChangedEvent &&
+        normal.level == AppKitMemoryPressureLevel.normal &&
+        warning.level == AppKitMemoryPressureLevel.warning &&
+        critical.level == AppKitMemoryPressureLevel.critical,
+    'system-state payloads decode without product policy',
+  );
+
+  raw
+    ..add(<Object?>[14, 35, 0, 0, 610000, 0, 0])
+    ..add(<Object?>[15, 35, 0, 0, 611000, 0])
+    ..add(<Object?>[15, 35, 0, 0, 612000, 0, 2])
+    ..add(<Object?>[15, 35, 1, 0, 613000, 0, 0])
+    ..add(<Object?>[15, 35, 0, 1, 614000, 0, 0])
+    ..add(<Object?>[15, 35, 0, 0, 615000, 1, 0])
+    ..add(<Object?>[15, 36, 0, 0, 616000, 0, 0])
+    ..add(<Object?>[15, 37, 0, 0, 617000, 0])
+    ..add(<Object?>[15, 37, 0, 0, 618000, 0, 3]);
+  _expect(
+    errors.length == 9 &&
+        errors.every((Object error) => error is FormatException),
+    'malformed system-state events are surfaced',
+  );
+  _expect(
+    events.length == 6 &&
+        powerCount == 2 &&
+        screenSetCount == 1 &&
+        memoryPressureCount == 3,
+    'malformed system-state events do not reach typed streams',
+  );
+
+  await memoryPressureEvents.cancel();
+  await screenSetEvents.cancel();
+  await powerEvents.cancel();
+  await allEvents.cancel();
+  await app.terminate();
+  await raw.close();
+}
+
 Future<void> _testPasteboardApi() async {
   final StreamController<Object?> raw = StreamController<Object?>.broadcast(
     sync: true,
@@ -3826,6 +3927,10 @@ Future<void> main() async {
   await _test(
     'application accessibility display preference events',
     _testAccessibilityDisplayPreferencesEvents,
+  );
+  await _test(
+    'application system state events',
+    _testApplicationSystemStateEvents,
   );
   await _test('exclusive global hot-key ownership', _testGlobalHotKeyApi);
   await _test(

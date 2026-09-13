@@ -27,8 +27,24 @@ _Static_assert(sizeof(DaSecureEventInputSnapshot) == 24,
 _Static_assert(DA_ABI_VERSION == 1, "unexpected ABI version");
 _Static_assert(DA_EVENT_PROTOCOL_VERSION_MIN == 1,
                "unexpected minimum event protocol version");
-_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 14,
+_Static_assert(DA_EVENT_PROTOCOL_VERSION_CURRENT == 15,
                "unexpected current event protocol version");
+_Static_assert(DA_EVENT_APPLICATION_POWER_STATE_CHANGED == 35,
+               "unexpected power event value");
+_Static_assert(DA_EVENT_APPLICATION_SCREEN_SET_CHANGED == 36,
+               "unexpected screen-set event value");
+_Static_assert(DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED == 37,
+               "unexpected memory-pressure event value");
+_Static_assert(DA_APPLICATION_POWER_STATE_WILL_SLEEP == 0,
+               "unexpected power-state value");
+_Static_assert(DA_APPLICATION_POWER_STATE_DID_WAKE == 1,
+               "unexpected power-state value");
+_Static_assert(DA_MEMORY_PRESSURE_NORMAL == 0,
+               "unexpected memory-pressure value");
+_Static_assert(DA_MEMORY_PRESSURE_WARNING == 1,
+               "unexpected memory-pressure value");
+_Static_assert(DA_MEMORY_PRESSURE_CRITICAL == 2,
+               "unexpected memory-pressure value");
 _Static_assert(DA_NATIVE_EXTENSION_ABI_VERSION == 1,
                "unexpected native extension ABI version");
 

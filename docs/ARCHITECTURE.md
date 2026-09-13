@@ -99,13 +99,18 @@ local directory URLs. The consuming application owns each action's meaning.
 Version 13 adds content-free local-notification lifecycle results with opaque
 positive tokens. Version 14 adds three booleans for Reduce Motion, Increase
 Contrast, and Differentiate Without Color in a deduplicated application
-accessibility-display snapshot.
+accessibility-display snapshot. Version 15 adds typed application power-state,
+global screen-set-change, and public dispatch memory-pressure observations.
+Power and pressure observations deduplicate consecutive identical values;
+screen-set notifications are delivered individually so consumers can choose
+their own coalescing and recovery policy.
 Each additive record is suppressed for every earlier sink.
 Application records use source handle/generation zero. Registry-sourced records
 carry a generation matching the handle's high 32 bits. Notifications use
 operation ID zero, while deferred close and termination requests carry a
-positive reply identity. The Dart decoder accepts all fourteen versions, preserves
-the existing `monotonicMicros` API, and exposes exact negotiated metadata.
+positive reply identity. The Dart decoder accepts all fifteen versions,
+preserves the existing `monotonicMicros` API, and exposes exact negotiated
+metadata.
 
 The internal event model stores nanoseconds. A version-1 serializer converts
 to microseconds only while posting, so an old Dart client receives its original

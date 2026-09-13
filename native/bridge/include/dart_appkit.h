@@ -19,7 +19,7 @@ extern "C" {
 
 /** Supported native event protocol range. Independent from DA_ABI_VERSION. */
 #define DA_EVENT_PROTOCOL_VERSION_MIN ((uint32_t)1)
-#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)14)
+#define DA_EVENT_PROTOCOL_VERSION_CURRENT ((uint32_t)15)
 
 /** Maximum UTF-8 text copied from the general pasteboard into a client. */
 #define DA_PASTEBOARD_TEXT_MAX_UTF8_BYTES ((size_t)(64u * 1024u * 1024u))
@@ -495,6 +495,9 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_TERMINATE_REQUESTED = 32,
   DA_EVENT_APPLICATION_APPEARANCE_CHANGED = 33,
   DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED = 34,
+  DA_EVENT_APPLICATION_POWER_STATE_CHANGED = 35,
+  DA_EVENT_APPLICATION_SCREEN_SET_CHANGED = 36,
+  DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED = 37,
   DA_EVENT_MENU_ITEM_INVOKED = 40,
   DA_EVENT_GLOBAL_HOT_KEY_PRESSED = 41,
   DA_EVENT_VIEW_QUICK_LOOK_REQUESTED = 42,
@@ -503,6 +506,19 @@ typedef enum DaEventType {
   DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED = 45,
   DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED = 46
 } DaEventType;
+
+/** Stable application power-state transitions used by protocol version 15. */
+typedef enum DaApplicationPowerState {
+  DA_APPLICATION_POWER_STATE_WILL_SLEEP = 0,
+  DA_APPLICATION_POWER_STATE_DID_WAKE = 1
+} DaApplicationPowerState;
+
+/** Stable public memory-pressure levels used by protocol version 15. */
+typedef enum DaMemoryPressureLevel {
+  DA_MEMORY_PRESSURE_NORMAL = 0,
+  DA_MEMORY_PRESSURE_WARNING = 1,
+  DA_MEMORY_PRESSURE_CRITICAL = 2
+} DaMemoryPressureLevel;
 
 /** Stable UserNotifications authorization values used by protocol version 13. */
 typedef enum DaUserNotificationAuthorizationStatus {

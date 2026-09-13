@@ -159,7 +159,7 @@ Version 1 remains the legacy fixed-position list:
 [protocolVersion, eventType, windowHandle, monotonicMicros, ...payload]
 ```
 
-Versions 2 through 12 use the six-field common prefix:
+Versions 2 through 15 use the six-field common prefix:
 
 ```text
 [protocolVersion, eventType, sourceHandle, sourceGeneration,
@@ -173,10 +173,10 @@ Versions 2 through 12 use the six-field common prefix:
 - `sourceGeneration` is positive and matches the handle's high 32 bits for
   registry objects. Application-scoped v4 events use zero.
 - Timestamps are monotonic rather than wall-clock time. Version 1 uses
-  microseconds; versions 2 through 12 use nanoseconds.
+  microseconds; versions 2 through 15 use nanoseconds.
 - Notifications use operation ID zero. Deferred close/termination requests use
   a positive ID that must be echoed exactly once in the matching reply call.
-- Version 12 is current. Version 3 adds window state, version 4 adds lifecycle
+- Version 15 is current. Version 3 adds window state, version 4 adds lifecycle
   decisions and menu actions, version 5 adds precision scroll, version 6 adds
   outer-frame and native-fullscreen state, and version 7 adds an application
   effective-appearance boolean (`false` light, `true` dark). Version 8 adds
@@ -185,7 +185,12 @@ Versions 2 through 12 use the six-field common prefix:
   Service to its registered View. Version 11 adds a bounded performed
   plain-text or local-file-URL drop with finite target-local coordinates.
   Version 12 adds bounded canonical directory URLs requested by the
-  application folder Services provider.
+  application folder Services provider. Version 13 adds content-free local
+  notification lifecycle results with positive opaque tokens. Version 14 adds
+  a three-boolean accessibility display-preference snapshot. Version 15 adds
+  application power-state, global screen-set-change, and public memory-pressure
+  events. The v15 records use zero source identity and operation ID; power and
+  pressure carry one closed-enum integer and screen-set change has no payload.
   Version-specific types are suppressed for an older negotiated sink.
 
 `da_debug_request_application_termination` is a main-thread, test-only entry
@@ -312,7 +317,11 @@ deadlock after Dart has stopped listening for events. Registering a v4 event
 port also posts the current application-active snapshot. A v7 registration
 additionally posts the current effective light/dark appearance and starts a
 deduplicating KVO observation that is replaced by re-registration and removed
-at bridge shutdown.
+at bridge shutdown. A v14 registration similarly publishes and observes the
+accessibility display-preference snapshot. A v15 registration observes public
+workspace power, AppKit screen-parameter, and dispatch memory-pressure sources;
+it emits no invented initial system-state event and stops all observation on
+port replacement or bridge shutdown.
 
 ## Global hot keys
 

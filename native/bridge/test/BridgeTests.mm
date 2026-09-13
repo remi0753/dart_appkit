@@ -1,6 +1,8 @@
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
 
+#include <dispatch/dispatch.h>
+
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -1295,6 +1297,27 @@ void TestEventProtocolNegotiation() {
   EXPECT_TRUE(dart_appkit::PostEvent(event));
   EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(14));
 
+  event.type = DA_EVENT_APPLICATION_POWER_STATE_CHANGED;
+  event.application_power_state = DA_APPLICATION_POWER_STATE_WILL_SLEEP;
+  const size_t before_version_fifteen_event = capture.events.size();
+  EXPECT_TRUE(!dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.events.size(), before_version_fifteen_event);
+
+  selected_version = 99;
+  EXPECT_EQ(
+      da_application_set_event_port_versioned(4242, 15, 15,
+                                              &selected_version),
+      DA_STATUS_OK);
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(15));
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(15));
+
+  event.type = DA_EVENT_APPLICATION_SCREEN_SET_CHANGED;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+  event.type = DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED;
+  event.memory_pressure_level = DA_MEMORY_PRESSURE_WARNING;
+  EXPECT_TRUE(dart_appkit::PostEvent(event));
+
   selected_version = 99;
   EXPECT_EQ(
       da_application_set_event_port_versioned(4242, 1, 6, &selected_version),
@@ -1306,7 +1329,7 @@ void TestEventProtocolNegotiation() {
 
   selected_version = 99;
   EXPECT_EQ(
-      da_application_set_event_port_versioned(4242, 15, 15, &selected_version),
+      da_application_set_event_port_versioned(4242, 16, 16, &selected_version),
       DA_STATUS_UNSUPPORTED_VERSION);
   EXPECT_EQ(selected_version, static_cast<uint32_t>(0));
   EXPECT_TRUE(!dart_appkit::PostEvent(event));
@@ -1466,7 +1489,7 @@ void TestApplicationAccessibilityDisplayPreferencesObservation() {
                 4242, DA_EVENT_PROTOCOL_VERSION_CURRENT,
                 DA_EVENT_PROTOCOL_VERSION_CURRENT, &selected_version),
             DA_STATUS_OK);
-  EXPECT_EQ(selected_version, static_cast<uint32_t>(14));
+  EXPECT_EQ(selected_version, static_cast<uint32_t>(15));
   EXPECT_EQ(CountEvents(
                 capture,
                 DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED),
@@ -1497,7 +1520,7 @@ void TestApplicationAccessibilityDisplayPreferencesObservation() {
   EXPECT_TRUE(capture.events.back().reduce_motion);
   EXPECT_TRUE(capture.events.back().increase_contrast);
   EXPECT_TRUE(capture.events.back().differentiate_without_color);
-  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(14));
+  EXPECT_EQ(capture.protocol_versions.back(), static_cast<uint32_t>(15));
   [notification_center
       postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
                     object:nil];
@@ -1521,6 +1544,77 @@ void TestApplicationAccessibilityDisplayPreferencesObservation() {
   [notification_center
       postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
                     object:nil];
+  EXPECT_EQ(capture.events.size(), after_shutdown);
+  dart_appkit::ResetBridgeForTesting();
+}
+
+void TestApplicationSystemStateObservation() {
+  Capture capture;
+  ResetWithCurrentCapture(&capture);
+  capture.events.clear();
+  capture.protocol_versions.clear();
+
+  NSNotificationCenter* workspace_center =
+      [NSWorkspace sharedWorkspace].notificationCenter;
+  NSNotificationCenter* application_center =
+      [NSNotificationCenter defaultCenter];
+
+  [workspace_center postNotificationName:NSWorkspaceWillSleepNotification
+                                  object:nil];
+  [workspace_center postNotificationName:NSWorkspaceWillSleepNotification
+                                  object:nil];
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_POWER_STATE_CHANGED),
+            static_cast<size_t>(1));
+  EXPECT_EQ(capture.events.back().application_power_state,
+            static_cast<int64_t>(DA_APPLICATION_POWER_STATE_WILL_SLEEP));
+
+  [workspace_center postNotificationName:NSWorkspaceDidWakeNotification
+                                  object:nil];
+  [workspace_center postNotificationName:NSWorkspaceDidWakeNotification
+                                  object:nil];
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_POWER_STATE_CHANGED),
+            static_cast<size_t>(2));
+  EXPECT_EQ(capture.events.back().application_power_state,
+            static_cast<int64_t>(DA_APPLICATION_POWER_STATE_DID_WAKE));
+
+  [application_center
+      postNotificationName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil];
+  [application_center
+      postNotificationName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil];
+  EXPECT_EQ(CountEvents(capture, DA_EVENT_APPLICATION_SCREEN_SET_CHANGED),
+            static_cast<size_t>(2));
+
+  dart_appkit::HandleApplicationMemoryPressureForTesting(
+      DISPATCH_MEMORYPRESSURE_NORMAL);
+  dart_appkit::HandleApplicationMemoryPressureForTesting(
+      DISPATCH_MEMORYPRESSURE_WARN);
+  dart_appkit::HandleApplicationMemoryPressureForTesting(
+      DISPATCH_MEMORYPRESSURE_WARN);
+  dart_appkit::HandleApplicationMemoryPressureForTesting(
+      DISPATCH_MEMORYPRESSURE_CRITICAL);
+  EXPECT_EQ(
+      CountEvents(capture, DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED),
+      static_cast<size_t>(3));
+  EXPECT_EQ(capture.events.back().memory_pressure_level,
+            static_cast<int64_t>(DA_MEMORY_PRESSURE_CRITICAL));
+
+  for (size_t index = 0; index < capture.events.size(); ++index) {
+    EXPECT_EQ(capture.events[index].window, static_cast<DaHandle>(0));
+    EXPECT_EQ(capture.events[index].operation_id, static_cast<int64_t>(0));
+    EXPECT_EQ(capture.protocol_versions[index], static_cast<uint32_t>(15));
+  }
+
+  dart_appkit::ShutdownBridge();
+  const size_t after_shutdown = capture.events.size();
+  [workspace_center postNotificationName:NSWorkspaceWillSleepNotification
+                                  object:nil];
+  [application_center
+      postNotificationName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil];
+  dart_appkit::HandleApplicationMemoryPressureForTesting(
+      DISPATCH_MEMORYPRESSURE_WARN);
   EXPECT_EQ(capture.events.size(), after_shutdown);
   dart_appkit::ResetBridgeForTesting();
 }
@@ -5098,6 +5192,7 @@ int main() {
     TestLifecycleRequests();
     TestApplicationAppearanceObservation();
     TestApplicationAccessibilityDisplayPreferencesObservation();
+    TestApplicationSystemStateObservation();
     TestPasteboardText();
     TestSavePanel();
     TestExternalUrlOpening();

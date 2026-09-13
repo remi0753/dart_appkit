@@ -263,6 +263,32 @@ extern "C" bool Dart_PostCObject(Dart_Port port_id, Dart_CObject* message) {
     ExpectBool(values[6], true);
     ExpectBool(values[7], false);
     ExpectBool(values[8], true);
+  } else if (g_expected_case == 19) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(7));
+    ExpectInt(values[0], 15);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_POWER_STATE_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectInt(values[6], DA_APPLICATION_POWER_STATE_DID_WAKE);
+  } else if (g_expected_case == 20) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(6));
+    ExpectInt(values[0], 15);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_SCREEN_SET_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+  } else if (g_expected_case == 21) {
+    EXPECT_EQ(message->value.as_array.length, static_cast<intptr_t>(7));
+    ExpectInt(values[0], 15);
+    ExpectInt(values[1], DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED);
+    ExpectInt(values[2], 0);
+    ExpectInt(values[3], 0);
+    ExpectInt(values[4], 1234567890);
+    ExpectInt(values[5], 0);
+    ExpectInt(values[6], DA_MEMORY_PRESSURE_CRITICAL);
   } else {
     EXPECT_TRUE(false);
   }
@@ -414,7 +440,36 @@ int main() {
   EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 14, event));
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 13, event));
 
+  event.type = DA_EVENT_APPLICATION_POWER_STATE_CHANGED;
+  event.application_power_state = DA_APPLICATION_POWER_STATE_DID_WAKE;
+  g_expected_case = 19;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 14, event));
+
+  event.type = DA_EVENT_APPLICATION_SCREEN_SET_CHANGED;
+  g_expected_case = 20;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 14, event));
+
+  event.type = DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED;
+  event.memory_pressure_level = DA_MEMORY_PRESSURE_CRITICAL;
+  g_expected_case = 21;
+  EXPECT_TRUE(dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 14, event));
+
   const int accepted_posts = g_post_count;
+  event.memory_pressure_level = DA_MEMORY_PRESSURE_CRITICAL + 1;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  event.type = DA_EVENT_APPLICATION_POWER_STATE_CHANGED;
+  event.application_power_state = DA_APPLICATION_POWER_STATE_WILL_SLEEP - 1;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  event.type = DA_EVENT_APPLICATION_SCREEN_SET_CHANGED;
+  event.window = (static_cast<DaHandle>(7) << 32) | 3;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  event.window = 0;
+  event.operation_id = 1;
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  event.operation_id = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 7, event));
   event.type = DA_EVENT_APPLICATION_APPEARANCE_CHANGED;
   event.window = 0;
@@ -477,7 +532,7 @@ int main() {
   event.window = (static_cast<DaHandle>(7) << 32) | 3;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 12, event));
   event.type = DA_EVENT_KEY_DOWN;
-  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 15, event));
+  EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 16, event));
   event.window = 0;
   EXPECT_TRUE(!dart_appkit::PostNativeEventToDartPort(4242, 2, event));
   event.window = (static_cast<DaHandle>(7) << 32) | 3;

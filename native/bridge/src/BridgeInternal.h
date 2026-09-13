@@ -55,6 +55,8 @@ struct NativeEvent {
   int64_t user_notification_authorization =
       DA_USER_NOTIFICATION_AUTHORIZATION_UNKNOWN;
   int64_t user_notification_failure = DA_USER_NOTIFICATION_FAILURE_NONE;
+  int64_t application_power_state = DA_APPLICATION_POWER_STATE_WILL_SLEEP;
+  int64_t memory_pressure_level = DA_MEMORY_PRESSURE_NORMAL;
 
   std::string characters;
   std::string characters_ignoring_modifiers;
@@ -170,6 +172,12 @@ void StartApplicationAccessibilityDisplayPreferencesObservation();
 void StopApplicationAccessibilityDisplayPreferencesObservation();
 void InstallAccessibilityDisplayPreferencesQueryForTesting(
     AccessibilityDisplayPreferencesQuery query);
+void PostApplicationPowerStateChanged(int64_t state);
+void PostApplicationScreenSetChanged();
+void PostApplicationMemoryPressureChanged(int64_t level);
+void StartApplicationSystemStateObservation();
+void StopApplicationSystemStateObservation();
+void HandleApplicationMemoryPressureForTesting(uint64_t flags);
 ApplicationTerminationDecision HandleApplicationShouldTerminate();
 void InstallUserNotificationHandlerForTesting(UserNotificationHandler handler,
                                               void* context);
@@ -230,6 +238,10 @@ inline bool EventTypeSupportedByProtocol(DaEventType type,
       return protocol_version >= 13;
     case DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED:
       return protocol_version >= 14;
+    case DA_EVENT_APPLICATION_POWER_STATE_CHANGED:
+    case DA_EVENT_APPLICATION_SCREEN_SET_CHANGED:
+    case DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED:
+      return protocol_version >= 15;
     case DA_EVENT_WINDOW_FOCUS_CHANGED:
     case DA_EVENT_WINDOW_VISIBILITY_CHANGED:
     case DA_EVENT_WINDOW_OCCLUSION_CHANGED:

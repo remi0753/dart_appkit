@@ -216,6 +216,24 @@ bool DaApplicationUsesDarkAppearance(NSApplication* application) {
 
 @end
 
+@interface DaApplicationSystemStateObserver : NSObject {
+ @private
+  NSNotificationCenter* _workspaceNotificationCenter;
+  NSNotificationCenter* _applicationNotificationCenter;
+  dispatch_source_t _memoryPressureSource;
+  BOOL _observing;
+  NSInteger _lastPowerState;
+  NSInteger _lastMemoryPressureLevel;
+}
+
+- (instancetype)initWithWorkspaceNotificationCenter:
+                    (NSNotificationCenter*)workspaceNotificationCenter
+                         applicationNotificationCenter:
+                             (NSNotificationCenter*)applicationNotificationCenter;
+- (void)stop;
+
+@end
+
 @interface DaViewBadge : NSView {
  @private
   NSTextField* _label;
@@ -1385,6 +1403,117 @@ void DaDropDraggingEnded(NSWindow* window, id<NSDraggingInfo> sender) {
 
 @end
 
+@implementation DaApplicationSystemStateObserver
+
+- (instancetype)initWithWorkspaceNotificationCenter:
+                    (NSNotificationCenter*)workspaceNotificationCenter
+                         applicationNotificationCenter:
+                             (NSNotificationCenter*)applicationNotificationCenter {
+  self = [super init];
+  if (self != nil) {
+    _workspaceNotificationCenter = workspaceNotificationCenter;
+    _applicationNotificationCenter = applicationNotificationCenter;
+    _lastPowerState = -1;
+    _lastMemoryPressureLevel = -1;
+    [workspaceNotificationCenter addObserver:self
+                                     selector:@selector(workspaceWillSleep:)
+                                         name:NSWorkspaceWillSleepNotification
+                                       object:nil];
+    [workspaceNotificationCenter addObserver:self
+                                     selector:@selector(workspaceDidWake:)
+                                         name:NSWorkspaceDidWakeNotification
+                                       object:nil];
+    [applicationNotificationCenter
+        addObserver:self
+           selector:@selector(applicationScreenSetDidChange:)
+               name:NSApplicationDidChangeScreenParametersNotification
+             object:nil];
+    _memoryPressureSource = dispatch_source_create(
+        DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
+        DISPATCH_MEMORYPRESSURE_NORMAL | DISPATCH_MEMORYPRESSURE_WARN |
+            DISPATCH_MEMORYPRESSURE_CRITICAL,
+        dispatch_get_main_queue());
+    if (_memoryPressureSource != nil) {
+      __weak DaApplicationSystemStateObserver* weak_self = self;
+      dispatch_source_set_event_handler(_memoryPressureSource, ^{
+        DaApplicationSystemStateObserver* strong_self = weak_self;
+        if (strong_self == nil) {
+          return;
+        }
+        [strong_self memoryPressureChanged:
+                         dispatch_source_get_data(
+                             strong_self->_memoryPressureSource)];
+      });
+      dispatch_resume(_memoryPressureSource);
+    }
+    _observing = YES;
+  }
+  return self;
+}
+
+- (void)stop {
+  if (!_observing) {
+    return;
+  }
+  _observing = NO;
+  [_workspaceNotificationCenter removeObserver:self];
+  [_applicationNotificationCenter removeObserver:self];
+  _workspaceNotificationCenter = nil;
+  _applicationNotificationCenter = nil;
+  if (_memoryPressureSource != nil) {
+    dispatch_source_cancel(_memoryPressureSource);
+    _memoryPressureSource = nil;
+  }
+}
+
+- (void)workspaceWillSleep:(NSNotification*)notification {
+  (void)notification;
+  [self publishPowerState:DA_APPLICATION_POWER_STATE_WILL_SLEEP];
+}
+
+- (void)workspaceDidWake:(NSNotification*)notification {
+  (void)notification;
+  [self publishPowerState:DA_APPLICATION_POWER_STATE_DID_WAKE];
+}
+
+- (void)publishPowerState:(NSInteger)state {
+  if (!_observing || state == _lastPowerState) {
+    return;
+  }
+  _lastPowerState = state;
+  dart_appkit::PostApplicationPowerStateChanged(state);
+}
+
+- (void)applicationScreenSetDidChange:(NSNotification*)notification {
+  (void)notification;
+  if (_observing) {
+    dart_appkit::PostApplicationScreenSetChanged();
+  }
+}
+
+- (void)memoryPressureChanged:(unsigned long)flags {
+  if (!_observing) {
+    return;
+  }
+  NSInteger level = DA_MEMORY_PRESSURE_NORMAL;
+  if ((flags & DISPATCH_MEMORYPRESSURE_CRITICAL) != 0) {
+    level = DA_MEMORY_PRESSURE_CRITICAL;
+  } else if ((flags & DISPATCH_MEMORYPRESSURE_WARN) != 0) {
+    level = DA_MEMORY_PRESSURE_WARNING;
+  }
+  if (level == _lastMemoryPressureLevel) {
+    return;
+  }
+  _lastMemoryPressureLevel = level;
+  dart_appkit::PostApplicationMemoryPressureChanged(level);
+}
+
+- (void)dealloc {
+  [self stop];
+}
+
+@end
+
 @implementation DaMenuItemOwner
 
 @synthesize item = _item;
@@ -1455,6 +1584,7 @@ bool g_programmatic_application_termination = false;
 DaApplicationAppearanceObserver* g_application_appearance_observer = nil;
 DaApplicationAccessibilityDisplayPreferencesObserver*
     g_application_accessibility_display_preferences_observer = nil;
+DaApplicationSystemStateObserver* g_application_system_state_observer = nil;
 
 AccessibilityDisplayPreferences QueryAccessibilityDisplayPreferencesWithSystem() {
   NSWorkspace* workspace = [NSWorkspace sharedWorkspace];
@@ -3107,6 +3237,54 @@ void InstallAccessibilityDisplayPreferencesQueryForTesting(
       query == nullptr ? QueryAccessibilityDisplayPreferencesWithSystem : query;
 }
 
+void PostApplicationPowerStateChanged(int64_t state) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_POWER_STATE_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.application_power_state = state;
+  (void)PostEvent(event);
+}
+
+void PostApplicationScreenSetChanged() {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_SCREEN_SET_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  (void)PostEvent(event);
+}
+
+void PostApplicationMemoryPressureChanged(int64_t level) {
+  NativeEvent event;
+  event.type = DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED;
+  event.monotonic_nanos = MonotonicNanos();
+  event.memory_pressure_level = level;
+  (void)PostEvent(event);
+}
+
+void StartApplicationSystemStateObservation() {
+  StopApplicationSystemStateObservation();
+  NSNotificationCenter* workspace_notification_center =
+      [NSWorkspace sharedWorkspace].notificationCenter;
+  NSNotificationCenter* application_notification_center =
+      [NSNotificationCenter defaultCenter];
+  if (workspace_notification_center != nil &&
+      application_notification_center != nil) {
+    g_application_system_state_observer =
+        [[DaApplicationSystemStateObserver alloc]
+            initWithWorkspaceNotificationCenter:workspace_notification_center
+                   applicationNotificationCenter:application_notification_center];
+  }
+}
+
+void StopApplicationSystemStateObservation() {
+  [g_application_system_state_observer stop];
+  g_application_system_state_observer = nil;
+}
+
+void HandleApplicationMemoryPressureForTesting(uint64_t flags) {
+  [g_application_system_state_observer
+      memoryPressureChanged:static_cast<unsigned long>(flags)];
+}
+
 ApplicationTerminationDecision HandleApplicationShouldTerminate() {
   if (g_programmatic_application_termination) {
     g_programmatic_application_termination = false;
@@ -3201,6 +3379,7 @@ void ShutdownBridge() {
   if (g_user_notification_epoch == 0) g_user_notification_epoch = 1;
   StopApplicationAppearanceObservation();
   StopApplicationAccessibilityDisplayPreferencesObservation();
+  StopApplicationSystemStateObservation();
   StopUserNotificationObservation();
   ClearFolderServicesProvider();
   g_defers_application_termination_requests = false;
@@ -3308,6 +3487,7 @@ int32_t da_application_set_event_port(int64_t dart_port) {
   }
   dart_appkit::StopApplicationAppearanceObservation();
   dart_appkit::StopApplicationAccessibilityDisplayPreferencesObservation();
+  dart_appkit::StopApplicationSystemStateObservation();
   return dart_appkit::SetEventPort(dart_port);
 }
 
@@ -3324,6 +3504,7 @@ int32_t da_application_set_event_port_versioned(
   }
   dart_appkit::StopApplicationAppearanceObservation();
   dart_appkit::StopApplicationAccessibilityDisplayPreferencesObservation();
+  dart_appkit::StopApplicationSystemStateObservation();
   const int32_t status = dart_appkit::SetEventPortVersioned(
       dart_port, min_version, max_version, out_selected_version);
   if (status == DA_STATUS_OK) {
@@ -3337,6 +3518,9 @@ int32_t da_application_set_event_port_versioned(
       dart_appkit::StartApplicationAccessibilityDisplayPreferencesObservation();
       dart_appkit::PostApplicationAccessibilityDisplayPreferencesChanged(
           dart_appkit::ApplicationAccessibilityDisplayPreferences());
+    }
+    if (*out_selected_version >= 15) {
+      dart_appkit::StartApplicationSystemStateObservation();
     }
   }
   return status;

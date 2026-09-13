@@ -120,6 +120,46 @@ final class ApplicationAccessibilityDisplayPreferencesChangedEvent
   final AppKitAccessibilityDisplayPreferences preferences;
 }
 
+enum AppKitApplicationPowerState { willSleep, didWake }
+
+/// One content-free system power-state transition.
+final class ApplicationPowerStateChangedEvent extends ApplicationEvent {
+  const ApplicationPowerStateChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 15,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.state,
+  });
+
+  final AppKitApplicationPowerState state;
+}
+
+/// Signals that the current system screen inventory may have changed.
+final class ApplicationScreenSetChangedEvent extends ApplicationEvent {
+  const ApplicationScreenSetChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 15,
+    super.monotonicNanoseconds,
+    super.operationId,
+  });
+}
+
+enum AppKitMemoryPressureLevel { normal, warning, critical }
+
+/// One content-free public operating-system memory-pressure observation.
+final class ApplicationMemoryPressureChangedEvent extends ApplicationEvent {
+  const ApplicationMemoryPressureChangedEvent({
+    required super.monotonicMicros,
+    super.protocolVersion = 15,
+    super.monotonicNanoseconds,
+    super.operationId,
+    required this.level,
+  });
+
+  final AppKitMemoryPressureLevel level;
+}
+
 enum FolderServiceAction { primary, secondary }
 
 /// One bounded Finder Service request containing canonical local directories.
@@ -619,6 +659,9 @@ final class _EventCodec {
   static const int _applicationTerminateRequested = 32;
   static const int _applicationAppearanceChanged = 33;
   static const int _applicationAccessibilityDisplayPreferencesChanged = 34;
+  static const int _applicationPowerStateChanged = 35;
+  static const int _applicationScreenSetChanged = 36;
+  static const int _applicationMemoryPressureChanged = 37;
   static const int _menuItemInvoked = 40;
   static const int _globalHotKeyPressed = 41;
   static const int _viewQuickLookRequested = 42;
@@ -1018,6 +1061,64 @@ final class _EventCodec {
             ),
           ),
         );
+      case _applicationPowerStateChanged:
+        _requireVersionFifteen(version, 'application power state changed');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'application power state changed',
+        );
+        return ApplicationPowerStateChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          state: switch (_integer(
+            message,
+            payloadOffset,
+            'applicationPowerState',
+          )) {
+            0 => AppKitApplicationPowerState.willSleep,
+            1 => AppKitApplicationPowerState.didWake,
+            final int value => throw FormatException(
+              'applicationPowerState has invalid value $value',
+            ),
+          },
+        );
+      case _applicationScreenSetChanged:
+        _requireVersionFifteen(version, 'application screen set changed');
+        _expectLength(message, payloadOffset, 'application screen set changed');
+        return ApplicationScreenSetChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+        );
+      case _applicationMemoryPressureChanged:
+        _requireVersionFifteen(version, 'application memory pressure changed');
+        _expectLength(
+          message,
+          payloadOffset + 1,
+          'application memory pressure changed',
+        );
+        return ApplicationMemoryPressureChangedEvent(
+          monotonicMicros: monotonicMicros,
+          protocolVersion: version,
+          monotonicNanoseconds: monotonicNanoseconds,
+          operationId: operationId,
+          level: switch (_integer(
+            message,
+            payloadOffset,
+            'memoryPressureLevel',
+          )) {
+            0 => AppKitMemoryPressureLevel.normal,
+            1 => AppKitMemoryPressureLevel.warning,
+            2 => AppKitMemoryPressureLevel.critical,
+            final int value => throw FormatException(
+              'memoryPressureLevel has invalid value $value',
+            ),
+          },
+        );
       case _menuItemInvoked:
         _requireVersionFour(version, 'menu item invoked');
         _expectLength(message, payloadOffset, 'menu item invoked');
@@ -1293,6 +1394,12 @@ final class _EventCodec {
     }
   }
 
+  static void _requireVersionFifteen(int version, String eventName) {
+    if (version < 15) {
+      throw FormatException('$eventName requires native event protocol 15');
+    }
+  }
+
   static AppKitScrollPhase _scrollPhase(
     List<Object?> message,
     int index,
@@ -1314,6 +1421,9 @@ final class _EventCodec {
       type == _applicationTerminateRequested ||
       type == _applicationAppearanceChanged ||
       type == _applicationAccessibilityDisplayPreferencesChanged ||
+      type == _applicationPowerStateChanged ||
+      type == _applicationScreenSetChanged ||
+      type == _applicationMemoryPressureChanged ||
       type == _applicationFolderServiceRequested ||
       type == _applicationUserNotificationChanged;
 

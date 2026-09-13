@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 const int dartAppKitAbiVersion = 1;
 const int dartAppKitMinimumEventProtocolVersion = 1;
-const int dartAppKitCurrentEventProtocolVersion = 14;
+const int dartAppKitCurrentEventProtocolVersion = 15;
 const int dartAppKitStatusGlobalHotKeyConflict = 11;
 const int dartAppKitStatusGlobalHotKeyRegistrationFailed = 12;
 const int dartAppKitStatusSecureEventInputFailed = 13;

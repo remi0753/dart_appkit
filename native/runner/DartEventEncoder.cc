@@ -95,6 +95,9 @@ bool PostNativeEventToDartPort(int64_t dart_port,
       event.type == DA_EVENT_APPLICATION_APPEARANCE_CHANGED ||
       event.type ==
           DA_EVENT_APPLICATION_ACCESSIBILITY_DISPLAY_PREFERENCES_CHANGED ||
+      event.type == DA_EVENT_APPLICATION_POWER_STATE_CHANGED ||
+      event.type == DA_EVENT_APPLICATION_SCREEN_SET_CHANGED ||
+      event.type == DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED ||
       event.type == DA_EVENT_APPLICATION_FOLDER_SERVICE_REQUESTED ||
       event.type == DA_EVENT_APPLICATION_USER_NOTIFICATION_CHANGED;
   const bool reply_required =
@@ -135,6 +138,7 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case 11:
     case 12:
     case 13:
+    case 14:
     case DA_EVENT_PROTOCOL_VERSION_CURRENT: {
       const int64_t source_generation =
           static_cast<int64_t>(event.window >> 32);
@@ -164,6 +168,24 @@ bool PostNativeEventToDartPort(int64_t dart_port,
     case DA_EVENT_APPLICATION_TERMINATE_REQUESTED:
     case DA_EVENT_MENU_ITEM_INVOKED:
     case DA_EVENT_GLOBAL_HOT_KEY_PRESSED:
+    case DA_EVENT_APPLICATION_SCREEN_SET_CHANGED:
+      break;
+    case DA_EVENT_APPLICATION_POWER_STATE_CHANGED:
+      if (event.application_power_state <
+              DA_APPLICATION_POWER_STATE_WILL_SLEEP ||
+          event.application_power_state > DA_APPLICATION_POWER_STATE_DID_WAKE) {
+        return false;
+      }
+      length += 1;
+      SetInt64(&values[payload_offset], event.application_power_state);
+      break;
+    case DA_EVENT_APPLICATION_MEMORY_PRESSURE_CHANGED:
+      if (event.memory_pressure_level < DA_MEMORY_PRESSURE_NORMAL ||
+          event.memory_pressure_level > DA_MEMORY_PRESSURE_CRITICAL) {
+        return false;
+      }
+      length += 1;
+      SetInt64(&values[payload_offset], event.memory_pressure_level);
       break;
     case DA_EVENT_VIEW_QUICK_LOOK_REQUESTED:
       if (!std::isfinite(event.x) || !std::isfinite(event.y)) {

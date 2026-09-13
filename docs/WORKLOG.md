@@ -3776,3 +3776,26 @@ deferred work.
   repository audit, native bridge/runtime suites, package analysis, builder,
   Universal assembler, distribution publisher, public Dart API, examples, and
   FFI smoke tests. Added-line and new-source scans found no consumer name.
+
+# 2026-09-13 — Generic application system-state events
+
+- Advanced the additive event protocol to v15 with application-scoped power,
+  global screen-set-change, and public dispatch memory-pressure observations.
+  The records retain zero source identity, zero operation identity, and
+  monotonic time; every older negotiated sink filters them before posting.
+- A reusable observer owns the public workspace sleep/wake notifications,
+  AppKit screen-parameter notification, and main-queue memory-pressure dispatch
+  source. Consecutive identical power and pressure values are deduplicated;
+  screen-set notifications are emitted individually for consumer-controlled
+  coalescing. Port replacement and bridge shutdown stop the observer.
+- Dart exposes closed enums, three typed events, and three typed application
+  streams with strict length, version, enum, source, and operation validation.
+  The package deliberately applies no pause, layout, rendering, reclamation, or
+  recovery policy.
+- Native tests cover version filtering, exact shared encoding, notification
+  delivery, deduplication, pressure mapping, and shutdown isolation. Dart tests
+  cover typed streams and malformed records. The focused native bridge, event
+  encoder, and Dart analysis/API suites pass. The exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate also passes,
+  including the generic repository audit, warnings-as-errors bridge/Runner
+  builds, runtime/package analysis, builders, examples, and current/legacy FFI.

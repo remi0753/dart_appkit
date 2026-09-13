@@ -322,6 +322,22 @@ final class AppKitApplication {
         (AppKitEvent event) =>
             event as ApplicationAccessibilityDisplayPreferencesChangedEvent,
       );
+  Stream<ApplicationPowerStateChangedEvent> get onPowerStateChanged => events
+      .where((AppKitEvent event) => event is ApplicationPowerStateChangedEvent)
+      .map((AppKitEvent event) => event as ApplicationPowerStateChangedEvent);
+  Stream<ApplicationScreenSetChangedEvent> get onScreenSetChanged => events
+      .where((AppKitEvent event) => event is ApplicationScreenSetChangedEvent)
+      .map((AppKitEvent event) => event as ApplicationScreenSetChangedEvent);
+  Stream<ApplicationMemoryPressureChangedEvent> get onMemoryPressureChanged =>
+      events
+          .where(
+            (AppKitEvent event) =>
+                event is ApplicationMemoryPressureChangedEvent,
+          )
+          .map(
+            (AppKitEvent event) =>
+                event as ApplicationMemoryPressureChangedEvent,
+          );
   Stream<ApplicationFolderServiceRequestedEvent> get onFolderServiceRequested =>
       events
           .where(

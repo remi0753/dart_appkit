@@ -44,10 +44,12 @@ generation-checked View. Version 12 adds typed primary/secondary action
 requests containing canonical local directory URLs from the application
 Services provider. Version 13 adds content-free notification settings,
 authorization, delivery, cancellation, and default-response events with opaque
-positive tokens. Current Dart/native pairs negotiate version 14, which adds a
-deduplicated application snapshot of Reduce Motion, Increase Contrast, and
-Differentiate Without Color. The Dart API strictly decodes all fourteen
-versions and suppresses newer records for older negotiated sinks.
+positive tokens. Version 14 adds a deduplicated application snapshot of Reduce
+Motion, Increase Contrast, and Differentiate Without Color. Current Dart/native
+pairs negotiate version 15, which adds generic application power-state,
+screen-set-change, and public memory-pressure observations. The Dart API
+strictly decodes all fifteen versions and suppresses newer records for older
+negotiated sinks.
 
 Native handles record an owning thread domain in addition to their encoded
 generation. Explicit UI release remains main-thread-only. Finalizers and other
@@ -236,6 +238,14 @@ it remains null until the initial event arrives. The matching typed stream
 publishes distinct native observations. The library does not choose animation,
 color, wording, or layout policy from those values—applications project them
 onto their own UI while preserving stored configuration.
+
+Protocol v15 exposes application-scoped typed streams for imminent system
+sleep/completed wake, global screen-set changes, and normal/warning/critical
+public dispatch memory pressure. Power and pressure repeat observations are
+deduplicated while screen-set notifications remain lossless; observation is
+replaced with the event port and removed at shutdown. The library reports only
+generic operating-system state and deliberately leaves pause, migration,
+rendering, reclamation, and recovery policy to the consuming application.
 
 `TextEditor` is a separate, scrollable `NSTextView` surface for multiline
 editing. `setDocument` publishes one bounded plain-text buffer, UTF-16
