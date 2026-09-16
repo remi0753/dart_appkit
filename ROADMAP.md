@@ -239,6 +239,8 @@ application固有policyを含まないimmutable snapshotとdeduplicated eventと
 - [x] Menu auto-enableとmessage-pump budgetをhard upper bound内で構成可能にする。
 - [x] bounded user notification送信／取消とDock badge更新を、product policyを持たない
   application mechanismとして追加する。
+- [x] 既存TextEditorのpresentation更新と2-pane divider色をoptional汎用APIへ追加する
+  （実施時に[指示書](docs/DYNAMIC_TEXT_PRESENTATION.md)を参照する）。
 
 実装内容:
 

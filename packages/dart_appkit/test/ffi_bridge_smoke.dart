@@ -324,6 +324,22 @@ void main(List<String> arguments) {
       );
   final NativeCallResult editorSelectionReveal = bindings
       .textEditorScrollSelectionToVisible(1);
+  final NativeCallResult editorPresentation = bindings
+      .textEditorUpdatePresentation(
+        1,
+        NativeTextViewConfiguration.compatibilityDefault,
+        const <NativeTextEditorFontVariation>[
+          NativeTextEditorFontVariation(tag: 0x77676874, value: 650),
+        ],
+      );
+  final NativeCallResult dividerColor = bindings.splitViewSetDividerColor(
+    1,
+    kind: 2,
+    red: 0.8,
+    green: 0.7,
+    blue: 0.6,
+    alpha: 1,
+  );
   if (configuredTextEditor.isSuccess ||
       configuredTextEditor.status != 5 ||
       configuredTextEditor.message.isEmpty ||
@@ -338,7 +354,13 @@ void main(List<String> arguments) {
       editorLineHighlight.message.isEmpty ||
       editorSelectionReveal.isSuccess ||
       editorSelectionReveal.status != 5 ||
-      editorSelectionReveal.message.isEmpty) {
+      editorSelectionReveal.message.isEmpty ||
+      editorPresentation.isSuccess ||
+      editorPresentation.status != 5 ||
+      editorPresentation.message.isEmpty ||
+      dividerColor.isSuccess ||
+      dividerColor.status != 5 ||
+      dividerColor.message.isEmpty) {
     _fail('text-editor FFI did not preserve its main-thread guard');
   }
   final NativeValueResult<int> splitView = bindings.splitViewCreate(0);

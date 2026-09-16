@@ -2598,9 +2598,11 @@ void ApplyTextEditorStyleRunsToStorage(
   }
   for (size_t index = 0; index < count; ++index) {
     const DaTextEditorStyleRun& run = runs[index];
-    NSMutableDictionary<NSAttributedStringKey, id>* attributes =
-        [@{NSForegroundColorAttributeName :
-               TextViewColor(run.foreground_color)} mutableCopy];
+    NSMutableDictionary<NSAttributedStringKey, id>* attributes = [@{
+      NSForegroundColorAttributeName : TextViewColor(run.foreground_color),
+      @"DaTextEditorExplicitForegroundColor" :
+          TextViewColor(run.foreground_color)
+    } mutableCopy];
     if (run.underline_style == DA_TEXT_EDITOR_UNDERLINE_SINGLE) {
       attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
       attributes[NSUnderlineColorAttributeName] =
@@ -5911,6 +5913,27 @@ int32_t da_split_view_get_fraction(DaHandle split_view,
   return DA_STATUS_OK;
 }
 
+int32_t da_split_view_set_divider_color(DaHandle split_view, int32_t kind,
+                                        double red, double green, double blue,
+                                        double alpha) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  DaTextViewColorConfiguration color{kind, 0, red, green, blue, alpha};
+  if (!std::isfinite(red) || !std::isfinite(green) || !std::isfinite(blue) ||
+      !std::isfinite(alpha) || red < 0 || red > 1 || green < 0 || green > 1 ||
+      blue < 0 || blue > 1 || alpha < 0 || alpha > 1 ||
+      (kind != -1 && !dart_appkit::ValidTextViewColor(color)))
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "split divider color is invalid");
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) return status;
+  split.daDividerColor = kind == -1 ? nil : dart_appkit::TextViewColor(color);
+  split.needsDisplay = YES;
+  return DA_STATUS_OK;
+}
+
 int32_t da_split_view_equalize(DaHandle split_view) {
   dart_appkit::ClearLastError();
   const int32_t thread_status = dart_appkit::RequireMainThread();
@@ -6154,6 +6177,83 @@ int32_t da_text_editor_create_configured(
         exception.reason.UTF8String != nullptr
             ? exception.reason.UTF8String
             : "native text editor creation failed");
+  }
+}
+
+int32_t da_text_editor_update_presentation(
+    DaHandle editor, const DaTextViewConfiguration* presentation,
+    const char* font_family, size_t font_family_length,
+    const DaTextEditorFontVariation* variations, size_t variation_count) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (variation_count > 16)
+    return dart_appkit::SetLastError(DA_STATUS_LIMIT_EXCEEDED,
+                                     "font variation count exceeds bound");
+  if (variation_count != 0 && variations == nullptr)
+    return dart_appkit::SetLastError(
+        DA_STATUS_INVALID_ARGUMENT,
+        "font variation count or pointer is invalid");
+  NSMutableDictionary<NSNumber*, NSNumber*>* coordinates =
+      [NSMutableDictionary dictionary];
+  for (size_t i = 0; i < variation_count; ++i) {
+    const DaTextEditorFontVariation& axis = variations[i];
+    bool valid_tag = true;
+    for (unsigned shift = 0; shift <= 24; shift += 8) {
+      const uint32_t byte = (axis.tag >> shift) & 0xff;
+      valid_tag &= byte >= 0x20 && byte <= 0x7e;
+    }
+    if (!valid_tag || axis.reserved != 0 || !std::isfinite(axis.value) ||
+        axis.value < -65536 || axis.value > 65536)
+      return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                       "font variation coordinate is invalid");
+    coordinates[@(axis.tag)] = @(axis.value);
+  }
+  NSFont* font = nil;
+  const int32_t configuration_status = dart_appkit::ResolveTextViewFont(
+      presentation, font_family, font_family_length, &font);
+  if (configuration_status != DA_STATUS_OK) return configuration_status;
+  if (variation_count != 0) {
+    NSFontDescriptor* descriptor =
+        [font.fontDescriptor fontDescriptorByAddingAttributes:@{
+          NSFontVariationAttribute : coordinates
+        }];
+    font = [NSFont fontWithDescriptor:descriptor size:font.pointSize];
+    if (font == nil)
+      return dart_appkit::SetLastError(
+          DA_STATUS_INVALID_ARGUMENT,
+          "font variation descriptor is unavailable");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) return status;
+  @try {
+    const NSRange selection = text_editor.daTextView.selectedRange;
+    const NSPoint origin = text_editor.daScrollView.contentView.bounds.origin;
+    text_editor.daFont = font;
+    text_editor.daPadding = NSEdgeInsetsMake(
+        presentation->padding_top, presentation->padding_left,
+        presentation->padding_bottom, presentation->padding_right);
+    text_editor.daForegroundColor =
+        dart_appkit::TextViewColor(presentation->foreground_color);
+    text_editor.daBackgroundColor =
+        dart_appkit::TextViewColor(presentation->background_color);
+    [text_editor daApplyPresentation];
+    if (!NSEqualRanges(text_editor.daTextView.selectedRange, selection))
+      text_editor.daTextView.selectedRange = selection;
+    [text_editor.daTextView.layoutManager
+        ensureLayoutForTextContainer:text_editor.daTextView.textContainer];
+    [text_editor.daScrollView.contentView scrollToPoint:origin];
+    [text_editor.daScrollView
+        reflectScrolledClipView:text_editor.daScrollView.contentView];
+    text_editor.needsDisplay = YES;
+    return DA_STATUS_OK;
+  } @catch (NSException* exception) {
+    return dart_appkit::SetLastError(
+        DA_STATUS_INTERNAL_ERROR,
+        exception.reason.UTF8String != nullptr
+            ? exception.reason.UTF8String
+            : "text editor presentation update failed");
   }
 }
 

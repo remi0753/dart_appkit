@@ -1,12 +1,43 @@
 part of '../api.dart';
 
 abstract final class TextEditorLimits {
+  static const int maximumFontVariations = 16;
   static const int maximumTextUtf8Bytes =
       dartAppKitTextEditorMaximumTextUtf8Bytes;
   static const int maximumStyleRuns = dartAppKitTextEditorMaximumStyleRuns;
 }
 
 enum TextEditorUnderlineStyle { none, single }
+
+/// One bounded OpenType variation coordinate for an editor's base font.
+final class TextEditorFontVariation {
+  factory TextEditorFontVariation(String tag, double value) {
+    if (!RegExp(r'^[\x20-\x7e]{4}$').hasMatch(tag) ||
+        !value.isFinite ||
+        value < -65536 ||
+        value > 65536) {
+      throw ArgumentError(
+        'font variation requires a four-byte tag and bounded finite coordinate',
+      );
+    }
+    return TextEditorFontVariation._(tag, value);
+  }
+
+  const TextEditorFontVariation._(this.tag, this.value);
+  final String tag;
+  final double value;
+  NativeTextEditorFontVariation get _native => NativeTextEditorFontVariation(
+    tag: tag.codeUnits.fold<int>(0, (int bits, int byte) => (bits << 8) | byte),
+    value: value,
+  );
+  @override
+  bool operator ==(Object other) =>
+      other is TextEditorFontVariation &&
+      other.tag == tag &&
+      other.value == value;
+  @override
+  int get hashCode => Object.hash(tag, value);
+}
 
 final class TextEditorSelection {
   const TextEditorSelection({required this.start, this.length = 0});
@@ -221,13 +252,85 @@ final class TextEditor extends View {
     return TextEditor._(application, handle, configuration);
   }
 
-  TextEditor._(AppKitApplication application, int handle, this.configuration)
-    : _editorBindings = application._bindings as NativeTextEditorBindings,
+  TextEditor._(
+    AppKitApplication application,
+    int handle,
+    TextEditorConfiguration configuration,
+  ) : _configuration = configuration,
+      _editorBindings = application._bindings as NativeTextEditorBindings,
       super._(application, handle, configuration.view);
 
-  final TextEditorConfiguration configuration;
+  TextEditorConfiguration _configuration;
+  TextEditorConfiguration get configuration => _configuration;
+  List<TextEditorFontVariation> _fontVariations =
+      const <TextEditorFontVariation>[];
+  List<TextEditorFontVariation> get fontVariations => _fontVariations;
   final NativeTextEditorBindings _editorBindings;
   TextEditorLineHighlight? _lineHighlight;
+
+  /// Updates base presentation in place without changing document, focus,
+  /// selection, scroll, editability, marked text or explicit attributed runs.
+  /// Unavailable variation axes are left to AppKit's font descriptor fallback.
+  bool updatePresentation({
+    required TextViewFont font,
+    required TextViewColor foregroundColor,
+    required TextViewColor backgroundColor,
+    TextViewPadding? padding,
+    Iterable<TextEditorFontVariation> fontVariations =
+        const <TextEditorFontVariation>[],
+  }) {
+    ensureAlive();
+    final List<TextEditorFontVariation> variations =
+        List<TextEditorFontVariation>.unmodifiable(fontVariations);
+    if (variations.length > TextEditorLimits.maximumFontVariations) {
+      throw RangeError.range(
+        variations.length,
+        0,
+        TextEditorLimits.maximumFontVariations,
+        'fontVariations.length',
+      );
+    }
+    final TextEditorConfiguration next = TextEditorConfiguration(
+      view: configuration.view,
+      font: font,
+      padding: padding ?? configuration.padding,
+      foregroundColor: foregroundColor,
+      backgroundColor: backgroundColor,
+      initiallyEditable: configuration.initiallyEditable,
+    );
+    next._validate();
+    if (next == configuration &&
+        variations.length == _fontVariations.length &&
+        List<bool>.generate(
+          variations.length,
+          (int i) => variations[i] == _fontVariations[i],
+        ).every((bool same) => same))
+      return false;
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeTextEditorPresentationBindings) {
+      throw const AppKitNativeException(
+        operation: 'TextEditor.updatePresentation',
+        status: 8,
+        nativeMessage:
+            'native bridge does not support text editor presentation updates',
+      );
+    }
+    _checkCall(
+      (bindings as NativeTextEditorPresentationBindings)
+          .textEditorUpdatePresentation(
+            _handle,
+            next._native.presentation,
+            <NativeTextEditorFontVariation>[
+              for (final TextEditorFontVariation axis in variations)
+                axis._native,
+            ],
+          ),
+      'TextEditor.updatePresentation',
+    );
+    _configuration = next;
+    _fontVariations = variations;
+    return true;
+  }
 
   /// The last successfully published line highlight, if any.
   TextEditorLineHighlight? get lineHighlight {

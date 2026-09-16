@@ -256,6 +256,15 @@ final class _DaTextViewColorConfigurationNative extends Struct {
   external double alpha;
 }
 
+final class _DaTextEditorFontVariationNative extends Struct {
+  @Uint32()
+  external int tag;
+  @Uint32()
+  external int reserved;
+  @Double()
+  external double value;
+}
+
 final class _DaTextViewConfigurationNative extends Struct {
   @Uint64()
   external int structSize;
@@ -747,6 +756,39 @@ typedef _TextViewCreateConfiguredDart = int Function(
   int,
   Pointer<Uint64>,
 );
+typedef _TextEditorUpdatePresentationNative = Int32 Function(
+  Uint64,
+  Pointer<_DaTextViewConfigurationNative>,
+  Pointer<Uint8>,
+  Size,
+  Pointer<_DaTextEditorFontVariationNative>,
+  Size,
+);
+typedef _TextEditorUpdatePresentationDart = int Function(
+  int,
+  Pointer<_DaTextViewConfigurationNative>,
+  Pointer<Uint8>,
+  int,
+  Pointer<_DaTextEditorFontVariationNative>,
+  int,
+);
+typedef _SplitViewSetDividerColorNative = Int32 Function(
+  Uint64,
+  Int32,
+  Double,
+  Double,
+  Double,
+  Double,
+);
+typedef _SplitViewSetDividerColorDart = int Function(
+  int,
+  int,
+  double,
+  double,
+  double,
+  double,
+);
+
 typedef _TextEditorCreateConfiguredNative = Int32 Function(
   Pointer<_DaTextEditorConfigurationNative>,
   Pointer<Uint8>,
@@ -914,6 +956,32 @@ _TextViewCreateConfiguredDart? _lookupTextViewCreateConfigured(
       _TextViewCreateConfiguredNative,
       _TextViewCreateConfiguredDart
     >('da_text_view_create_configured');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_TextEditorUpdatePresentationDart? _lookupTextEditorUpdatePresentation(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _TextEditorUpdatePresentationNative,
+      _TextEditorUpdatePresentationDart
+    >('da_text_editor_update_presentation');
+  } on ArgumentError {
+    return null;
+  }
+}
+
+_SplitViewSetDividerColorDart? _lookupSplitViewSetDividerColor(
+  DynamicLibrary library,
+) {
+  try {
+    return library.lookupFunction<
+      _SplitViewSetDividerColorNative,
+      _SplitViewSetDividerColorDart
+    >('da_split_view_set_divider_color');
   } on ArgumentError {
     return null;
   }
@@ -1684,6 +1752,8 @@ final class FfiNativeBindings
     implements
         NativeBindings,
         NativeTextEditorBindings,
+        NativeTextEditorPresentationBindings,
+        NativeSplitViewAppearanceBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
@@ -1862,6 +1932,7 @@ final class FfiNativeBindings
         library,
         'da_split_view_get_fraction',
       ),
+      _splitViewSetDividerColor = _lookupSplitViewSetDividerColor(library),
       _splitViewEqualize = _lookupHandleStatus(
         library,
         'da_split_view_equalize',
@@ -1882,6 +1953,9 @@ final class FfiNativeBindings
             'da_text_view_set_text',
           ),
       _textEditorCreateConfigured = _lookupTextEditorCreateConfigured(library),
+      _textEditorUpdatePresentation = _lookupTextEditorUpdatePresentation(
+        library,
+      ),
       _textEditorSetDocument = _lookupTextEditorSetDocument(library),
       _textEditorSetStyleRuns = _lookupTextEditorSetStyleRuns(library),
       _textEditorSetLineHighlight = _lookupTextEditorSetLineHighlight(library),
@@ -2006,6 +2080,7 @@ final class FfiNativeBindings
   final _ThreeHandlesDart? _splitViewSetChildren;
   final _HandleThreeDoublesDart? _splitViewSetPosition;
   final _HandleDoubleOutputDart? _splitViewGetFraction;
+  final _SplitViewSetDividerColorDart? _splitViewSetDividerColor;
   final _HandleStatusDart? _splitViewEqualize;
   final _HandleBoolStatusDart? _splitViewSetZoomedChild;
   final _StringCreateDart? _customViewCreate;
@@ -2014,6 +2089,7 @@ final class FfiNativeBindings
   final _TextViewCreateConfiguredDart? _textViewCreateConfigured;
   final _HandleStringDart _textViewSetText;
   final _TextEditorCreateConfiguredDart? _textEditorCreateConfigured;
+  final _TextEditorUpdatePresentationDart? _textEditorUpdatePresentation;
   final _TextEditorSetDocumentDart? _textEditorSetDocument;
   final _TextEditorSetStyleRunsDart? _textEditorSetStyleRuns;
   final _TextEditorSetLineHighlightDart? _textEditorSetLineHighlight;
@@ -3849,6 +3925,70 @@ final class FfiNativeBindings
     } finally {
       _free(configurationPointer.cast<Void>());
       _free(handlePointer.cast<Void>());
+    }
+  }
+
+  @override
+  NativeCallResult splitViewSetDividerColor(
+    int handle, {
+    required int kind,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  }) {
+    final _SplitViewSetDividerColorDart? function = _splitViewSetDividerColor;
+    if (function == null)
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support divider colors',
+      );
+    return _callResult(function(handle, kind, red, green, blue, alpha));
+  }
+
+  @override
+  NativeCallResult textEditorUpdatePresentation(
+    int handle,
+    NativeTextViewConfiguration presentation,
+    List<NativeTextEditorFontVariation> variations,
+  ) {
+    final _TextEditorUpdatePresentationDart? function =
+        _textEditorUpdatePresentation;
+    if (function == null)
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support text editor presentation updates',
+      );
+    if (variations.length > 16)
+      return const NativeCallResult.failure(
+        10,
+        'font variation count exceeds bound',
+      );
+    final Pointer<_DaTextViewConfigurationNative> config = _allocate(
+      sizeOf<_DaTextViewConfigurationNative>(),
+    ).cast<_DaTextViewConfigurationNative>();
+    final Pointer<_DaTextEditorFontVariationNative> axes = variations.isEmpty
+        ? nullptr
+        : _allocate(
+            sizeOf<_DaTextEditorFontVariationNative>() * variations.length,
+          ).cast<_DaTextEditorFontVariationNative>();
+    try {
+      _writeTextViewConfiguration(config.ref, presentation);
+      for (var i = 0; i < variations.length; i++) {
+        axes[i]
+          ..tag = variations[i].tag
+          ..reserved = 0
+          ..value = variations[i].value;
+      }
+      return _withUtf8(
+        presentation.fontFamily ?? '',
+        (Pointer<Uint8> family, int length) => _callResult(
+          function(handle, config, family, length, axes, variations.length),
+        ),
+      );
+    } finally {
+      if (axes != nullptr) _free(axes.cast<Void>());
+      _free(config.cast<Void>());
     }
   }
 

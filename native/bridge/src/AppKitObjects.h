@@ -86,6 +86,7 @@
 @property(nonatomic, assign, readonly) double daFirstMinimumExtent;
 @property(nonatomic, assign, readonly) double daSecondMinimumExtent;
 @property(nonatomic, assign, readonly) DaSplitZoomedChild daZoomedChild;
+@property(nonatomic, strong) NSColor* daDividerColor;
 
 - (instancetype)initWithAxis:(DaSplitAxis)axis;
 - (BOOL)daSetFirstView:(NSView*)firstView secondView:(NSView*)secondView;

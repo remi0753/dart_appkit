@@ -123,6 +123,11 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 @synthesize daSecondMinimumExtent = _daSecondMinimumExtent;
 @synthesize daZoomedChild = _daZoomedChild;
 
+- (NSColor*)dividerColor {
+  return self.daDividerColor != nil ? self.daDividerColor
+                                    : [super dividerColor];
+}
+
 - (instancetype)initWithAxis:(DaSplitAxis)axis {
   self = [super initWithFrame:NSZeroRect];
   if (self != nil) {
@@ -337,6 +342,12 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 
 @implementation DaTextEditorTextView
 
+- (BOOL)isOpaque {
+  NSColor* color =
+      [self.backgroundColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  return color != nil && color.alphaComponent >= 1.0;
+}
+
 - (void)drawRect:(NSRect)dirtyRect {
   NSLayoutManager* layout_manager = self.layoutManager;
   NSTextContainer* text_container = self.textContainer;
@@ -468,6 +479,16 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     NSFontAttributeName : self.daFont,
     NSForegroundColorAttributeName : self.daForegroundColor,
   };
+  NSTextStorage* storage = self.daTextView.textStorage;
+  [storage enumerateAttribute:@"DaTextEditorExplicitForegroundColor"
+                      inRange:NSMakeRange(0, storage.length)
+                      options:0
+                   usingBlock:^(id color, NSRange range, BOOL*) {
+                     if (color != nil)
+                       [storage addAttribute:NSForegroundColorAttributeName
+                                       value:color
+                                       range:range];
+                   }];
 }
 
 - (BOOL)daHasLineHighlight {

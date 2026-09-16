@@ -72,6 +72,7 @@ export 'src/api.dart'
         SplitViewChild,
         TextEditor,
         TextEditorConfiguration,
+        TextEditorFontVariation,
         TextEditorDocument,
         TextEditorLimits,
         TextEditorLineHighlight,

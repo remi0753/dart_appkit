@@ -38,6 +38,34 @@ final class TwoPaneSplitView extends View {
   double _firstMinimumExtent = 0;
   double _secondMinimumExtent = 0;
   SplitViewChild? _zoomedChild;
+  TextViewColor? _dividerColor;
+
+  /// Explicit divider color, or null for the unchanged platform default.
+  TextViewColor? get dividerColor => _dividerColor;
+  set dividerColor(TextViewColor? color) {
+    ensureAlive();
+    if (_dividerColor == color) return;
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeSplitViewAppearanceBindings) {
+      throw const AppKitNativeException(
+        operation: 'TwoPaneSplitView.dividerColor',
+        status: 8,
+        nativeMessage: 'native bridge does not support split divider colors',
+      );
+    }
+    _checkCall(
+      (bindings as NativeSplitViewAppearanceBindings).splitViewSetDividerColor(
+        _handle,
+        kind: color?.kind.index ?? -1,
+        red: color?.red ?? 0,
+        green: color?.green ?? 0,
+        blue: color?.blue ?? 0,
+        alpha: color?.alpha ?? 1,
+      ),
+      'TwoPaneSplitView.dividerColor',
+    );
+    _dividerColor = color;
+  }
 
   View? get firstView {
     ensureAlive();

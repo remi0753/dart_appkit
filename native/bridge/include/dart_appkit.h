@@ -335,6 +335,13 @@ typedef struct DaTextEditorConfiguration {
   int32_t reserved;
 } DaTextEditorConfiguration;
 
+/** One bounded OpenType font descriptor coordinate, up to 16 per update. */
+typedef struct DaTextEditorFontVariation {
+  uint32_t tag;
+  uint32_t reserved;
+  double value;
+} DaTextEditorFontVariation;
+
 #define DA_TEXT_EDITOR_CONFIGURATION_VERSION_1_SIZE \
   ((uint64_t)sizeof(DaTextEditorConfiguration))
 
@@ -1047,6 +1054,12 @@ DA_EXPORT int32_t da_split_view_set_position(
 DA_EXPORT int32_t da_split_view_get_fraction(DaHandle split_view,
                                              double* out_fraction);
 
+/** Explicit divider color; kind -1 restores the platform default. */
+DA_EXPORT int32_t da_split_view_set_divider_color(DaHandle split_view,
+                                                  int32_t kind, double red,
+                                                  double green, double blue,
+                                                  double alpha);
+
 /** Main thread only. Sets the first-child fraction to one half. */
 DA_EXPORT int32_t da_split_view_equalize(DaHandle split_view);
 
@@ -1104,6 +1117,15 @@ DA_EXPORT int32_t da_text_editor_set_document(
     DaHandle editor, const char* text, size_t text_length,
     const DaTextEditorStyleRun* style_runs, size_t style_run_count,
     uint64_t selection_location, uint64_t selection_length);
+
+/** Updates presentation in place, preserving editor state and explicit styles.
+ * The view configuration is validated but does not mutate view behavior.
+ * Unavailable variation axes use AppKit's font descriptor fallback.
+ */
+DA_EXPORT int32_t da_text_editor_update_presentation(
+    DaHandle editor, const DaTextViewConfiguration* presentation,
+    const char* font_family, size_t font_family_length,
+    const DaTextEditorFontVariation* variations, size_t variation_count);
 
 /**
  * Main thread only. Replaces attributed runs without replacing editor text.

@@ -3524,6 +3524,85 @@ void TestAttributedTextEditor() {
   EXPECT_EQ(snapshot.has_marked_text, 0);
 
   DaTextEditorStyleRun replacement = runs[0];
+  DaTextViewConfiguration changed_presentation = configuration.presentation;
+  changed_presentation.font_size = 17;
+  changed_presentation.foreground_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.8, 0.7, 0.6, 1};
+  changed_presentation.background_color = {
+      DA_TEXT_VIEW_COLOR_SRGB, 0, 0.1, 0.2, 0.3, 0.5};
+  NSView* stable_scroll = editor.daScrollView;
+  NSTextView* stable_text_view = editor.daTextView;
+  const NSPoint stable_origin = editor.daScrollView.contentView.bounds.origin;
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(editor.daScrollView == stable_scroll &&
+              editor.daTextView == stable_text_view);
+  EXPECT_TRUE(editor.daFont.pointSize == 17);
+  EXPECT_TRUE([editor.daTextView.string isEqualToString:@"theme = dark\n👻\n"]);
+  EXPECT_EQ(editor.daTextView.selectedRange.location,
+            static_cast<NSUInteger>(13));
+  EXPECT_EQ(editor.daTextView.selectedRange.length, static_cast<NSUInteger>(2));
+  EXPECT_TRUE(NSEqualPoints(editor.daScrollView.contentView.bounds.origin,
+                            stable_origin));
+  EXPECT_TRUE(editor.daHasLineHighlight && !editor.daTextView.isEditable);
+  NSColor* preserved_keyword = [[editor.daTextView.textStorage
+           attribute:NSForegroundColorAttributeName
+             atIndex:0
+      effectiveRange:nullptr] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(std::abs(preserved_keyword.redComponent - 0.3) < 0.0001);
+  EXPECT_EQ(
+      [[editor.daTextView.textStorage attribute:NSUnderlineStyleAttributeName
+                                        atIndex:8
+                                 effectiveRange:nullptr] integerValue],
+      static_cast<NSInteger>(NSUnderlineStyleSingle));
+  NSColor* base_color = [[editor.daTextView.textStorage
+           attribute:NSForegroundColorAttributeName
+             atIndex:5
+      effectiveRange:nullptr] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  EXPECT_TRUE(std::abs(base_color.redComponent - 0.8) < 0.0001);
+  EXPECT_TRUE(std::abs(editor.daBackgroundColor.alphaComponent - 0.5) < 0.0001);
+  EXPECT_TRUE(!editor.daTextView.isOpaque);
+  changed_presentation.font_size = NAN;
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 0),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_TRUE(editor.daFont.pointSize == 17);
+  changed_presentation.font_size = 17;
+  DaTextEditorFontVariation invalid_axis{0x77676874, 0, NAN};
+  EXPECT_EQ(
+      da_text_editor_update_presentation(editor_handle, &changed_presentation,
+                                         nullptr, 0, &invalid_axis, 1),
+      DA_STATUS_INVALID_ARGUMENT);
+  invalid_axis.value = 650;
+  EXPECT_EQ(
+      da_text_editor_update_presentation(editor_handle, &changed_presentation,
+                                         nullptr, 0, &invalid_axis, 17),
+      DA_STATUS_LIMIT_EXCEEDED);
+  EXPECT_EQ(
+      da_text_editor_update_presentation(editor_handle, &changed_presentation,
+                                         nullptr, 0, &invalid_axis, 1),
+      DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  const DaHandle appearance_split = CreateSplitView(DA_SPLIT_AXIS_HORIZONTAL);
+  DaSplitView* colored_split = SplitViewFor(appearance_split);
+  EXPECT_TRUE(colored_split.daDividerColor == nil);
+  EXPECT_EQ(da_split_view_set_divider_color(
+                appearance_split, DA_TEXT_VIEW_COLOR_SRGB, 0.8, 0.7, 0.6, 1),
+            DA_STATUS_OK);
+  EXPECT_TRUE(std::abs(colored_split.dividerColor.redComponent - 0.8) < 0.0001);
+  EXPECT_EQ(da_split_view_set_divider_color(
+                appearance_split, DA_TEXT_VIEW_COLOR_SRGB, NAN, 0.7, 0.6, 1),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_set_divider_color(
+                editor_handle, DA_TEXT_VIEW_COLOR_LABEL, 0, 0, 0, 1),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+  EXPECT_EQ(da_split_view_set_divider_color(appearance_split, -1, 0, 0, 0, 1),
+            DA_STATUS_OK);
+  EXPECT_TRUE(colored_split.daDividerColor == nil);
+  EXPECT_EQ(da_release(appearance_split), DA_STATUS_OK);
   replacement.foreground_color = {
       DA_TEXT_VIEW_COLOR_SRGB, 0, 1.0, 0.7, 0.2, 1.0};
   NSTextStorage* storage = editor.daTextView.textStorage;
@@ -3696,6 +3775,33 @@ void TestAttributedTextEditor() {
   EXPECT_EQ(editor.daLineHighlightLocation,
             static_cast<NSUInteger>(last_location));
 
+  const NSPoint scrolled_origin = editor.daScrollView.contentView.bounds.origin;
+  EXPECT_TRUE(scrolled_origin.y > 0);
+  changed_presentation.font_size = 19;
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(NSEqualPoints(editor.daScrollView.contentView.bounds.origin,
+                            scrolled_origin));
+  EXPECT_TRUE(editor.daHasLineHighlight);
+  EXPECT_EQ(editor.daTextView.selectedRange.location,
+            static_cast<NSUInteger>(last_location));
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 1), DA_STATUS_OK);
+  [editor.daTextView setMarkedText:@"e"
+                     selectedRange:NSMakeRange(1, 0)
+                  replacementRange:NSMakeRange(last_location, 0)];
+  EXPECT_TRUE(editor.daTextView.hasMarkedText);
+  NSString* marked_document = [editor.daTextView.string copy];
+  const NSRange marked_range = editor.daTextView.markedRange;
+  changed_presentation.font_size = 20;
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(editor.daTextView.hasMarkedText &&
+              NSEqualRanges(editor.daTextView.markedRange, marked_range));
+  EXPECT_TRUE([editor.daTextView.string isEqualToString:marked_document]);
+  [editor.daTextView unmarkText];
+
   DaTextEditorConfiguration invalid_configuration = configuration;
   invalid_configuration.initially_editable = 2;
   DaHandle invalid_output = 99;
@@ -3723,17 +3829,25 @@ void TestAttributedTextEditor() {
   std::atomic<int32_t> worker_status{DA_STATUS_OK};
   std::atomic<int32_t> worker_highlight_status{DA_STATUS_OK};
   std::atomic<int32_t> worker_reveal_status{DA_STATUS_OK};
+  std::atomic<int32_t> worker_presentation_status{DA_STATUS_OK};
+  std::atomic<int32_t> worker_divider_status{DA_STATUS_OK};
   std::thread worker([&]() {
     worker_status.store(da_text_editor_set_editable(editor_handle, 0));
     worker_highlight_status.store(da_text_editor_set_line_highlight(
         editor_handle, 0, &line_highlight_color));
     worker_reveal_status.store(
         da_text_editor_scroll_selection_to_visible(editor_handle));
+    worker_presentation_status.store(da_text_editor_update_presentation(
+        editor_handle, &changed_presentation, nullptr, 0, nullptr, 0));
+    worker_divider_status.store(
+        da_split_view_set_divider_color(editor_handle, -1, 0, 0, 0, 1));
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(worker_highlight_status.load(), DA_STATUS_WRONG_THREAD);
   EXPECT_EQ(worker_reveal_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_presentation_status.load(), DA_STATUS_WRONG_THREAD);
+  EXPECT_EQ(worker_divider_status.load(), DA_STATUS_WRONG_THREAD);
 
   EXPECT_EQ(da_release(generic_view), DA_STATUS_OK);
   EXPECT_EQ(da_release(editor_handle), DA_STATUS_OK);
@@ -3743,6 +3857,11 @@ void TestAttributedTextEditor() {
                 editor_handle, 0, &line_highlight_color),
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_text_editor_scroll_selection_to_visible(editor_handle),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_text_editor_update_presentation(
+                editor_handle, &changed_presentation, nullptr, 0, nullptr, 0),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(da_split_view_set_divider_color(editor_handle, -1, 0, 0, 0, 1),
             DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));

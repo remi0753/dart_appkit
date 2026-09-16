@@ -34,6 +34,8 @@ final class FakeNativeBindings
     implements
         NativeBindings,
         NativeTextEditorBindings,
+        NativeTextEditorPresentationBindings,
+        NativeSplitViewAppearanceBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
@@ -167,6 +169,9 @@ final class FakeNativeBindings
       <int, NativeTextViewConfiguration>{};
   final Map<int, NativeTextEditorConfiguration> textEditorConfigurations =
       <int, NativeTextEditorConfiguration>{};
+  final Map<int, List<NativeTextEditorFontVariation>> textEditorFontVariations =
+      <int, List<NativeTextEditorFontVariation>>{};
+  final Map<int, List<num>> splitDividerColors = <int, List<num>>{};
   final Map<int, List<NativeTextEditorStyleRun>> textEditorStyleRuns =
       <int, List<NativeTextEditorStyleRun>>{};
   final Map<int, NativeTextEditorLineHighlight?> textEditorLineHighlights =
@@ -1276,6 +1281,39 @@ final class FakeNativeBindings
   }
 
   @override
+  NativeCallResult textEditorUpdatePresentation(
+    int handle,
+    NativeTextViewConfiguration presentation,
+    List<NativeTextEditorFontVariation> variations,
+  ) {
+    final NativeCallResult result = _status('textEditorUpdatePresentation');
+    if (result.isSuccess) {
+      textEditorConfigurations[handle] = NativeTextEditorConfiguration(
+        presentation: presentation,
+        initiallyEditable: textEditorConfigurations[handle]!.initiallyEditable,
+      );
+      textEditorFontVariations[handle] =
+          List<NativeTextEditorFontVariation>.unmodifiable(variations);
+    }
+    return result;
+  }
+
+  @override
+  NativeCallResult splitViewSetDividerColor(
+    int handle, {
+    required int kind,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  }) {
+    final NativeCallResult result = _status('splitViewSetDividerColor');
+    if (result.isSuccess)
+      splitDividerColors[handle] = <num>[kind, red, green, blue, alpha];
+    return result;
+  }
+
+  @override
   NativeCallResult textEditorSetDocument(
     int handle,
     NativeTextEditorDocument document,
@@ -1379,6 +1417,8 @@ final class FakeNativeBindings
       viewConfigurations.remove(handle);
       textViewConfigurations.remove(handle);
       textEditorConfigurations.remove(handle);
+      textEditorFontVariations.remove(handle);
+      splitDividerColors.remove(handle);
       textEditorStyleRuns.remove(handle);
       textEditorLineHighlights.remove(handle);
       textEditorSelectionStarts.remove(handle);

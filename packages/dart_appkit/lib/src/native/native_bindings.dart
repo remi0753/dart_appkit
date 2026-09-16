@@ -249,6 +249,12 @@ final class NativeTextViewConfiguration {
       backgroundColorKind == 1;
 }
 
+final class NativeTextEditorFontVariation {
+  const NativeTextEditorFontVariation({required this.tag, required this.value});
+  final int tag;
+  final double value;
+}
+
 final class NativeTextEditorConfiguration {
   const NativeTextEditorConfiguration({
     required this.presentation,
@@ -600,6 +606,26 @@ abstract interface class NativeTextEditorBindings {
   });
   NativeCallResult textEditorScrollSelectionToVisible(int handle);
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
+}
+
+/// Optional in-place text presentation, separate from creation/editing bindings.
+abstract interface class NativeTextEditorPresentationBindings {
+  NativeCallResult textEditorUpdatePresentation(
+    int handle,
+    NativeTextViewConfiguration presentation,
+    List<NativeTextEditorFontVariation> variations,
+  );
+}
+
+abstract interface class NativeSplitViewAppearanceBindings {
+  NativeCallResult splitViewSetDividerColor(
+    int handle, {
+    required int kind,
+    required double red,
+    required double green,
+    required double blue,
+    required double alpha,
+  });
 }
 
 /// Optional synchronous save-destination surface for older native bridges.

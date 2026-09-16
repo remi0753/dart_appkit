@@ -630,6 +630,78 @@ Future<void> _testAttributedTextEditorApi() async {
       foregroundColor: TextViewColor.sRgb(red: 1, green: 0.7, blue: 0.2),
     ),
   ];
+  final TextViewColor nextForeground = TextViewColor.sRgb(
+    red: 0.9,
+    green: 0.8,
+    blue: 0.7,
+  );
+  final TextViewColor nextBackground = TextViewColor.sRgb(
+    red: 0.2,
+    green: 0.1,
+    blue: 0.05,
+    alpha: 0.6,
+  );
+  final TextViewFont nextFont = TextViewFont.named('Menlo', size: 17);
+  final List<TextEditorFontVariation> axes = <TextEditorFontVariation>[
+    TextEditorFontVariation('wght', 650),
+  ];
+  _expect(
+    editor.updatePresentation(
+      font: nextFont,
+      foregroundColor: nextForeground,
+      backgroundColor: nextBackground,
+      fontVariations: axes,
+    ),
+    'presentation update was omitted',
+  );
+  _expect(
+    editor.configuration.font == nextFont &&
+        editor.configuration.view == configuration.view &&
+        editor.configuration.padding == configuration.padding &&
+        editor.configuration.backgroundColor == nextBackground &&
+        editor.snapshot.text == text &&
+        editor.snapshot.selection == editable.selection &&
+        editor.snapshot.isEditable &&
+        bindings.textEditorStyleRuns[handle]!.length == 2 &&
+        editor.lineHighlight == lineHighlight &&
+        bindings.textEditorFontVariations[handle]!.single.tag == 0x77676874,
+    'in-place presentation did not retain document, selection, editability, styles and highlight',
+  );
+  final int presentationBaseline = bindings.operations.length;
+  _expect(
+    !editor.updatePresentation(
+          font: nextFont,
+          foregroundColor: nextForeground,
+          backgroundColor: nextBackground,
+          fontVariations: axes,
+        ) &&
+        bindings.operations.length == presentationBaseline,
+    'unchanged presentation performed native work',
+  );
+  bindings.failNextOperation = 'textEditorUpdatePresentation';
+  await _expectThrows<AppKitNativeException>(
+    () => editor.updatePresentation(
+      font: const TextViewFont.monospacedSystem(size: 22),
+      foregroundColor: nextForeground,
+      backgroundColor: nextBackground,
+    ),
+  );
+  _expect(
+    editor.configuration.font == nextFont,
+    'failed update changed cached presentation',
+  );
+  await _expectThrows<ArgumentError>(() => TextEditorFontVariation('bad', 1));
+  await _expectThrows<ArgumentError>(
+    () => TextEditorFontVariation('wght', double.nan),
+  );
+  await _expectThrows<RangeError>(
+    () => editor.updatePresentation(
+      font: nextFont,
+      foregroundColor: nextForeground,
+      backgroundColor: nextBackground,
+      fontVariations: List<TextEditorFontVariation>.filled(17, axes.single),
+    ),
+  );
   editor.setStyleRuns(replacement);
   _expect(
     editor.snapshot.text == text &&
@@ -1165,6 +1237,32 @@ Future<void> _testNativeTabsSplitViewAndFocusApi() async {
   );
 
   bindings.splitViewFractions[rootHandle] = 0.625;
+  final TextViewColor divider = TextViewColor.sRgb(
+    red: 0.8,
+    green: 0.7,
+    blue: 0.6,
+  );
+  _expect(root.dividerColor == null, 'default divider was changed');
+  root.dividerColor = divider;
+  _expect(
+    root.dividerColor == divider &&
+        root.fraction == 0.4 &&
+        bindings.splitDividerColors[rootHandle]!.last == 1,
+    'divider color changed geometry',
+  );
+  bindings.failNextOperation = 'splitViewSetDividerColor';
+  await _expectThrows<AppKitNativeException>(
+    () => root.dividerColor = const TextViewColor.label(),
+  );
+  _expect(
+    root.dividerColor == divider,
+    'failed divider update changed cached color',
+  );
+  root.dividerColor = null;
+  _expect(
+    bindings.splitDividerColors[rootHandle]!.first == -1,
+    'divider reset was omitted',
+  );
   _expect(
     root.refreshFraction() == 0.625 && root.fraction == 0.625,
     'split fraction refresh observes a native divider mutation',
