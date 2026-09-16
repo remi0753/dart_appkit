@@ -345,7 +345,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 - (BOOL)isOpaque {
   NSColor* color =
       [self.backgroundColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-  return color != nil && color.alphaComponent >= 1.0;
+  return self.drawsBackground && color != nil && color.alphaComponent >= 1.0;
 }
 
 - (void)drawRect:(NSRect)dirtyRect {
@@ -434,13 +434,15 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     _daScrollView.frame = self.bounds;
     _daScrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     _daScrollView.borderType = NSNoBorder;
-    _daScrollView.drawsBackground = YES;
+    _daScrollView.drawsBackground = NO;
+    _daScrollView.contentView.drawsBackground = NO;
     _daScrollView.hasVerticalScroller = YES;
     _daScrollView.hasHorizontalScroller = YES;
     _daScrollView.automaticallyAdjustsContentInsets = NO;
 
     _daTextView =
         static_cast<DaTextEditorTextView*>(_daScrollView.documentView);
+    _daTextView.drawsBackground = NO;
     _daTextView.richText = NO;
     _daTextView.importsGraphics = NO;
     _daTextView.editable = NO;
@@ -468,10 +470,25 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   return self;
 }
 
+- (BOOL)isOpaque {
+  NSColor* color =
+      [self.daBackgroundColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  return color != nil && color.alphaComponent >= 1.0;
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+  [self.daBackgroundColor setFill];
+  NSRectFillUsingOperation(NSIntersectionRect(dirtyRect, self.bounds),
+                           NSCompositingOperationSourceOver);
+}
+
 - (void)daApplyPresentation {
   self.daScrollView.contentInsets = self.daPadding;
   self.daScrollView.backgroundColor = self.daBackgroundColor;
   self.daTextView.backgroundColor = self.daBackgroundColor;
+  self.needsDisplay = YES;
+  self.daScrollView.needsDisplay = YES;
+  self.daTextView.needsDisplay = YES;
   self.daTextView.font = self.daFont;
   self.daTextView.textColor = self.daForegroundColor;
   self.daTextView.insertionPointColor = self.daForegroundColor;

@@ -241,6 +241,8 @@ application固有policyを含まないimmutable snapshotとdeduplicated eventと
   application mechanismとして追加する。
 - [x] 既存TextEditorのpresentation更新と2-pane divider色をoptional汎用APIへ追加する
   （実施時に[指示書](docs/DYNAMIC_TEXT_PRESENTATION.md)を参照する）。
+- [x] TextEditorの背景alphaをviewportとpaddingで一度だけ合成する
+  （実施時に[指示書](docs/TEXT_EDITOR_BACKGROUND_COMPOSITING.md)を参照する）。
 
 実装内容:
 

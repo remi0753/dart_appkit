@@ -3350,6 +3350,87 @@ void TestConfiguredBaseAndTextViews() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+void TestTextEditorBackgroundCompositing() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  DaTextEditorConfiguration configuration = DefaultTextEditorConfiguration();
+  DaHandle handle = 0;
+  EXPECT_EQ(
+      da_text_editor_create_configured(&configuration, nullptr, 0, &handle),
+      DA_STATUS_OK);
+  DaTextEditor* editor = NativeTextEditorFor(handle);
+  const DaHandle window_handle = CreateWindow();
+  EXPECT_EQ(da_window_set_content_view(window_handle, handle), DA_STATUS_OK);
+  EXPECT_EQ(da_window_show(window_handle), DA_STATUS_OK);
+  for (double alpha : {0.5, 0.0, 0.8, 1.0, 0.5}) {
+    configuration.presentation.background_color = {
+        DA_TEXT_VIEW_COLOR_SRGB, 0, 0.1, 0.2, 0.3, alpha};
+    EXPECT_EQ(da_text_editor_update_presentation(
+                  handle, &configuration.presentation, nullptr, 0, nullptr, 0),
+              DA_STATUS_OK);
+    for (bool scrolled : {false, true}) {
+      const std::string text = scrolled ? std::string(80, '\n') : "";
+      EXPECT_EQ(da_text_editor_set_document(handle, text.data(), text.size(),
+                                            nullptr, 0, 0, 0),
+                DA_STATUS_OK);
+      [editor.daTextView.layoutManager
+          ensureLayoutForTextContainer:editor.daTextView.textContainer];
+      [editor.daScrollView layoutSubtreeIfNeeded];
+      if (scrolled) {
+        [editor.daScrollView.contentView scrollToPoint:NSMakePoint(0, 200)];
+        [editor.daScrollView
+            reflectScrolledClipView:editor.daScrollView.contentView];
+        EXPECT_TRUE(editor.daScrollView.contentView.bounds.origin.y > 0);
+      }
+      NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc]
+          initWithBitmapDataPlanes:nullptr
+                        pixelsWide:NSWidth(editor.bounds)
+                        pixelsHigh:NSHeight(editor.bounds)
+                     bitsPerSample:8
+                   samplesPerPixel:4
+                          hasAlpha:YES
+                          isPlanar:NO
+                    colorSpaceName:NSDeviceRGBColorSpace
+                      bitmapFormat:0
+                       bytesPerRow:0
+                      bitsPerPixel:0];
+      bitmap = [bitmap
+          bitmapImageRepByRetaggingWithColorSpace:NSColorSpace.sRGBColorSpace];
+      EXPECT_TRUE(bitmap != nil && bitmap.hasAlpha);
+      std::memset(bitmap.bitmapData, 0, bitmap.bytesPerRow * bitmap.pixelsHigh);
+      CGColorSpaceRef color_space =
+          CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+      CGContextRef quartz = CGBitmapContextCreate(
+          bitmap.bitmapData, bitmap.pixelsWide, bitmap.pixelsHigh, 8,
+          bitmap.bytesPerRow, color_space, kCGImageAlphaPremultipliedLast);
+      EXPECT_TRUE(quartz != nullptr);
+      NSGraphicsContext* context =
+          [NSGraphicsContext graphicsContextWithCGContext:quartz flipped:NO];
+      [editor displayRectIgnoringOpacity:editor.bounds inContext:context];
+      CGContextRelease(quartz);
+      CGColorSpaceRelease(color_space);
+      for (NSPoint point :
+           {NSMakePoint(3, 3),
+            NSMakePoint(bitmap.pixelsWide / 2, bitmap.pixelsHigh / 2)}) {
+        const unsigned char* pixel =
+            bitmap.bitmapData +
+            static_cast<NSInteger>(point.y) * bitmap.bytesPerRow +
+            static_cast<NSInteger>(point.x) * 4;
+        const double actual_alpha = pixel[3] / 255.0;
+        EXPECT_TRUE(std::abs(actual_alpha - alpha) < 0.015);
+        if (alpha > 0) {
+          EXPECT_TRUE(std::abs(pixel[0] / 255.0 / actual_alpha - 0.1) < 0.025);
+          EXPECT_TRUE(std::abs(pixel[1] / 255.0 / actual_alpha - 0.2) < 0.025);
+          EXPECT_TRUE(std::abs(pixel[2] / 255.0 / actual_alpha - 0.3) < 0.025);
+        }
+      }
+    }
+  }
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(handle), DA_STATUS_OK);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestAttributedTextEditor() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -5325,6 +5406,7 @@ int main() {
     TestApplicationFolderServicesProvider();
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
+    TestTextEditorBackgroundCompositing();
     TestAttributedTextEditor();
     TestRegisteredCustomViews();
     TestNativeExtensionServices();
