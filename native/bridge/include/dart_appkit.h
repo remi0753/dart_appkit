@@ -1147,6 +1147,15 @@ DA_EXPORT int32_t da_text_editor_set_line_highlight(
 DA_EXPORT int32_t da_text_editor_set_editable(DaHandle editor,
                                               int32_t editable);
 
+/**
+ * Main thread only. Opt-in suppression of the editor wrapper's unhandled
+ * cancelOperation: fallback for callers handling Escape through Dart events.
+ * Native input-context/text-view processing runs first. Default is 0.
+ * suppressed must be 0 or 1. Does not change key routing or editor contents.
+ */
+DA_EXPORT int32_t da_text_editor_set_unhandled_escape_suppressed(
+    DaHandle editor, int32_t suppressed);
+
 /** Main thread only. Sets a checked UTF-16 selection without replacing text. */
 DA_EXPORT int32_t da_text_editor_set_selection(DaHandle editor,
                                                uint64_t location,

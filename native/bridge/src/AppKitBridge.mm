@@ -6413,6 +6413,26 @@ int32_t da_text_editor_set_editable(DaHandle editor, int32_t editable) {
   return DA_STATUS_OK;
 }
 
+int32_t da_text_editor_set_unhandled_escape_suppressed(DaHandle editor,
+                                                       int32_t suppressed) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) {
+    return thread_status;
+  }
+  if (suppressed != 0 && suppressed != 1) {
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "suppressed must be zero or one");
+  }
+  int32_t status = DA_STATUS_OK;
+  DaTextEditor* text_editor = dart_appkit::TextEditor(editor, &status);
+  if (text_editor == nil) {
+    return status;
+  }
+  text_editor.daSuppressesUnhandledEscape = suppressed == 1;
+  return DA_STATUS_OK;
+}
+
 int32_t da_text_editor_set_selection(DaHandle editor, uint64_t location,
                                      uint64_t length) {
   dart_appkit::ClearLastError();

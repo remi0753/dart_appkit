@@ -586,6 +586,45 @@ Future<void> _testAttributedTextEditorApi() async {
   final TextEditorSnapshot initial = editor.snapshot;
   final int handle = bindings.textEditorConfigurations.keys.single;
   _expect(
+    !editor.suppressesUnhandledEscape,
+    'Escape suppression default changed',
+  );
+  final int initialEscapeCalls = bindings.operations.length;
+  editor.suppressesUnhandledEscape = false;
+  _expect(
+    bindings.operations.length == initialEscapeCalls,
+    'same-value Escape policy was not a no-op',
+  );
+  editor.suppressesUnhandledEscape = true;
+  _expect(
+    editor.suppressesUnhandledEscape &&
+        bindings.textEditorEscapeSuppressed[handle] == true,
+    'Escape policy did not reach native bindings',
+  );
+  final int enabledEscapeCalls = bindings.operations.length;
+  editor.suppressesUnhandledEscape = true;
+  _expect(
+    bindings.operations.length == enabledEscapeCalls,
+    'enabled same-value Escape policy was not a no-op',
+  );
+  bindings.failNextOperation = 'textEditorSetUnhandledEscapeSuppressed';
+  await _expectThrows<AppKitNativeException>(
+    () => editor.suppressesUnhandledEscape = false,
+  );
+  _expect(
+    editor.suppressesUnhandledEscape,
+    'failed policy update changed cache',
+  );
+  editor.suppressesUnhandledEscape = false;
+  _expect(
+    !editor.suppressesUnhandledEscape &&
+        bindings.textEditorEscapeSuppressed[handle] == false &&
+        editor.snapshot.text == text &&
+        editor.snapshot.selection == initial.selection &&
+        bindings.textEditorStyleRuns[handle]!.length == 2,
+    'Escape reset changed document, selection or styles',
+  );
+  _expect(
     editor.configuration == configuration &&
         editor.viewConfiguration == configuration.view &&
         initial.text == text &&
@@ -779,6 +818,9 @@ Future<void> _testAttributedTextEditorApi() async {
   );
 
   editor.dispose();
+  await _expectThrows<StateError>(
+    () => editor.suppressesUnhandledEscape = true,
+  );
   await _expectThrows<StateError>(() => editor.snapshot);
   await _expectThrows<StateError>(() => editor.scrollSelectionToVisible());
   _expect(bindings.objects.isEmpty, 'text editor handle leaked');

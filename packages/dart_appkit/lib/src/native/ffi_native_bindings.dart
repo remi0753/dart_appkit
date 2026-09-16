@@ -1753,6 +1753,7 @@ final class FfiNativeBindings
         NativeBindings,
         NativeTextEditorBindings,
         NativeTextEditorPresentationBindings,
+        NativeTextEditorEscapeBindings,
         NativeSplitViewAppearanceBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
@@ -1964,6 +1965,10 @@ final class FfiNativeBindings
         'da_text_editor_set_editable',
       ),
       _textEditorSetSelection = _lookupTextEditorSetSelection(library),
+      _textEditorSetUnhandledEscapeSuppressed = _lookupHandleInt(
+        library,
+        'da_text_editor_set_unhandled_escape_suppressed',
+      ),
       _textEditorScrollSelectionToVisible = _lookupHandleStatus(
         library,
         'da_text_editor_scroll_selection_to_visible',
@@ -2096,6 +2101,7 @@ final class FfiNativeBindings
   final _HandleBoolStatusDart? _textEditorSetEditable;
   final _TextEditorSetSelectionDart? _textEditorSetSelection;
   final _HandleStatusDart? _textEditorScrollSelectionToVisible;
+  final _HandleBoolStatusDart? _textEditorSetUnhandledEscapeSuppressed;
   final _TextEditorGetSnapshotDart? _textEditorGetSnapshot;
   final _TwoHandlesDart _windowSetContentView;
   final _HandleStatusDart _release;
@@ -4075,6 +4081,22 @@ final class FfiNativeBindings
     } finally {
       _free(color.cast<Void>());
     }
+  }
+
+  @override
+  NativeCallResult textEditorSetUnhandledEscapeSuppressed(
+    int handle,
+    bool suppressed,
+  ) {
+    final _HandleBoolStatusDart? function =
+        _textEditorSetUnhandledEscapeSuppressed;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support Escape fallback policy',
+      );
+    }
+    return _callResult(function(handle, suppressed ? 1 : 0));
   }
 
   @override

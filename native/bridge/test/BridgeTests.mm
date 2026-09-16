@@ -3350,6 +3350,126 @@ void TestConfiguredBaseAndTextViews() {
   EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
 }
 
+int g_unhandled_escape_count = 0;
+
+void ObserveUnhandledEscape(id, SEL, id) {
+  // Observe the fallback that normally beeps, without playing a sound in tests.
+  ++g_unhandled_escape_count;
+}
+
+void TestTextEditorUnhandledEscape() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  const DaHandle window_handle = CreateWindow();
+  DaWindowOwner* owner = OwnerFor(window_handle);
+  DaTextEditorConfiguration configuration = DefaultTextEditorConfiguration();
+  DaHandle editor_handle = 0;
+  EXPECT_EQ(da_text_editor_create_configured(&configuration, nullptr, 0,
+                                             &editor_handle),
+            DA_STATUS_OK);
+  DaTextEditor* editor = NativeTextEditorFor(editor_handle);
+  EXPECT_EQ(da_window_set_content_view(window_handle, editor_handle),
+            DA_STATUS_OK);
+  EXPECT_EQ(
+      da_text_editor_set_document(editor_handle, "draft", 5, nullptr, 0, 5, 0),
+      DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_editable(editor_handle, 1), DA_STATUS_OK);
+  EXPECT_EQ(da_window_make_first_responder(window_handle, editor_handle),
+            DA_STATUS_OK);
+  NSMenu* previous_menu = NSApp.mainMenu;
+  NSApp.mainMenu = nil;
+  Method window_cancel =
+      class_getInstanceMethod(NSWindow.class, @selector(cancelOperation:));
+  EXPECT_TRUE(window_cancel != nullptr);
+  IMP previous_cancel = method_setImplementation(
+      window_cancel, reinterpret_cast<IMP>(ObserveUnhandledEscape));
+  g_unhandled_escape_count = 0;
+  NSEvent* escape = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                     location:NSZeroPoint
+                                modifierFlags:0
+                                    timestamp:3.0
+                                 windowNumber:owner.window.windowNumber
+                                      context:nil
+                                   characters:@"\x1b"
+                  charactersIgnoringModifiers:@"\x1b"
+                                    isARepeat:NO
+                                      keyCode:53];
+  auto escape_count = [&capture]() {
+    size_t count = 0;
+    for (const auto& event : capture.events) {
+      if (event.type == DA_EVENT_KEY_DOWN && event.key_code == 53) ++count;
+    }
+    return count;
+  };
+  @try {
+    EXPECT_TRUE(!editor.daSuppressesUnhandledEscape);
+    [owner.window sendEvent:escape];
+    EXPECT_EQ(g_unhandled_escape_count, 1);
+    EXPECT_EQ(escape_count(), static_cast<size_t>(1));
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 1),
+              DA_STATUS_OK);
+    [owner.window sendEvent:escape];
+    [owner.window sendEvent:escape];
+    EXPECT_EQ(g_unhandled_escape_count, 1);
+    EXPECT_EQ(escape_count(), static_cast<size_t>(3));
+    EXPECT_TRUE([editor.daTextView.string isEqualToString:@"draft"]);
+    EXPECT_EQ(editor.daTextView.selectedRange.location,
+              static_cast<NSUInteger>(5));
+    NSEvent* typed = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:0
+                                     timestamp:3.1
+                                  windowNumber:owner.window.windowNumber
+                                       context:nil
+                                    characters:@"x"
+                   charactersIgnoringModifiers:@"x"
+                                     isARepeat:NO
+                                       keyCode:7];
+    [owner.window sendEvent:typed];
+    EXPECT_TRUE([editor.daTextView.string isEqualToString:@"draftx"]);
+    [editor.daTextView setMarkedText:@"日本語"
+                       selectedRange:NSMakeRange(3, 0)
+                    replacementRange:NSMakeRange(NSNotFound, 0)];
+    const NSRange marked = editor.daTextView.markedRange;
+    const NSRange selection = editor.daTextView.selectedRange;
+    NSString* marked_document = [editor.daTextView.string copy];
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 0),
+              DA_STATUS_OK);
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 1),
+              DA_STATUS_OK);
+    EXPECT_TRUE(editor.daTextView.hasMarkedText);
+    EXPECT_TRUE(NSEqualRanges(editor.daTextView.markedRange, marked));
+    EXPECT_TRUE(NSEqualRanges(editor.daTextView.selectedRange, selection));
+    EXPECT_TRUE([editor.daTextView.string isEqualToString:marked_document]);
+    [editor.daTextView unmarkText];
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 2),
+              DA_STATUS_INVALID_ARGUMENT);
+    EXPECT_TRUE(editor.daSuppressesUnhandledEscape);
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(window_handle, 1),
+              DA_STATUS_WRONG_HANDLE_TYPE);
+    int32_t off_thread = DA_STATUS_OK;
+    std::thread worker([&]() {
+      off_thread =
+          da_text_editor_set_unhandled_escape_suppressed(editor_handle, 0);
+    });
+    worker.join();
+    EXPECT_EQ(off_thread, DA_STATUS_WRONG_THREAD);
+    EXPECT_TRUE(editor.daSuppressesUnhandledEscape);
+    EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 0),
+              DA_STATUS_OK);
+    [owner.window sendEvent:escape];
+    EXPECT_EQ(g_unhandled_escape_count, 2);
+  } @finally {
+    method_setImplementation(window_cancel, previous_cancel);
+    NSApp.mainMenu = previous_menu;
+  }
+  EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_release(editor_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_text_editor_set_unhandled_escape_suppressed(editor_handle, 1),
+            DA_STATUS_INVALID_HANDLE);
+  EXPECT_EQ(LiveCount(), static_cast<uint64_t>(0));
+}
+
 void TestTextEditorBackgroundCompositing() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -5407,6 +5527,7 @@ int main() {
     TestRegistryLifecycleAndTypes();
     TestConfiguredBaseAndTextViews();
     TestTextEditorBackgroundCompositing();
+    TestTextEditorUnhandledEscape();
     TestAttributedTextEditor();
     TestRegisteredCustomViews();
     TestNativeExtensionServices();

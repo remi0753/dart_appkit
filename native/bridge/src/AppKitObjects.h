@@ -70,6 +70,7 @@
 @property(nonatomic, assign, readonly) BOOL daHasLineHighlight;
 @property(nonatomic, assign, readonly) NSUInteger daLineHighlightLocation;
 @property(nonatomic, strong, readonly) NSColor* daLineHighlightColor;
+@property(nonatomic, assign) BOOL daSuppressesUnhandledEscape;
 
 - (void)daApplyPresentation;
 - (void)daSetLineHighlightAtLocation:(NSUInteger)location

@@ -124,6 +124,7 @@ void main(List<String> arguments) {
               .status !=
           8 ||
       bindings.textEditorScrollSelectionToVisible(1).status != 8 ||
+      bindings.textEditorSetUnhandledEscapeSuppressed(1, true).status != 8 ||
       bindings.textEditorSnapshot(1).status != 8) {
     _fail('legacy bridge accepted the additive text-editor API');
   }

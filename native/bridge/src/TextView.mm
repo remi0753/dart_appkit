@@ -421,6 +421,13 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 @synthesize daScrollView = _daScrollView;
 @synthesize daTextView = _daTextView;
 
+- (void)cancelOperation:(id)sender {
+  if (!self.daSuppressesUnhandledEscape &&
+      ![self.nextResponder tryToPerform:_cmd with:sender]) {
+    [self noResponderFor:_cmd];
+  }
+}
+
 - (instancetype)initWithFrame:(NSRect)frameRect {
   self = [super initWithFrame:frameRect];
   if (self != nil) {

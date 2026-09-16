@@ -608,6 +608,14 @@ abstract interface class NativeTextEditorBindings {
   NativeValueResult<NativeTextEditorSnapshot> textEditorSnapshot(int handle);
 }
 
+/// Optional editor wrapper policy for a Dart-owned Escape command.
+abstract interface class NativeTextEditorEscapeBindings {
+  NativeCallResult textEditorSetUnhandledEscapeSuppressed(
+    int handle,
+    bool suppressed,
+  );
+}
+
 /// Optional in-place text presentation, separate from creation/editing bindings.
 abstract interface class NativeTextEditorPresentationBindings {
   NativeCallResult textEditorUpdatePresentation(

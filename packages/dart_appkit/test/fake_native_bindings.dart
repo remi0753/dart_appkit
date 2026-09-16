@@ -35,6 +35,7 @@ final class FakeNativeBindings
         NativeBindings,
         NativeTextEditorBindings,
         NativeTextEditorPresentationBindings,
+        NativeTextEditorEscapeBindings,
         NativeSplitViewAppearanceBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
@@ -179,6 +180,7 @@ final class FakeNativeBindings
   final Map<int, int> textEditorSelectionStarts = <int, int>{};
   final Map<int, int> textEditorSelectionLengths = <int, int>{};
   final Map<int, bool> textEditorEditable = <int, bool>{};
+  final Map<int, bool> textEditorEscapeSuppressed = <int, bool>{};
   final Map<int, bool> textEditorHasMarkedText = <int, bool>{};
   final Map<int, String> texts = <int, String>{};
   final Map<int, String> customViewProviders = <int, String>{};
@@ -1356,6 +1358,18 @@ final class FakeNativeBindings
   }
 
   @override
+  NativeCallResult textEditorSetUnhandledEscapeSuppressed(
+    int handle,
+    bool suppressed,
+  ) {
+    final NativeCallResult result = _status(
+      'textEditorSetUnhandledEscapeSuppressed',
+    );
+    if (result.isSuccess) textEditorEscapeSuppressed[handle] = suppressed;
+    return result;
+  }
+
+  @override
   NativeCallResult textEditorSetEditable(int handle, bool editable) {
     final NativeCallResult result = _status('textEditorSetEditable');
     if (result.isSuccess) textEditorEditable[handle] = editable;
@@ -1424,6 +1438,7 @@ final class FakeNativeBindings
       textEditorSelectionStarts.remove(handle);
       textEditorSelectionLengths.remove(handle);
       textEditorEditable.remove(handle);
+      textEditorEscapeSuppressed.remove(handle);
       textEditorHasMarkedText.remove(handle);
       texts.remove(handle);
       customViewProviders.remove(handle);

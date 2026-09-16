@@ -267,6 +267,32 @@ final class TextEditor extends View {
   List<TextEditorFontVariation> get fontVariations => _fontVariations;
   final NativeTextEditorBindings _editorBindings;
   TextEditorLineHighlight? _lineHighlight;
+  bool _suppressesUnhandledEscape = false;
+
+  /// Suppresses only the wrapper's unhandled native cancelOperation fallback.
+  ///
+  /// Enable when the caller handles Escape using Dart window events. Native
+  /// text-view/input-context handling runs first; ordinary editing and key
+  /// routing are unchanged. Defaults to false. Requires an optional bridge API.
+  bool get suppressesUnhandledEscape => _suppressesUnhandledEscape;
+  set suppressesUnhandledEscape(bool suppressed) {
+    ensureAlive();
+    if (suppressed == _suppressesUnhandledEscape) return;
+    final NativeBindings bindings = _application._bindings;
+    if (bindings is! NativeTextEditorEscapeBindings) {
+      throw const AppKitNativeException(
+        operation: 'TextEditor.suppressesUnhandledEscape',
+        status: 8,
+        nativeMessage: 'native bridge does not support Escape fallback policy',
+      );
+    }
+    _checkCall(
+      (bindings as NativeTextEditorEscapeBindings)
+          .textEditorSetUnhandledEscapeSuppressed(_handle, suppressed),
+      'TextEditor.suppressesUnhandledEscape',
+    );
+    _suppressesUnhandledEscape = suppressed;
+  }
 
   /// Updates base presentation in place without changing document, focus,
   /// selection, scroll, editability, marked text or explicit attributed runs.

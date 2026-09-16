@@ -23,6 +23,8 @@ snapshots, a caller-configured bounded save-destination panel, allowlisted
 external URL opening, explicit native ownership,
 bounded local user-notification delivery and a short Dock badge label,
 per-window key-event routing, mutable outer frames, current-screen resolution,
+an optional [silent unhandled Escape policy](docs/TEXT_EDITOR_ESCAPE_FALLBACK.md)
+for callers owning an editor's modal commands,
 interruptible overlay presentation, asynchronous native fullscreen state, a
 bounded attributed multiline text editor, and a restart-based developer
 command.
