@@ -220,11 +220,19 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   }
   NSView* first = self.subviews[0];
   NSView* second = self.subviews[1];
+  const NSRect old_first_frame = first.frame;
+  const NSRect old_second_frame = second.frame;
+  const BOOL old_first_hidden = first.hidden;
+  const BOOL old_second_hidden = second.hidden;
   if (_daZoomedChild != DA_SPLIT_ZOOM_NONE) {
     first.hidden = _daZoomedChild != DA_SPLIT_ZOOM_FIRST;
     second.hidden = _daZoomedChild != DA_SPLIT_ZOOM_SECOND;
     NSView* visible = _daZoomedChild == DA_SPLIT_ZOOM_FIRST ? first : second;
     visible.frame = self.bounds;
+    if (!NSEqualRects(old_first_frame, first.frame) ||
+        !NSEqualRects(old_second_frame, second.frame) ||
+        old_first_hidden != first.hidden || old_second_hidden != second.hidden)
+      self.needsDisplay = YES;
     return;
   }
   first.hidden = NO;
@@ -259,6 +267,12 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
         NSWidth(self.bounds), usable_extent - first_extent);
   }
   _daApplyingLayout = NO;
+  // Child frame changes do not invalidate our former divider pixels. With
+  // nonopaque children those pixels remain visible beneath their new frames.
+  if (!NSEqualRects(old_first_frame, first.frame) ||
+      !NSEqualRects(old_second_frame, second.frame) ||
+      old_first_hidden != first.hidden || old_second_hidden != second.hidden)
+    self.needsDisplay = YES;
 }
 
 - (CGFloat)splitView:(NSSplitView*)splitView

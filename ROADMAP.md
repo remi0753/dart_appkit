@@ -247,6 +247,8 @@ application固有policyを含まないimmutable snapshotとdeduplicated eventと
   （実施時に[指示書](docs/TEXT_EDITOR_ESCAPE_FALLBACK.md)を参照する）。
 - [x] TwoPaneSplitViewのdivider mouse interactionを呼出側で無効化できるようにする
   （実施時に[指示書](docs/SPLIT_DIVIDER_INTERACTION.md)を参照する）。
+- [x] TwoPaneSplitViewの位置変更で古いdivider領域を再描画し描画残りを防ぐ
+  （実施時に[指示書](docs/SPLIT_DIVIDER_REPAINT.md)を参照する）。
 
 実装内容:
 

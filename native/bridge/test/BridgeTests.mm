@@ -32,6 +32,36 @@
 @implementation DaAlternateCustomView
 @end
 
+@interface DaSplitRepaintProbe : DaSplitView
+@property(nonatomic, strong) NSMutableArray<NSValue*>* invalidatedRects;
+@end
+
+@implementation DaSplitRepaintProbe
+- (void)setNeedsDisplay:(BOOL)flag {
+  if (flag && self.invalidatedRects != nil)
+    [self.invalidatedRects addObject:[NSValue valueWithRect:self.bounds]];
+  [super setNeedsDisplay:flag];
+}
+- (void)setNeedsDisplayInRect:(NSRect)rect {
+  if (self.invalidatedRects != nil)
+    [self.invalidatedRects addObject:[NSValue valueWithRect:rect]];
+  [super setNeedsDisplayInRect:rect];
+}
+@end
+
+@interface DaSplitRepaintBackgroundView : NSView
+@property(nonatomic, strong) NSColor* fillColor;
+@end
+@implementation DaSplitRepaintBackgroundView
+- (BOOL)isOpaque {
+  return NO;
+}
+- (void)drawRect:(NSRect)dirtyRect {
+  [self.fillColor setFill];
+  NSRectFill(dirtyRect);
+}
+@end
+
 @interface DaKeyEventProbeView : NSView
 
 @property(nonatomic, assign) NSInteger keyDownCount;
@@ -4945,6 +4975,195 @@ void TestKeyEventRouting() {
             DA_STATUS_INVALID_HANDLE);
 }
 
+void TestSplitDividerRepaintCoverage() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  for (DaSplitAxis axis : {DA_SPLIT_AXIS_HORIZONTAL, DA_SPLIT_AXIS_VERTICAL}) {
+    const DaHandle window_handle = CreateWindow();
+    DaWindowOwner* owner = OwnerFor(window_handle);
+    [owner.window setContentSize:NSMakeSize(201, 201)];
+    DaSplitRepaintProbe* split =
+        [[DaSplitRepaintProbe alloc] initWithAxis:axis];
+    split.frame = NSMakeRect(0, 0, 201, 201);
+    owner.window.contentView = split;
+    EXPECT_EQ(da_window_show(window_handle), DA_STATUS_OK);
+    NSView* first = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView* second = [[NSView alloc] initWithFrame:NSZeroRect];
+    EXPECT_TRUE([split daSetFirstView:first secondView:second]);
+    [split daSetFraction:0.5 firstMinimumExtent:20 secondMinimumExtent:20];
+    split.needsDisplay = NO;
+    first.needsDisplay = NO;
+    second.needsDisplay = NO;
+    split.invalidatedRects = [[NSMutableArray alloc] init];
+    [split daSetFraction:0.46 firstMinimumExtent:20 secondMinimumExtent:20];
+    NSRect coverage = NSZeroRect;
+    for (NSValue* value in split.invalidatedRects)
+      coverage = NSUnionRect(coverage, value.rectValue);
+    EXPECT_TRUE(split.needsDisplay);
+    const NSRect old_divider =
+        axis == DA_SPLIT_AXIS_HORIZONTAL
+            ? NSMakeRect(100, 0, split.dividerThickness, 201)
+            : NSMakeRect(0, 100, 201, split.dividerThickness);
+    const NSRect new_divider =
+        axis == DA_SPLIT_AXIS_HORIZONTAL
+            ? NSMakeRect(92, 0, split.dividerThickness, 201)
+            : NSMakeRect(0, 92, 201, split.dividerThickness);
+    EXPECT_TRUE(NSContainsRect(coverage, old_divider));
+    EXPECT_TRUE(NSContainsRect(coverage, new_divider));
+    split.needsDisplay = NO;
+    [split.invalidatedRects removeAllObjects];
+    [split daSetFraction:0.46 firstMinimumExtent:20 secondMinimumExtent:20];
+    EXPECT_TRUE(split.invalidatedRects.count == 0);
+    [split daEqualize];
+    EXPECT_TRUE(split.needsDisplay);
+    split.needsDisplay = NO;
+    [split.invalidatedRects removeAllObjects];
+    [split resizeSubviewsWithOldSize:split.bounds.size];
+    EXPECT_TRUE(split.invalidatedRects.count == 0);
+    split.frame = NSMakeRect(0, 0, 221, 221);
+    coverage = NSZeroRect;
+    for (NSValue* value in split.invalidatedRects)
+      coverage = NSUnionRect(coverage, value.rectValue);
+    EXPECT_TRUE(NSContainsRect(coverage, split.bounds));
+    EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+  }
+}
+
+void TestSplitDividerRetainedPixels() {
+  Capture capture;
+  ResetWithCapture(&capture);
+  for (DaSplitAxis axis : {DA_SPLIT_AXIS_HORIZONTAL, DA_SPLIT_AXIS_VERTICAL}) {
+    for (NSInteger scale : {1, 2}) {
+      const DaHandle window_handle = CreateWindow();
+      DaWindowOwner* owner = OwnerFor(window_handle);
+      [owner.window setContentSize:NSMakeSize(201, 201)];
+      DaSplitRepaintProbe* split =
+          [[DaSplitRepaintProbe alloc] initWithAxis:axis];
+      split.frame = NSMakeRect(0, 0, 201, 201);
+      owner.window.contentView = split;
+      EXPECT_EQ(da_window_show(window_handle), DA_STATUS_OK);
+      split.daDividerColor = [NSColor colorWithSRGBRed:1
+                                                 green:1
+                                                  blue:1
+                                                 alpha:1];
+      split.daDividerDraggable = NO;
+      DaSplitRepaintBackgroundView* first =
+          [[DaSplitRepaintBackgroundView alloc] initWithFrame:NSZeroRect];
+      DaSplitRepaintBackgroundView* second =
+          [[DaSplitRepaintBackgroundView alloc] initWithFrame:NSZeroRect];
+      EXPECT_TRUE([split daSetFirstView:first secondView:second]);
+      const NSInteger pixels = 201 * scale;
+      std::vector<unsigned char> rgba(pixels * pixels * 4, 0);
+      CGColorSpaceRef colors = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+      CGContextRef quartz =
+          CGBitmapContextCreate(rgba.data(), pixels, pixels, 8, pixels * 4,
+                                colors, kCGImageAlphaPremultipliedLast);
+      EXPECT_TRUE(quartz != nullptr);
+      CGContextScaleCTM(quartz, scale, scale);
+      NSGraphicsContext* context =
+          [NSGraphicsContext graphicsContextWithCGContext:quartz flipped:NO];
+      auto paint = [&](NSRect dirty) {
+        CGContextSaveGState(quartz);
+        CGContextClearRect(quartz, NSRectToCGRect(dirty));
+        CGContextSaveGState(quartz);
+        [split displayRectIgnoringOpacity:dirty inContext:context];
+        CGContextRestoreGState(quartz);
+        CGContextClipToRect(quartz, NSRectToCGRect(dirty));
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:context];
+        // Offscreen hierarchy display omits the NSSplitView divider on current
+        // AppKit. Invoke its public native painter with the current geometry;
+        // only requested dirty pixels are cleared or repainted between moves.
+        if (split.daZoomedChild == DA_SPLIT_ZOOM_NONE) {
+          const NSRect divider = axis == DA_SPLIT_AXIS_HORIZONTAL
+                                     ? NSMakeRect(NSMaxX(first.frame), 0,
+                                                  split.dividerThickness, 201)
+                                     : NSMakeRect(0, NSMaxY(first.frame), 201,
+                                                  split.dividerThickness);
+          [split drawDividerInRect:divider];
+        }
+        [NSGraphicsContext restoreGraphicsState];
+        CGContextRestoreGState(quartz);
+        split.needsDisplay = NO;
+        first.needsDisplay = NO;
+        second.needsDisplay = NO;
+      };
+      auto expect_divider = [&](NSInteger expected) {
+        NSInteger white = 0;
+        for (NSInteger offset = 0; offset < pixels; ++offset) {
+          const NSInteger x =
+              axis == DA_SPLIT_AXIS_HORIZONTAL ? offset : pixels / 2;
+          const NSInteger y =
+              axis == DA_SPLIT_AXIS_HORIZONTAL ? pixels / 2 : offset;
+          const unsigned char* pixel = rgba.data() + (y * pixels + x) * 4;
+          if (pixel[0] >= 250 && pixel[1] >= 250 && pixel[2] >= 250 &&
+              pixel[3] >= 250)
+            ++white;
+        }
+        EXPECT_EQ(white, expected);
+        if (expected > 0) {
+          const NSInteger divider_offset = static_cast<NSInteger>(std::round(
+              (axis == DA_SPLIT_AXIS_HORIZONTAL ? NSMaxX(first.frame)
+                                                : NSMaxY(first.frame)) *
+              scale));
+          const NSInteger x =
+              axis == DA_SPLIT_AXIS_HORIZONTAL ? divider_offset : pixels / 2;
+          const NSInteger y = axis == DA_SPLIT_AXIS_HORIZONTAL
+                                  ? pixels / 2
+                                  : pixels - divider_offset - scale;
+          const unsigned char* current = rgba.data() + (y * pixels + x) * 4;
+          EXPECT_TRUE(current[0] >= 250 && current[1] >= 250 &&
+                      current[2] >= 250 && current[3] >= 250);
+        }
+      };
+      for (double alpha : {0.0, 0.4, 1.0}) {
+        first.fillColor = second.fillColor = [NSColor colorWithSRGBRed:0.1
+                                                                 green:0.2
+                                                                  blue:0.3
+                                                                 alpha:alpha];
+        [split daSetZoomedChild:DA_SPLIT_ZOOM_NONE];
+        [split daSetFraction:0.5 firstMinimumExtent:20 secondMinimumExtent:20];
+        paint(split.bounds);
+        expect_divider(scale);
+        const unsigned char* background = rgba.data() + (10 * pixels + 10) * 4;
+        EXPECT_TRUE(std::abs(static_cast<int>(background[3]) -
+                             static_cast<int>(std::round(alpha * 255))) <= 1);
+        if (alpha > 0) {
+          EXPECT_TRUE(background[0] < background[1]);
+          EXPECT_TRUE(background[1] < background[2]);
+        }
+        split.invalidatedRects = [[NSMutableArray alloc] init];
+        for (double fraction : {0.46, 0.42, 0.38, 0.42, 0.46, 0.5, 0.54, 0.5}) {
+          [split.invalidatedRects removeAllObjects];
+          [split daSetFraction:fraction
+               firstMinimumExtent:20
+              secondMinimumExtent:20];
+          NSRect dirty = NSZeroRect;
+          for (NSValue* value in split.invalidatedRects)
+            dirty = NSUnionRect(dirty, value.rectValue);
+          EXPECT_TRUE(!NSIsEmptyRect(dirty));
+          if (!NSIsEmptyRect(dirty)) paint(dirty);
+          expect_divider(scale);
+        }
+        for (DaSplitZoomedChild child :
+             {DA_SPLIT_ZOOM_FIRST, DA_SPLIT_ZOOM_SECOND, DA_SPLIT_ZOOM_NONE}) {
+          [split.invalidatedRects removeAllObjects];
+          [split daSetZoomedChild:child];
+          NSRect dirty = NSZeroRect;
+          for (NSValue* value in split.invalidatedRects)
+            dirty = NSUnionRect(dirty, value.rectValue);
+          EXPECT_TRUE(!NSIsEmptyRect(dirty));
+          if (!NSIsEmptyRect(dirty)) paint(dirty);
+          expect_divider(child == DA_SPLIT_ZOOM_NONE ? scale : 0);
+        }
+      }
+      CGContextRelease(quartz);
+      CGColorSpaceRelease(colors);
+      EXPECT_EQ(da_release(window_handle), DA_STATUS_OK);
+    }
+  }
+}
+
 void TestNativeTabsSplitViewsAndFirstResponder() {
   Capture capture;
   ResetWithCapture(&capture);
@@ -5580,6 +5799,8 @@ int main() {
     TestGlobalHotKeys();
     TestSecureEventInputAndIndicator();
     TestWindowPresentationMetadata();
+    TestSplitDividerRepaintCoverage();
+    TestSplitDividerRetainedPixels();
     TestNativeTabsSplitViewsAndFirstResponder();
     dart_appkit::ResetBridgeForTesting();
   }
