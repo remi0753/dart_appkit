@@ -1755,6 +1755,7 @@ final class FfiNativeBindings
         NativeTextEditorPresentationBindings,
         NativeTextEditorEscapeBindings,
         NativeSplitViewAppearanceBindings,
+        NativeSplitViewInteractionBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
@@ -1934,6 +1935,10 @@ final class FfiNativeBindings
         'da_split_view_get_fraction',
       ),
       _splitViewSetDividerColor = _lookupSplitViewSetDividerColor(library),
+      _splitViewSetDividerDraggable = _lookupHandleInt(
+        library,
+        'da_split_view_set_divider_draggable',
+      ),
       _splitViewEqualize = _lookupHandleStatus(
         library,
         'da_split_view_equalize',
@@ -2086,6 +2091,7 @@ final class FfiNativeBindings
   final _HandleThreeDoublesDart? _splitViewSetPosition;
   final _HandleDoubleOutputDart? _splitViewGetFraction;
   final _SplitViewSetDividerColorDart? _splitViewSetDividerColor;
+  final _HandleBoolStatusDart? _splitViewSetDividerDraggable;
   final _HandleStatusDart? _splitViewEqualize;
   final _HandleBoolStatusDart? _splitViewSetZoomedChild;
   final _StringCreateDart? _customViewCreate;
@@ -3950,6 +3956,18 @@ final class FfiNativeBindings
         'legacy native bridge does not support divider colors',
       );
     return _callResult(function(handle, kind, red, green, blue, alpha));
+  }
+
+  @override
+  NativeCallResult splitViewSetDividerDraggable(int handle, bool draggable) {
+    final _HandleBoolStatusDart? function = _splitViewSetDividerDraggable;
+    if (function == null) {
+      return const NativeCallResult.failure(
+        8,
+        'legacy native bridge does not support split interaction policy',
+      );
+    }
+    return _callResult(function(handle, draggable ? 1 : 0));
   }
 
   @override

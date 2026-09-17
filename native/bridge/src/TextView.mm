@@ -115,6 +115,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
   double _daSecondMinimumExtent;
   DaSplitZoomedChild _daZoomedChild;
   BOOL _daApplyingLayout;
+  BOOL _daDividerDraggable;
 }
 
 @synthesize daAxis = _daAxis;
@@ -122,6 +123,30 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
 @synthesize daFirstMinimumExtent = _daFirstMinimumExtent;
 @synthesize daSecondMinimumExtent = _daSecondMinimumExtent;
 @synthesize daZoomedChild = _daZoomedChild;
+@synthesize daDividerDraggable = _daDividerDraggable;
+
+- (void)setDaDividerDraggable:(BOOL)draggable {
+  _daDividerDraggable = draggable;
+  [self.window invalidateCursorRectsForView:self];
+}
+
+- (void)resetCursorRects {
+  if (_daDividerDraggable) [super resetCursorRects];
+}
+
+- (void)mouseDown:(NSEvent*)event {
+  if (_daDividerDraggable) [super mouseDown:event];
+}
+
+- (NSRect)splitView:(NSSplitView*)splitView
+    effectiveRect:(NSRect)proposedEffectiveRect
+     forDrawnRect:(NSRect)drawnRect
+  ofDividerAtIndex:(NSInteger)dividerIndex {
+  (void)drawnRect;
+  (void)dividerIndex;
+  return splitView == self && !_daDividerDraggable ? NSZeroRect
+                                                  : proposedEffectiveRect;
+}
 
 - (NSColor*)dividerColor {
   return self.daDividerColor != nil ? self.daDividerColor
@@ -137,6 +162,7 @@ NSPoint ContentViewPoint(NSWindow* window, NSEvent* event) {
     _daSecondMinimumExtent = 0.0;
     _daZoomedChild = DA_SPLIT_ZOOM_NONE;
     _daApplyingLayout = NO;
+    _daDividerDraggable = YES;
     self.vertical = axis == DA_SPLIT_AXIS_HORIZONTAL;
     self.dividerStyle = NSSplitViewDividerStyleThin;
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;

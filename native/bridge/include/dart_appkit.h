@@ -1054,6 +1054,13 @@ DA_EXPORT int32_t da_split_view_set_position(
 DA_EXPORT int32_t da_split_view_get_fraction(DaHandle split_view,
                                              double* out_fraction);
 
+/**
+ * Main thread only. Enables (1, default) or disables (0) divider mouse tracking
+ * and resize cursors. Position/layout remains programmatic; consumes no handle.
+ */
+DA_EXPORT int32_t da_split_view_set_divider_draggable(DaHandle split_view,
+                                                     int32_t draggable);
+
 /** Explicit divider color; kind -1 restores the platform default. */
 DA_EXPORT int32_t da_split_view_set_divider_color(DaHandle split_view,
                                                   int32_t kind, double red,

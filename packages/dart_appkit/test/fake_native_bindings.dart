@@ -37,6 +37,7 @@ final class FakeNativeBindings
         NativeTextEditorPresentationBindings,
         NativeTextEditorEscapeBindings,
         NativeSplitViewAppearanceBindings,
+        NativeSplitViewInteractionBindings,
         NativeSplitViewPositionBindings,
         NativeGlobalHotKeyBindings,
         NativeMenuItemStateBindings,
@@ -191,6 +192,7 @@ final class FakeNativeBindings
   final Map<int, int> selectedTabWindows = <int, int>{};
   final Map<int, int> firstResponders = <int, int>{};
   final Map<int, int> splitViewAxes = <int, int>{};
+  final Map<int, bool> splitDividerDraggable = <int, bool>{};
   final Map<int, List<int>> splitViewChildren = <int, List<int>>{};
   final Map<int, double> splitViewFractions = <int, double>{};
   final Map<int, double> splitViewFirstMinimumExtents = <int, double>{};
@@ -1187,6 +1189,13 @@ final class FakeNativeBindings
   }
 
   @override
+  NativeCallResult splitViewSetDividerDraggable(int handle, bool draggable) {
+    final NativeCallResult result = _status('splitViewSetDividerDraggable');
+    if (result.isSuccess) splitDividerDraggable[handle] = draggable;
+    return result;
+  }
+
+  @override
   NativeCallResult splitViewEqualize(int handle) {
     final NativeCallResult result = _status('splitViewEqualize');
     if (result.isSuccess) {
@@ -1448,6 +1457,7 @@ final class FakeNativeBindings
       splitViewAxes.remove(handle);
       splitViewChildren.remove(handle);
       splitViewFractions.remove(handle);
+      splitDividerDraggable.remove(handle);
       splitViewFirstMinimumExtents.remove(handle);
       splitViewSecondMinimumExtents.remove(handle);
       splitViewZoomedChildren.remove(handle);

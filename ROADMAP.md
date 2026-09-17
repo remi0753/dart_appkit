@@ -245,6 +245,8 @@ application固有policyを含まないimmutable snapshotとdeduplicated eventと
   （実施時に[指示書](docs/TEXT_EDITOR_BACKGROUND_COMPOSITING.md)を参照する）。
 - [x] TextEditorの未処理Escape fallbackを呼出側の明示policyで抑止できるようにする
   （実施時に[指示書](docs/TEXT_EDITOR_ESCAPE_FALLBACK.md)を参照する）。
+- [x] TwoPaneSplitViewのdivider mouse interactionを呼出側で無効化できるようにする
+  （実施時に[指示書](docs/SPLIT_DIVIDER_INTERACTION.md)を参照する）。
 
 実装内容:
 

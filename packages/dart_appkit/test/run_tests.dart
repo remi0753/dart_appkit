@@ -1279,6 +1279,38 @@ Future<void> _testNativeTabsSplitViewAndFocusApi() async {
   );
 
   bindings.splitViewFractions[rootHandle] = 0.625;
+  _expect(root.dividerDraggable, 'default split divider must remain draggable');
+  root.dividerDraggable = false;
+  _expect(
+    !root.dividerDraggable &&
+        bindings.splitDividerDraggable[rootHandle] == false &&
+        root.fraction == 0.4 &&
+        nested.dividerDraggable,
+    'interaction opt-out changed geometry or a different split',
+  );
+  bindings.failNextOperation = 'splitViewSetDividerDraggable';
+  await _expectThrows<AppKitNativeException>(
+    () => root.dividerDraggable = true,
+  );
+  _expect(
+    !root.dividerDraggable,
+    'failed interaction call changed cached policy',
+  );
+  root.setPosition(
+    fraction: 0.4,
+    firstMinimumExtent: 40,
+    secondMinimumExtent: 50,
+  );
+  _expect(
+    !root.dividerDraggable,
+    'programmatic position changed interaction policy',
+  );
+  root.dividerDraggable = true;
+  _expect(
+    bindings.splitDividerDraggable[rootHandle] == true,
+    'interaction restore omitted',
+  );
+  bindings.splitViewFractions[rootHandle] = 0.625;
   final TextViewColor divider = TextViewColor.sRgb(
     red: 0.8,
     green: 0.7,

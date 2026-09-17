@@ -5031,6 +5031,38 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
   EXPECT_TRUE(NSHeight(second_view.frame) >= 30.0);
   EXPECT_TRUE(NSHeight(third_view.frame) >= 40.0);
 
+  EXPECT_TRUE(root_split.daDividerDraggable);
+  const NSRect divider_rect = NSMakeRect(80.0, 0.0, 1.0, 240.0);
+  EXPECT_EQ(da_split_view_set_divider_draggable(root_split_handle, 0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(!root_split.daDividerDraggable);
+  EXPECT_TRUE(nested_split.daDividerDraggable);
+  EXPECT_TRUE(NSEqualRects(
+      [root_split splitView:root_split effectiveRect:divider_rect
+              forDrawnRect:divider_rect ofDividerAtIndex:0], NSZeroRect));
+  const double disabled_fraction = root_split.daFraction;
+  [root_split mouseDown:[NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+      location:NSMakePoint(80.0, 10.0) modifierFlags:0 timestamp:0
+      windowNumber:0 context:nil eventNumber:1 clickCount:1 pressure:1]];
+  EXPECT_TRUE(root_split.daFraction == disabled_fraction);
+  EXPECT_EQ(da_split_view_set_position(root_split_handle, 0.6, 80.0, 90.0),
+            DA_STATUS_OK);
+  EXPECT_TRUE(std::abs(root_split.daFraction - 0.6) < 0.001);
+  EXPECT_TRUE(!root_split.daDividerDraggable);
+  root_split.frame = NSMakeRect(0, 0, 420, 240);
+  EXPECT_TRUE(std::abs(NSWidth(first_view.frame) -
+      (420 - root_split.dividerThickness) * 0.6) < 0.001);
+  EXPECT_EQ(da_split_view_set_divider_draggable(root_split_handle, 1),
+            DA_STATUS_OK);
+  EXPECT_TRUE(root_split.daDividerDraggable);
+  EXPECT_TRUE(NSEqualRects(
+      [root_split splitView:root_split effectiveRect:divider_rect
+              forDrawnRect:divider_rect ofDividerAtIndex:0], divider_rect));
+  EXPECT_EQ(da_split_view_set_divider_draggable(root_split_handle, 2),
+            DA_STATUS_INVALID_ARGUMENT);
+  EXPECT_EQ(da_split_view_set_divider_draggable(first_view_handle, 0),
+            DA_STATUS_WRONG_HANDLE_TYPE);
+
   first_view.frame = NSMakeRect(NSMinX(root_split.bounds),
                                 NSMinY(root_split.bounds), 220.0,
                                 NSHeight(root_split.bounds));
@@ -5097,6 +5129,8 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
   std::thread worker([&]() {
     worker_status.store(
         da_split_view_get_fraction(root_split_handle, &observed_fraction));
+    EXPECT_EQ(da_split_view_set_divider_draggable(root_split_handle, 0),
+              DA_STATUS_WRONG_THREAD);
   });
   worker.join();
   EXPECT_EQ(worker_status.load(), DA_STATUS_WRONG_THREAD);
@@ -5105,6 +5139,8 @@ void TestNativeTabsSplitViewsAndFirstResponder() {
   EXPECT_EQ(da_release(third_window_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(first_window_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(root_split_handle), DA_STATUS_OK);
+  EXPECT_EQ(da_split_view_set_divider_draggable(root_split_handle, 0),
+            DA_STATUS_INVALID_HANDLE);
   EXPECT_EQ(da_release(nested_split_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(first_view_handle), DA_STATUS_OK);
   EXPECT_EQ(da_release(second_view_handle), DA_STATUS_OK);

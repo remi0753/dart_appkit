@@ -3799,3 +3799,20 @@ deferred work.
   `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate also passes,
   including the generic repository audit, warnings-as-errors bridge/Runner
   builds, runtime/package analysis, builders, examples, and current/legacy FFI.
+
+## 2026-09-17 — Optional two-pane divider mouse interaction
+
+- Added TwoPaneSplitView.dividerDraggable with compatible true default and an
+  optional additive native bindings/C setter. Disabled dividers do not enter
+  mouse tracking or install resize cursor rects; effective hit rects are empty.
+  Programmatic positions, children, zoom, color, and resize layout remain intact.
+- API/fake/native regressions cover disable/restore, geometry, cached-value
+  retention on failure, no tracking, wrong/stale handles, boolean validation,
+  and wrong-thread rejection. Native warnings-as-errors and focused Dart tests
+  passed. Five in-scope Dart files were formatted; two changed, no native bulk
+  formatting or unrelated source edits.
+- First full gate rejected two consumer-specific words in the new memo. Only
+  that prose was made generic; ownership audit was not relaxed. The corrected
+  CI=true DART_SUPPRESS_ANALYTICS=true make test passed in full, including
+  current/legacy FFI. See docs/SPLIT_DIVIDER_INTERACTION.md for acceptance.
+- Three pre-existing user Engine script/documentation edits remain untouched.

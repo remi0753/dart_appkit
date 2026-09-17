@@ -39,6 +39,34 @@ final class TwoPaneSplitView extends View {
   double _secondMinimumExtent = 0;
   SplitViewChild? _zoomedChild;
   TextViewColor? _dividerColor;
+  bool _dividerDraggable = true;
+
+  /// Whether the divider tracks mouse drags and advertises resize cursors.
+  /// Programmatic position and normal resize layout remain available.
+  bool get dividerDraggable {
+    ensureAlive();
+    return _dividerDraggable;
+  }
+
+  set dividerDraggable(bool value) {
+    ensureAlive();
+    if (_dividerDraggable == value) return;
+    final NativeBindings bindings = _bindings;
+    if (bindings is! NativeSplitViewInteractionBindings) {
+      throw const AppKitNativeException(
+        operation: 'TwoPaneSplitView.dividerDraggable',
+        status: 8,
+        nativeMessage:
+            'native bridge does not support split interaction policy',
+      );
+    }
+    _checkCall(
+      (bindings as NativeSplitViewInteractionBindings)
+          .splitViewSetDividerDraggable(_handle, value),
+      'TwoPaneSplitView.dividerDraggable',
+    );
+    _dividerDraggable = value;
+  }
 
   /// Explicit divider color, or null for the unchanged platform default.
   TextViewColor? get dividerColor => _dividerColor;

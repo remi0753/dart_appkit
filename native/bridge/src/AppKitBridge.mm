@@ -5913,6 +5913,21 @@ int32_t da_split_view_get_fraction(DaHandle split_view,
   return DA_STATUS_OK;
 }
 
+int32_t da_split_view_set_divider_draggable(DaHandle split_view,
+                                           int32_t draggable) {
+  dart_appkit::ClearLastError();
+  const int32_t thread_status = dart_appkit::RequireMainThread();
+  if (thread_status != DA_STATUS_OK) return thread_status;
+  if (draggable != 0 && draggable != 1)
+    return dart_appkit::SetLastError(DA_STATUS_INVALID_ARGUMENT,
+                                     "split divider draggable must be 0 or 1");
+  int32_t status = DA_STATUS_OK;
+  DaSplitView* split = dart_appkit::SplitView(split_view, &status);
+  if (split == nil) return status;
+  split.daDividerDraggable = draggable == 1;
+  return DA_STATUS_OK;
+}
+
 int32_t da_split_view_set_divider_color(DaHandle split_view, int32_t kind,
                                         double red, double green, double blue,
                                         double alpha) {

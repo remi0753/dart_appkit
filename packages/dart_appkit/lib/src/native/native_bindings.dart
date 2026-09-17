@@ -636,6 +636,11 @@ abstract interface class NativeSplitViewAppearanceBindings {
   });
 }
 
+/// Optional mouse-interaction policy for the two-pane split helper.
+abstract interface class NativeSplitViewInteractionBindings {
+  NativeCallResult splitViewSetDividerDraggable(int handle, bool draggable);
+}
+
 /// Optional synchronous save-destination surface for older native bridges.
 abstract interface class NativeSavePanelBindings {
   NativeValueResult<NativeSavePanelResult> runSavePanel(
