@@ -859,7 +859,7 @@ final class DistributionPublisher {
     }
     final BuilderCommandResult extracted = await _execute(
       '/usr/bin/codesign',
-      <String>['--display', '--entitlements', '-', application.path],
+      <String>['--display', '--entitlements', '-', '--xml', application.path],
     );
     if (extracted.exitCode != 0 || extracted.stdoutText.trim().isEmpty) {
       throw const RuntimeBuilderException(

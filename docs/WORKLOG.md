@@ -3816,3 +3816,28 @@ deferred work.
   CI=true DART_SUPPRESS_ANALYTICS=true make test passed in full, including
   current/legacy FFI. See docs/SPLIT_DIVIDER_INTERACTION.md for acceptance.
 - Three pre-existing user Engine script/documentation edits remain untouched.
+
+## 2026-09-19 — Explicit XML extraction for signed entitlements
+
+- A real Developer ID publication on current macOS signed every nested code
+  image and the outer application, then failed while canonicalizing the signed
+  entitlements. `codesign --display --entitlements -` now emits the abstract
+  representation `[Dict]` for an empty dictionary unless an output format is
+  requested, which is not a property list accepted by `plutil`.
+- The generic distribution publisher now passes the documented `--xml` display
+  option. It does not use the deprecated `:-` path spelling, change supplied
+  entitlements, broaden signing authority, or alter credential handling.
+- The publisher command-contract regression requires one exact XML entitlement
+  display command. The consumer repository separately owns the same assertion
+  for its final product audit.
+- The pre-existing user changes in `docs/BUILDING_DART_ENGINE.md`,
+  `scripts/bootstrap_dart_engine.sh`, and `scripts/build_dart_engine.sh` remain
+  untouched.
+- `dart analyze`, the focused distribution-publisher suite, and the exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
+  The consumer's credential-free Universal distribution preflight also passed.
+- A real Developer ID rerun passed all signing and signed-entitlements
+  canonicalization checks, so the original property-list failure is resolved.
+  It then created an Apple notary job but stopped on the publisher's separate
+  submit-response contract before waiting, stapling, or Gatekeeper assessment;
+  that follow-up is tracked independently by the consumer.

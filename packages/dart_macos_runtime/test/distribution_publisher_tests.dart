@@ -464,6 +464,23 @@ Future<void> main() async {
               signingCommands.last.arguments.contains('--entitlements'),
           'nested signing is explicit and outer signing owns entitlements',
         );
+        final List<_Command> entitlementDisplays = executor.commands
+            .where(
+              (_Command command) =>
+                  command.executable == '/usr/bin/codesign' &&
+                  command.arguments.contains('--display') &&
+                  command.arguments.contains('--entitlements'),
+            )
+            .toList();
+        _expect(
+          entitlementDisplays.length == 1 &&
+              entitlementDisplays.single.arguments.length == 5 &&
+              entitlementDisplays.single.arguments[0] == '--display' &&
+              entitlementDisplays.single.arguments[1] == '--entitlements' &&
+              entitlementDisplays.single.arguments[2] == '-' &&
+              entitlementDisplays.single.arguments[3] == '--xml',
+          'signed entitlements are extracted as an XML property list',
+        );
         _expect(
           executor.commands.every(
             (_Command command) =>
