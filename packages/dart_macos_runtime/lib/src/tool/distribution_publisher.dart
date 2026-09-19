@@ -901,7 +901,10 @@ final class DistributionPublisher {
     final Object? status = response['status'];
     final bool currentUploadEvidence =
         status == null &&
-        response['message'] == 'Successfully uploaded file.' &&
+        const <String>{
+          'Successfully uploaded file',
+          'Successfully uploaded file.',
+        }.contains(response['message']) &&
         response['path'] == archive.path;
     final bool legacyStatusEvidence = const <String>{
       'Uploaded',

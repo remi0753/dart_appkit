@@ -3860,3 +3860,23 @@ deferred work.
   `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
   The three pre-existing user Engine script/documentation changes remain
   untouched.
+
+## 2026-09-19 — Exact notary upload-message variants
+
+- A second real publication still stopped in submit-response validation even
+  though Apple submission history showed both uploaded jobs as Accepted. The
+  installed `notarytool 1.1.3 (42)` binary carries the submit success message
+  `Successfully uploaded file` without the period used by the initial fake and
+  compatibility parser.
+- Current non-wait evidence now accepts exactly the observed unpunctuated
+  message and the already-supported punctuated variant. Both still require no
+  status field, an exact grouped hexadecimal UUID, and the caller's exact
+  archive path. Prefix, case-insensitive, or general nonempty-message matching
+  was not introduced.
+- The fake defaults to the installed tool's unpunctuated output. A separate
+  positive case retains punctuated compatibility, while all malformed-message,
+  path, ID, and legacy-status negative cases remain fail closed.
+- Formatting, `dart analyze`, the focused publisher suite, and the exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
+  The three pre-existing user Engine script/documentation changes remain
+  untouched and unstaged.

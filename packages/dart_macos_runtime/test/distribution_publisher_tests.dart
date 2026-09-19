@@ -56,6 +56,7 @@ final class _FakeExecutor implements BuilderProcessExecutor {
   bool rejectNotary = false;
   bool malformedNotary = false;
   bool legacyNotarySubmit = false;
+  bool punctuatedNotarySubmitMessage = false;
   bool wrongNotarySubmitMessage = false;
   bool wrongNotarySubmitPath = false;
   bool invalidNotarySubmitId = false;
@@ -191,7 +192,9 @@ final class _FakeExecutor implements BuilderProcessExecutor {
           stdoutText: jsonEncode(<String, Object?>{
             'message': wrongNotarySubmitMessage
                 ? 'Upload may have succeeded.'
-                : 'Successfully uploaded file.',
+                : punctuatedNotarySubmitMessage
+                ? 'Successfully uploaded file.'
+                : 'Successfully uploaded file',
             'id': invalidNotarySubmitId ? 'invalid' : _submissionId,
             'path': wrongNotarySubmitPath
                 ? '${arguments[2]}.other'
@@ -539,6 +542,20 @@ Future<void> main() async {
       _expect(
         await fixture.publisher(executor).run(fixture.options()) == 0,
         'known legacy submit status remains compatible',
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
+  await _test('punctuated current submit message remains accepted', () async {
+    final _Fixture fixture = await _Fixture.create();
+    try {
+      final _FakeExecutor executor = _FakeExecutor()
+        ..punctuatedNotarySubmitMessage = true;
+      _expect(
+        await fixture.publisher(executor).run(fixture.options()) == 0,
+        'known punctuated submit message remains compatible',
       );
     } finally {
       await fixture.dispose();
