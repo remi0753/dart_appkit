@@ -193,6 +193,7 @@ Future<void> _writeThin(Directory root, String architecture) async {
     '${root.path}/Contents/Resources/en.lproj/Localizable.strings',
     '"key" = "value";\n',
   );
+  await _write('${root.path}/Contents/Resources/Test.icns', 'icon\n');
   await _write(
     '${root.path}/Contents/Resources/Metadata.appintents/version.json',
     '{"version":"1"}\n',
@@ -216,6 +217,11 @@ Future<void> _writeThin(Directory root, String architecture) async {
     'dartSdkVersion': '3.13.2',
     'dartSdkRevision': 'revision',
     'runner': <String, Object?>{'activationPolicy': 'regular'},
+    'icon': <String, Object?>{
+      'source': 'resources/Test.icns',
+      'bundleName': 'Test.icns',
+      'bytes': 5,
+    },
     'appIntents': <String, Object?>{
       'package': 'example_intents',
       'source': 'native/Intents.swift',
@@ -334,11 +340,26 @@ Future<void> main() async {
           decoded['schemaVersion'] == 2 &&
               jsonEncode(decoded['architectures']) ==
                   jsonEncode(<String>['arm64', 'x86_64']) &&
+              (decoded['icon']! as Map<String, Object?>)['bundleName'] ==
+                  'Test.icns' &&
               (decoded['nativeCapabilities']! as List<Object?>).length == 1 &&
               (decoded['dartHelpers']! as List<Object?>).length == 1 &&
               (decoded['codePaths']! as List<Object?>).length ==
                   _codePaths.length,
           'evidence records the exact architecture, runtime, and code contract',
+        );
+        final List<Object?> resourceFiles =
+            decoded['resourceFiles']! as List<Object?>;
+        _expect(
+          await File('${first.outputPath}/Contents/Resources/Test.icns')
+                      .readAsString() ==
+                  'icon\n' &&
+              resourceFiles.cast<Map<String, Object?>>().any(
+                (Map<String, Object?> value) =>
+                    value['path'] == 'Contents/Resources/Test.icns' &&
+                    value['bytes'] == 5,
+              ),
+          'application icon remains an evidenced neutral resource',
         );
         _expect(
           firstExecutor.commands
