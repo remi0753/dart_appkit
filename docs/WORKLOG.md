@@ -3841,3 +3841,22 @@ deferred work.
   It then created an Apple notary job but stopped on the publisher's separate
   submit-response contract before waiting, stapling, or Gatekeeper assessment;
   that follow-up is tracked independently by the consumer.
+
+## 2026-09-19 — Current non-wait notary submission evidence
+
+- A real non-wait `notarytool submit` uploaded successfully and created a job
+  visible in submission history, but the publisher rejected its JSON before
+  calling `wait`. The current response reports an exact success message, UUID,
+  and submitted path without the status field required by the older parser.
+- The publisher now accepts that current shape only when the message is exactly
+  `Successfully uploaded file.`, the path exactly matches the archive supplied
+  by the caller, and the ID is a grouped hexadecimal UUID. Known legacy status
+  responses remain accepted; unknown status values remain rejected.
+- Regressions use the current response by default and separately cover legacy
+  compatibility, malformed JSON, message drift, path drift, malformed IDs, and
+  unknown legacy status. No credential, wait, log, stapling, or Gatekeeper
+  boundary was relaxed.
+- `dart analyze`, the focused publisher suite, and the exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
+  The three pre-existing user Engine script/documentation changes remain
+  untouched.

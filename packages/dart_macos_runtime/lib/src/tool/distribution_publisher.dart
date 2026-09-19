@@ -899,14 +899,21 @@ final class DistributionPublisher {
     final Map<String, Object?> response = _jsonObject(raw, 'notary submission');
     final Object? id = response['id'];
     final Object? status = response['status'];
+    final bool currentUploadEvidence =
+        status == null &&
+        response['message'] == 'Successfully uploaded file.' &&
+        response['path'] == archive.path;
+    final bool legacyStatusEvidence = const <String>{
+      'Uploaded',
+      'Submitted',
+      'In Progress',
+      'Accepted',
+    }.contains(status);
     if (id is! String ||
-        !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id) ||
-        !const <String>{
-          'Uploaded',
-          'Submitted',
-          'In Progress',
-          'Accepted',
-        }.contains(status)) {
+        !RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+        ).hasMatch(id) ||
+        (!currentUploadEvidence && !legacyStatusEvidence)) {
       throw const RuntimeBuilderException(
         'notary submission returned invalid evidence',
         exitCode: builderSoftwareExitCode,

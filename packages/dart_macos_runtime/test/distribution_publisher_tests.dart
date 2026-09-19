@@ -55,6 +55,11 @@ final class _FakeExecutor implements BuilderProcessExecutor {
   bool entitlementDrift = false;
   bool rejectNotary = false;
   bool malformedNotary = false;
+  bool legacyNotarySubmit = false;
+  bool wrongNotarySubmitMessage = false;
+  bool wrongNotarySubmitPath = false;
+  bool invalidNotarySubmitId = false;
+  bool unknownLegacyNotarySubmitStatus = false;
   bool notaryLogIssues = false;
   bool failStapling = false;
   bool failGatekeeper = false;
@@ -170,9 +175,28 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         if (malformedNotary) {
           return const BuilderCommandResult(exitCode: 0, stdoutText: 'bad\n');
         }
-        return const BuilderCommandResult(
+        if (legacyNotarySubmit) {
+          return BuilderCommandResult(
+            exitCode: 0,
+            stdoutText: jsonEncode(<String, Object?>{
+              'id': invalidNotarySubmitId ? 'invalid' : _submissionId,
+              'status': unknownLegacyNotarySubmitStatus
+                  ? 'Unknown'
+                  : 'In Progress',
+            }),
+          );
+        }
+        return BuilderCommandResult(
           exitCode: 0,
-          stdoutText: '{"id":"$_submissionId","status":"In Progress"}\n',
+          stdoutText: jsonEncode(<String, Object?>{
+            'message': wrongNotarySubmitMessage
+                ? 'Upload may have succeeded.'
+                : 'Successfully uploaded file.',
+            'id': invalidNotarySubmitId ? 'invalid' : _submissionId,
+            'path': wrongNotarySubmitPath
+                ? '${arguments[2]}.other'
+                : arguments[2],
+          }),
         );
       }
       if (arguments.take(2).join(' ') == 'notarytool wait') {
@@ -508,6 +532,19 @@ Future<void> main() async {
     },
   );
 
+  await _test('legacy bounded submit status remains accepted', () async {
+    final _Fixture fixture = await _Fixture.create();
+    try {
+      final _FakeExecutor executor = _FakeExecutor()..legacyNotarySubmit = true;
+      _expect(
+        await fixture.publisher(executor).run(fixture.options()) == 0,
+        'known legacy submit status remains compatible',
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
   await _test(
     'source shape, resource ownership, and paths fail closed',
     () async {
@@ -590,6 +627,12 @@ Future<void> main() async {
         _FakeExecutor()..wrongArchitectures = true,
         _FakeExecutor()..entitlementDrift = true,
         _FakeExecutor()..malformedNotary = true,
+        _FakeExecutor()..wrongNotarySubmitMessage = true,
+        _FakeExecutor()..wrongNotarySubmitPath = true,
+        _FakeExecutor()..invalidNotarySubmitId = true,
+        _FakeExecutor()
+          ..legacyNotarySubmit = true
+          ..unknownLegacyNotarySubmitStatus = true,
         _FakeExecutor()..rejectNotary = true,
         _FakeExecutor()..notaryLogIssues = true,
         _FakeExecutor()..failStapling = true,
