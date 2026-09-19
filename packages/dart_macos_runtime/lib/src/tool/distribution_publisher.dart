@@ -992,12 +992,23 @@ final class DistributionPublisher {
     final Object? jobId = value['jobId'];
     final Object? status = value['status'];
     final Object? formatVersion = value['logFormatVersion'];
-    final Object? issues = value['issues'];
+    final Object? rawIssues = value['issues'];
     if (jobId is! String ||
         jobId.toLowerCase() != id ||
         status != 'Accepted' ||
         formatVersion is! int ||
-        issues is! List<Object?>) {
+        !value.containsKey('issues')) {
+      throw const RuntimeBuilderException(
+        'notary log does not match the accepted submission',
+        exitCode: builderSoftwareExitCode,
+      );
+    }
+    final List<Object?> issues;
+    if (rawIssues == null) {
+      issues = const <Object?>[];
+    } else if (rawIssues is List<Object?>) {
+      issues = rawIssues;
+    } else {
       throw const RuntimeBuilderException(
         'notary log does not match the accepted submission',
         exitCode: builderSoftwareExitCode,

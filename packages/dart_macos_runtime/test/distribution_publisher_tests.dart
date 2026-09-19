@@ -62,6 +62,9 @@ final class _FakeExecutor implements BuilderProcessExecutor {
   bool invalidNotarySubmitId = false;
   bool unknownLegacyNotarySubmitStatus = false;
   bool notaryLogIssues = false;
+  bool emptyNotaryLogIssues = false;
+  bool wrongTypeNotaryLogIssues = false;
+  bool omitNotaryLogIssues = false;
   bool failStapling = false;
   bool failGatekeeper = false;
   bool failFinalArchive = false;
@@ -212,22 +215,25 @@ final class _FakeExecutor implements BuilderProcessExecutor {
         );
       }
       if (arguments.take(2).join(' ') == 'notarytool log') {
-        await File(arguments[3]).writeAsString(
-          jsonEncode(<String, Object?>{
-            'jobId': _submissionId.toUpperCase(),
-            'status': 'Accepted',
-            'logFormatVersion': 1,
-            'issues': notaryLogIssues
-                ? <Object?>[
-                    <String, Object?>{
-                      'severity': 'warning',
-                      'message': 'review required',
-                    },
-                  ]
-                : const <Object?>[],
-          }),
-          flush: true,
-        );
+        final Map<String, Object?> log = <String, Object?>{
+          'jobId': _submissionId.toUpperCase(),
+          'status': 'Accepted',
+          'logFormatVersion': 1,
+          'issues': wrongTypeNotaryLogIssues
+              ? 'none'
+              : notaryLogIssues
+              ? <Object?>[
+                  <String, Object?>{
+                    'severity': 'warning',
+                    'message': 'review required',
+                  },
+                ]
+              : emptyNotaryLogIssues
+              ? const <Object?>[]
+              : null,
+        };
+        if (omitNotaryLogIssues) log.remove('issues');
+        await File(arguments[3]).writeAsString(jsonEncode(log), flush: true);
         return const BuilderCommandResult(exitCode: 0);
       }
       if (arguments.take(2).join(' ') == 'stapler staple' && failStapling) {
@@ -562,6 +568,20 @@ Future<void> main() async {
     }
   });
 
+  await _test('empty notary issue list remains accepted', () async {
+    final _Fixture fixture = await _Fixture.create();
+    try {
+      final _FakeExecutor executor = _FakeExecutor()
+        ..emptyNotaryLogIssues = true;
+      _expect(
+        await fixture.publisher(executor).run(fixture.options()) == 0,
+        'explicit empty issue list remains compatible',
+      );
+    } finally {
+      await fixture.dispose();
+    }
+  });
+
   await _test(
     'source shape, resource ownership, and paths fail closed',
     () async {
@@ -652,6 +672,8 @@ Future<void> main() async {
           ..unknownLegacyNotarySubmitStatus = true,
         _FakeExecutor()..rejectNotary = true,
         _FakeExecutor()..notaryLogIssues = true,
+        _FakeExecutor()..wrongTypeNotaryLogIssues = true,
+        _FakeExecutor()..omitNotaryLogIssues = true,
         _FakeExecutor()..failStapling = true,
         _FakeExecutor()..failGatekeeper = true,
         _FakeExecutor()..failFinalArchive = true,

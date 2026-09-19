@@ -3880,3 +3880,21 @@ deferred work.
   `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
   The three pre-existing user Engine script/documentation changes remain
   untouched and unstaged.
+
+## 2026-09-19 — Null issue list in accepted notary logs
+
+- The real publication advanced through submit parsing, an Accepted wait, and
+  log download, then rejected the accepted log because `issues` was explicit
+  JSON null rather than an empty array. The observed job ID, Accepted status,
+  and integer log-format version otherwise matched the strict contract.
+- An explicit `issues: null` is now normalized to an immutable empty list. An
+  empty array remains compatible, while a missing key, any other JSON type, or
+  a nonempty list still fails closed. Job identity, status, and format checks
+  are unchanged.
+- The default fake now matches the observed null form. Separate fixtures cover
+  empty-array compatibility, missing and wrong-type rejection, and nonempty
+  issue rejection.
+- Formatting, `dart analyze`, the focused publisher suite, and the exact
+  `CI=true DART_SUPPRESS_ANALYTICS=true make test` repository gate all passed.
+  The three pre-existing user Engine script/documentation changes remain
+  untouched and unstaged.
