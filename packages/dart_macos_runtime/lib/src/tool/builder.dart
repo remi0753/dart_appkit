@@ -1183,6 +1183,25 @@ final class RuntimeApplicationBuilder {
       await destination.parent.create(recursive: true);
       await source.copy(destination.path);
     }
+    int? applicationIconBytes;
+    final MacosApplicationIconManifest? applicationIcon = manifest.icon;
+    if (applicationIcon != null) {
+      final File source = await _existingFile(
+        _join(projectRoot.path, applicationIcon.path),
+        'application icon',
+      );
+      applicationIconBytes = await source.length();
+      if (applicationIconBytes <= 0 ||
+          applicationIconBytes >
+              MacosApplicationIconManifest.maximumFileBytes) {
+        throw RuntimeBuilderException(
+          'application icon must be non-empty and no larger than '
+          '${MacosApplicationIconManifest.maximumFileBytes} bytes',
+          exitCode: builderUsageExitCode,
+        );
+      }
+      await source.copy(_join(resources.path, applicationIcon.bundleName));
+    }
     int? scriptingDefinitionBytes;
     final MacosScriptingDefinitionManifest? scriptingDefinition =
         manifest.scriptingDefinition;
@@ -1253,6 +1272,12 @@ final class RuntimeApplicationBuilder {
                     'menuItem': service.menuItem,
                   },
               ],
+            if (applicationIcon != null)
+              'icon': <String, Object>{
+                'source': applicationIcon.path,
+                'bundleName': applicationIcon.bundleName,
+                'bytes': applicationIconBytes!,
+              },
             if (scriptingDefinition != null)
               'scriptingDefinition': <String, Object>{
                 'source': scriptingDefinition.path,
@@ -1669,7 +1694,7 @@ String _infoPlist(MacosApplicationManifest manifest, String sdkRevision) =>
   <string>${_xml(manifest.minimumSystemVersion)}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
-${_servicesInfoPlist(manifest.services)}${_scriptingDefinitionInfoPlist(manifest.scriptingDefinition)}  <key>DMRDartSDKRevision</key>
+${_servicesInfoPlist(manifest.services)}${_applicationIconInfoPlist(manifest.icon)}${_scriptingDefinitionInfoPlist(manifest.scriptingDefinition)}  <key>DMRDartSDKRevision</key>
   <string>${_xml(sdkRevision)}</string>
   <key>DMRDiagnosticsEnabled</key>
   <${manifest.diagnostics.enabled ? 'true' : 'false'}/>
@@ -1737,6 +1762,13 @@ String _scriptingDefinitionInfoPlist(
   <true/>
   <key>OSAScriptingDefinition</key>
   <string>${_xml(scriptingDefinition.bundleName)}</string>
+''';
+}
+
+String _applicationIconInfoPlist(MacosApplicationIconManifest? icon) {
+  if (icon == null) return '';
+  return '''  <key>CFBundleIconFile</key>
+  <string>${_xml(icon.bundleName)}</string>
 ''';
 }
 

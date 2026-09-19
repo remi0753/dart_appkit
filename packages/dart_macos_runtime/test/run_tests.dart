@@ -90,6 +90,10 @@ String _withScriptingDefinition(String manifest) => manifest.replaceFirst(
   "dart":''',
 );
 
+String _withApplicationIcon(String manifest) =>
+    manifest.replaceFirst('"dart":', '''"icon": {"path": "resources/Test.icns"},
+  "dart":''');
+
 String _withAppIntents(String manifest) =>
     manifest.replaceFirst('"dart":', '''"appIntents": {
     "package": "fixture_app_intents",
@@ -355,6 +359,7 @@ final class _Fixture {
     _write('${project.path}/bin/main.dart', 'void main() {}\n');
     _write('${project.path}/bin/helper.dart', 'void main() {}\n');
     _write('${project.path}/assets/message.txt', 'hello\n');
+    _write('${project.path}/resources/Test.icns', 'fake icon');
     _write('${project.path}/resources/Test.sdef', _validSdef);
     final Directory appIntentsPackage = Directory(
       '${repository.path}/packages/fixture_app_intents',
@@ -692,6 +697,7 @@ Future<void> main() async {
     _expect(manifest.resources.single == 'assets/message.txt', 'resource');
     _expect(manifest.dartHelpers.isEmpty, 'helpers default empty');
     _expect(manifest.services.isEmpty, 'services default empty');
+    _expect(manifest.icon == null, 'application icon default empty');
     _expect(manifest.scriptingDefinition == null, 'scripting default empty');
     _expect(manifest.appIntents == null, 'App Intents default empty');
     _expect(manifest.diagnostics.enabled, 'diagnostics');
@@ -716,6 +722,41 @@ Future<void> main() async {
         _validManifest.replaceFirst(
           '"schemaVersion": 1,',
           '"schemaVersion": 1, "unknown": true,',
+        ),
+      );
+    });
+    final MacosApplicationManifest iconManifest =
+        MacosApplicationManifest.parse(_withApplicationIcon(_validManifest));
+    _expect(
+      iconManifest.icon?.path == 'resources/Test.icns' &&
+          iconManifest.icon?.bundleName == 'Test.icns',
+      'closed application icon declaration',
+    );
+    for (final String declaration in <String>[
+      'true',
+      '{}',
+      '{"path":"resources/Test.icns","extra":true}',
+      '{"path":"resources/Test.png"}',
+      '{"path":"/tmp/Test.icns"}',
+      '{"path":"https://example.com/Test.icns"}',
+      '{"path":"${'x' * 1020}.icns"}',
+    ]) {
+      _expectThrows<MacosApplicationManifestException>(() {
+        MacosApplicationManifest.parse(
+          _validManifest.replaceFirst(
+            '"dart":',
+            '"icon": $declaration, "dart":',
+          ),
+        );
+      });
+    }
+    _expectThrows<MacosApplicationManifestException>(() {
+      MacosApplicationManifest.parse(
+        _withApplicationIcon(
+          _validManifest.replaceFirst(
+            '"assets/message.txt"',
+            '"assets/message.txt", "Test.icns"',
+          ),
         ),
       );
     });
@@ -1195,16 +1236,20 @@ Future<void> main() async {
     );
     _expect(
       !buildManifest.containsKey('services') &&
+          !buildManifest.containsKey('icon') &&
           !buildManifest.containsKey('scriptingDefinition') &&
           !buildManifest.containsKey('appIntents') &&
           !Directory('$contents/Resources/Metadata.appintents').existsSync() &&
+          !File('$contents/Info.plist')
+              .readAsStringSync()
+              .contains('<key>CFBundleIconFile</key>') &&
           !File('$contents/Info.plist')
               .readAsStringSync()
               .contains('<key>NSAppleScriptEnabled</key>') &&
           !File('$contents/Info.plist')
               .readAsStringSync()
               .contains('<key>OSAScriptingDefinition</key>'),
-      'legacy manifests do not gain Service, scripting, or App Intents metadata',
+      'legacy manifests do not gain icon, Service, scripting, or App Intents metadata',
     );
     _expect(
       executor.commands.any(
@@ -1216,6 +1261,53 @@ Future<void> main() async {
             ),
       ),
       'Dart helper compiler runs',
+    );
+    await fixture.root.delete(recursive: true);
+  });
+
+  await _test('application icon staging failures are closed', () async {
+    final _Fixture fixture = await _Fixture.create();
+    _write(
+      '${fixture.project.path}/macos_application.json',
+      _withApplicationIcon(_validManifest),
+    );
+    final String source = '${fixture.project.path}/resources/Test.icns';
+    await File(source).delete();
+    final RuntimeBuilderException missing =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--build-dir=${fixture.root.path}/build-missing-icon',
+                ]),
+              ),
+        );
+    _expect(
+      missing.exitCode == builderIoErrorExitCode,
+      'missing application icon is an I/O failure',
+    );
+
+    _write(source, 'x' * (MacosApplicationIconManifest.maximumFileBytes + 1));
+    final RuntimeBuilderException oversized =
+        await _expectThrowsAsync<RuntimeBuilderException>(
+          () => fixture
+              .builder(_FakeExecutor())
+              .run(
+                RuntimeBuilderOptions.parse(<String>[
+                  '--manifest=${fixture.project.path}/macos_application.json',
+                  '--build-dir=${fixture.root.path}/build-oversized-icon',
+                ]),
+              ),
+        );
+    _expect(
+      oversized.exitCode == builderUsageExitCode &&
+          !File(
+            '${fixture.root.path}/build-oversized-icon/HelloWindow.app/'
+            'Contents/Resources/Test.icns',
+          ).existsSync(),
+      'oversized application icon is rejected before staging',
     );
     await fixture.root.delete(recursive: true);
   });
@@ -1459,7 +1551,9 @@ Future<void> main() async {
     _write(
       '${fixture.project.path}/macos_application.json',
       _withAppIntents(
-            _withScriptingDefinition(_withFolderServices(_validManifest)),
+            _withApplicationIcon(
+              _withScriptingDefinition(_withFolderServices(_validManifest)),
+            ),
           )
           .replaceFirst(
             '"name": "HelloWindow",',
@@ -1503,6 +1597,11 @@ Future<void> main() async {
     _expect(
       File('${bundle.path}/Contents/Resources/assets/message.txt').existsSync(),
       'declared resource is bundled',
+    );
+    _expect(
+      File('${bundle.path}/Contents/Resources/Test.icns').readAsStringSync() ==
+          'fake icon',
+      'application icon is staged at the resource root',
     );
     _expect(
       File('${bundle.path}/Contents/Resources/Test.sdef').readAsStringSync() ==
@@ -1549,6 +1648,12 @@ Future<void> main() async {
             '<key>MaxTimePerTurnMicros</key>\n      <integer>2500</integer>',
           ),
       'runner message-pump policy is bundled',
+    );
+    _expect(
+      infoPlist.contains(
+        '<key>CFBundleIconFile</key>\n  <string>Test.icns</string>',
+      ),
+      'application icon plist key is exact',
     );
     const String expectedServices = '''  <key>NSServices</key>
   <array>
@@ -1646,6 +1751,14 @@ Future<void> main() async {
               'Open Secondary Workspace Here',
       'validated folder Services are recorded',
     );
+    final Map<String, Object?> icon =
+        buildManifest['icon']! as Map<String, Object?>;
+    _expect(
+      icon['source'] == 'resources/Test.icns' &&
+          icon['bundleName'] == 'Test.icns' &&
+          icon['bytes'] == 'fake icon'.length,
+      'application icon source, resource name, and size are recorded',
+    );
     final Map<String, Object?> scripting =
         buildManifest['scriptingDefinition']! as Map<String, Object?>;
     _expect(
@@ -1719,7 +1832,9 @@ Future<void> main() async {
     _write(
       '${fixture.project.path}/macos_application.json',
       _withAppIntents(
-        _withScriptingDefinition(_withFolderServices(_validManifest)),
+        _withApplicationIcon(
+          _withScriptingDefinition(_withFolderServices(_validManifest)),
+        ),
       ),
     );
     final _FakeExecutor executor = _FakeExecutor();
@@ -1748,6 +1863,12 @@ Future<void> main() async {
     _expect(
       (buildManifest['services']! as List<Object?>).length == 2,
       'AOT build records folder Services',
+    );
+    _expect(
+      (buildManifest['icon']! as Map<String, Object?>)['bundleName'] ==
+              'Test.icns' &&
+          File('${bundle.path}/Contents/Resources/Test.icns').existsSync(),
+      'AOT build records and stages the application icon',
     );
     _expect(
       (buildManifest['scriptingDefinition']!
@@ -1782,8 +1903,9 @@ Future<void> main() async {
                 '<string>performSecondaryFolderService</string>',
               ) &&
           infoPlist.contains('<string>public.item</string>') &&
-          infoPlist.contains('<key>NSAppleScriptEnabled</key>'),
-      'AOT Info.plist preserves Services and scripting metadata',
+          infoPlist.contains('<key>NSAppleScriptEnabled</key>') &&
+          infoPlist.contains('<key>CFBundleIconFile</key>'),
+      'AOT Info.plist preserves icon, Services, and scripting metadata',
     );
     _expect(
       executor.commands.any(

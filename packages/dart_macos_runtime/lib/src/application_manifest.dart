@@ -119,6 +119,17 @@ final class MacosScriptingDefinitionManifest {
   String get bundleName => path.split('/').last;
 }
 
+final class MacosApplicationIconManifest {
+  const MacosApplicationIconManifest({required this.path});
+
+  static const int maximumPathUtf8Bytes = 1024;
+  static const int maximumFileBytes = 16 * 1024 * 1024;
+
+  final String path;
+
+  String get bundleName => path.split('/').last;
+}
+
 /// One dependency-owned Swift App Intents module compiled into the app.
 final class MacosAppIntentsManifest {
   const MacosAppIntentsManifest({
@@ -148,6 +159,7 @@ final class MacosApplicationManifest {
     required this.minimumSystemVersion,
     required this.entrypoint,
     this.services = const <MacosApplicationServiceManifest>[],
+    this.icon,
     this.scriptingDefinition,
     this.appIntents,
     required this.dartHelpers,
@@ -183,6 +195,7 @@ final class MacosApplicationManifest {
         'nativeAssets',
         'runner',
         'services',
+        'icon',
         'scriptingDefinition',
         'appIntents',
       },
@@ -278,6 +291,10 @@ final class MacosApplicationManifest {
           for (var index = 0; index < serviceValues.length; ++index)
             _applicationService(serviceValues[index], index),
         ];
+    final MacosApplicationIconManifest? icon = switch (root['icon']) {
+      null => null,
+      final Object value => _applicationIcon(value),
+    };
     final MacosScriptingDefinitionManifest? scriptingDefinition =
         switch (root['scriptingDefinition']) {
           null => null,
@@ -405,6 +422,11 @@ final class MacosApplicationManifest {
         'manifest.resources contains a duplicate path',
       );
     }
+    if (icon != null && resources.contains(icon.bundleName)) {
+      throw const MacosApplicationManifestException(
+        'manifest.icon conflicts with a bundled resource',
+      );
+    }
     if (scriptingDefinition != null &&
         resources.contains(scriptingDefinition.bundleName)) {
       throw const MacosApplicationManifestException(
@@ -478,6 +500,7 @@ final class MacosApplicationManifest {
       minimumSystemVersion: minimumSystemVersion,
       entrypoint: entrypoint,
       services: List<MacosApplicationServiceManifest>.unmodifiable(services),
+      icon: icon,
       scriptingDefinition: scriptingDefinition,
       appIntents: appIntents,
       dartHelpers: List<MacosDartHelperManifest>.unmodifiable(dartHelpers),
@@ -521,6 +544,7 @@ final class MacosApplicationManifest {
   final String minimumSystemVersion;
   final String entrypoint;
   final List<MacosApplicationServiceManifest> services;
+  final MacosApplicationIconManifest? icon;
   final MacosScriptingDefinitionManifest? scriptingDefinition;
   final MacosAppIntentsManifest? appIntents;
   final List<MacosDartHelperManifest> dartHelpers;
@@ -540,6 +564,24 @@ final class MacosApplicationManifest {
   static final RegExp _minimumVersion = RegExp(
     r'^[0-9]+\.[0-9]+(?:\.[0-9]+)?$',
   );
+}
+
+MacosApplicationIconManifest _applicationIcon(Object? value) {
+  const String path = 'manifest.icon';
+  final Map<String, Object?> object = _object(value, path);
+  _exactKeys(object, const <String>{'path'}, path);
+  final String source = _relativePath(
+    _string(object['path'], '$path.path'),
+    '$path.path',
+  );
+  if (!source.endsWith('.icns') ||
+      utf8.encode(source).length >
+          MacosApplicationIconManifest.maximumPathUtf8Bytes) {
+    throw const MacosApplicationManifestException(
+      'manifest.icon.path must be a bounded .icns path',
+    );
+  }
+  return MacosApplicationIconManifest(path: source);
 }
 
 MacosAppIntentsManifest _appIntents(Object? value) {
